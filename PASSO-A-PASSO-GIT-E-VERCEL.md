@@ -142,6 +142,30 @@ Assim o login e o app funcionam quando acessados pela URL da Vercel.
 
 ---
 
+### Se o site no ar não parecer com o que você tem no PC
+
+1. **Branch certo**
+   - Vercel → projeto **skinclinic** → **Settings** → **Git**.
+   - Em **Production Branch** deve estar **main** (o mesmo que você usa no GitHub).
+
+2. **Redeploy com o código novo**
+   - Vá em **Deployments**.
+   - No último deploy, clique nos **três pontinhos (⋯)** → **Redeploy**.
+   - Marque **Use existing Build Cache** como **desmarcado** (para forçar build do zero).
+   - Confirme. Espere terminar e abra de novo a URL do site.
+
+3. **Raiz do projeto**
+   - **Settings** → **General**.
+   - Em **Root Directory** deixe **em branco** (para usar a raiz do repositório).
+
+4. **Testar a URL certa**
+   - Página inicial: `https://seu-projeto.vercel.app`
+   - Dashboard do app: `https://seu-projeto.vercel.app/dashboard.html`
+
+Se depois disso ainda estiver diferente, descreva o que aparece (tela em branco, layout antigo, sem estilos, etc.) para ajustar o próximo passo.
+
+---
+
 ## Resumo do que você fez
 
 1. Criou um repositório no GitHub.  

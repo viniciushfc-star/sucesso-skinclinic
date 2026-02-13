@@ -1,0 +1,39 @@
+# Rode quando o git rebase parar em "edit" para remover segredos do commit.
+Set-Content -Path "js\ui\google.txt" -Value @"
+SEU_GOOGLE_CLIENT_ID.apps.googleusercontent.com
+
+chave secreta do cliente (nunca commitar a real)
+
+SEU_GOOGLE_CLIENT_SECRET
+"@
+$safeEnv = @"
+# Copie para .env e preencha os valores. Nunca commite o .env.
+
+# OpenAI (Copilot, Preço, Marketing, Estudo de caso, Protocolo, OCR, etc.)
+OPENAI_KEY=sk-your-openai-key-here
+
+# Supabase
+SUPABASE_URL=https://SEU_PROJETO.supabase.co
+SUPABASE_SERVICE_KEY=eyJ...   # service_role (só no servidor, nunca no frontend)
+SUPABASE_ANON_KEY=eyJ...      # anon/public (para a API validar o JWT do usuário; opcional se já tiver no frontend)
+
+# Webhook de transações (opcional)
+# WEBHOOK_TRANSACTIONS_SECRET=seu_segredo
+
+# Base URL do app (para redirects, ex.: Google Calendar)
+# Em desenvolvimento: http://localhost:3000
+# Em produção: https://seu-dominio.com
+BASE_URL=http://localhost:3000
+
+# Google Calendar (opcional)
+# GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
+# GOOGLE_CLIENT_SECRET=xxx
+
+# Porta do servidor (opcional; padrão 3000)
+# PORT=3000
+
+# Portal do cliente: em dev, se der 403, use 1 para ignorar checagem de organização (NÃO use em produção)
+# ALLOW_PORTAL_SESSION_DEV=1
+"@
+Set-Content -Path ".env.example" -Value $safeEnv
+Write-Host "Arquivos corrigidos. Rode: git add .env.example js/ui/google.txt && git commit --amend --no-edit && git rebase --continue"

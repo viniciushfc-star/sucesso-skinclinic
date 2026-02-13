@@ -58,36 +58,35 @@ async function useApi(method, pathName, modulePath) {
   }
 }
 
-/* Rotas POST (APIs de IA e serviços) */
+/* Rotas POST (APIs de IA e serviços) — em routes/ para Vercel Hobby (máx. 12 funções em api/) */
 const postRoutes = [
-  ["/api/copiloto", "./api/copiloto.js"],
-  ["/api/preco", "./api/preco.js"],
-  ["/api/marketing", "./api/marketing.js"],
-  ["/api/ocr", "./api/ocr.js"],
-  ["/api/estoque", "./api/estoque.js"],
-  ["/api/estudo-caso-pergunta", "./api/estudo-caso-pergunta.js"],
-  ["/api/estudo-caso-esclarecer", "./api/estudo-caso-esclarecer.js"],
-  ["/api/discussao-caso", "./api/discussao-caso.js"],
-  ["/api/protocolo", "./api/protocolo.js"],
-  ["/api/pele", "./api/pele.js"],
-  ["/api/skincare", "./api/skincare.js"],
-  ["/api/analise-pele", "./api/analise-pele.js"],
-  ["/api/calendario-conteudo", "./api/calendario-conteudo.js"],
-  ["/api/webhook-transacoes", "./api/webhook-transacoes.js"],
-  ["/api/create-portal-session", "./api/create-portal-session.js"],
+  ["/api/copiloto", "./routes/copiloto.js"],
+  ["/api/preco", "./routes/preco.js"],
+  ["/api/marketing", "./routes/marketing.js"],
+  ["/api/ocr", "./routes/ocr.js"],
+  ["/api/estoque", "./routes/estoque.js"],
+  ["/api/estudo-caso-pergunta", "./routes/estudo-caso-pergunta.js"],
+  ["/api/estudo-caso-esclarecer", "./routes/estudo-caso-esclarecer.js"],
+  ["/api/discussao-caso", "./routes/discussao-caso.js"],
+  ["/api/protocolo", "./routes/protocolo.js"],
+  ["/api/pele", "./routes/pele.js"],
+  ["/api/skincare", "./routes/skincare.js"],
+  ["/api/analise-pele", "./routes/analise-pele.js"],
+  ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
+  ["/api/webhook-transacoes", "./routes/webhook-transacoes.js"],
+  ["/api/create-portal-session", "./routes/create-portal-session.js"],
 ];
 
-/* Rotas GET */
 const getRoutes = [
-  ["/api/calendario-conteudo", "./api/calendario-conteudo.js"],
-  ["/api/google-calendar/auth", "./api/google-calendar/auth.js"],
-  ["/api/google-calendar/callback", "./api/google-calendar/callback.js"],
-  ["/api/google-calendar/status", "./api/google-calendar/status.js"],
+  ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
+  ["/api/google-calendar/auth", "./routes/google-calendar/auth.js"],
+  ["/api/google-calendar/callback", "./routes/google-calendar/callback.js"],
+  ["/api/google-calendar/status", "./routes/google-calendar/status.js"],
 ];
 
 const otherPostRoutes = [
-  ["/api/google-calendar/sync", "./api/google-calendar/sync.js"],
-  ["/api/google-calendar/disconnect", "./api/google-calendar/disconnect.js"],
+  ["/api/google-calendar/sync", "./routes/google-calendar/sync.js"],
+  ["/api/google-calendar/disconnect", "./routes/google-calendar/disconnect.js"],
 ];
 
 /* Registro assíncrono das rotas */
@@ -103,7 +102,7 @@ async function registerRoutes() {
   }
   /* Frontend chama /api/skincare-ai; mesmo handler que /api/skincare */
   try {
-    const fullPath = path.resolve(__dirname, "./api/skincare.js");
+    const fullPath = path.resolve(__dirname, "./routes/skincare.js");
     const mod = await import(toFileUrl(fullPath));
     if (mod.default) app.post("/api/skincare-ai", wrap(mod.default));
   } catch (e) {
