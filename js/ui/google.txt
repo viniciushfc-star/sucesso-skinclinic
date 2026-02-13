@@ -1,0 +1,5 @@
+SEU_GOOGLE_CLIENT_ID.apps.googleusercontent.com
+
+chave secreta do cliente (nunca commitar a real)
+
+SEU_GOOGLE_CLIENT_SECRET

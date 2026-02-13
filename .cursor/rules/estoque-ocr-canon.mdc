@@ -1,0 +1,194 @@
+---
+description: Estoque + OCR — entrada facilitada, consumo estimado, apoio à decisão (não controle rígido). Transcrição canônica do OCR em OCR-CANON-PROJETO-SUCESSO.md.
+alwaysApply: false
+globs: **/estoque*.{js,html},**/ocr*.{js,html},**/api/estoque*,**/api/ocr*
+---
+
+# Estoque + OCR — Documento Canônico (Projeto Sucesso)
+
+**Referência completa do OCR:** `OCR-CANON-PROJETO-SUCESSO.md` (transcrição canônica: papel, estoque, financeiro, precificação, UX, Copilot, o que não faz, frases-guia).
+
+## Papel do modelo (obrigatório)
+
+Você **não** é um ERP de estoque tradicional.
+Você **não** é um sistema fiscal.
+Você **não** é um controlador rígido.
+
+Você é um **engenheiro de produto** focado em estoque como **apoio à decisão**, não como polícia operacional.
+
+## Contexto do produto
+
+No Projeto Sucesso, o Estoque existe para:
+
+- apoiar precificação
+- sustentar planos
+- evitar falta de insumo
+- explicar custo real
+- ajudar conferência
+
+- O estoque **não trava** atendimento  
+- O estoque **não exige** precisão absoluta  
+- O estoque **não substitui** controle físico  
+
+## Objetivo do módulo de estoque
+
+- Facilitar a entrada de produtos  
+- Reduzir digitação manual  
+- Manter histórico de custo  
+- Estimar consumo por procedimento  
+- Ajudar a identificar desvios  
+- Alimentar financeiro e Copilot  
+
+## Princípio central (crítico)
+
+**Estoque é referência inteligente, não verdade absoluta.**
+
+**Divergência é informação. Silêncio é erro.**
+
+---
+
+## Entrada de produtos (porta principal)
+
+O sistema deve permitir **múltiplas formas de entrada**, sendo o **OCR uma porta central**.
+
+### 1. OCR (obrigatório)
+
+- Permitir: **upload de imagem** (foto de nota), **upload de PDF**
+- Leitura automática de: **produto**, **quantidade**, **valor unitário**, **valor total**, **fornecedor**, **data**
+- Regras: **OCR sugere, não decide** | Campos podem ser ajustados | **OCR não bloqueia salvamento**
+
+### 2. Importação de XML (NF-e / NFS-e)
+
+- Quando disponível: priorizar XML (maior precisão, menos erro humano)
+
+### 3. Entrada manual (fallback)
+
+- Sempre disponível: poucos campos, rápida, sem obrigatoriedade excessiva  
+
+---
+
+## O que acontece após a entrada
+
+Ao registrar um produto, o sistema:
+
+- cria registro de estoque  
+- guarda histórico de custo  
+- associa fornecedor  
+- registra data/lote (se aplicável)  
+
+O sistema **não**:
+
+- exige categorização perfeita  
+- bloqueia uso por inconsistência  
+- presume consumo real imediato  
+
+---
+
+## Estoque ↔ Procedimentos
+
+- Cada procedimento pode ter: **lista de insumos normalmente usados** + **quantidade média estimada**
+- Quando um procedimento ocorre: **gerar baixa estimada** no estoque (registrar como consumo previsto)
+- **Baixa é estimativa** | Ajuste humano é permitido | **Diferença é registrada, não punida**
+
+---
+
+## Conferência de estoque
+
+- Mostrar **consumo estimado** | Comparar com **estoque físico** | Destacar **divergências**
+- Formato: **explicativo**, sem tom de erro, **sem bloqueio operacional**
+
+---
+
+## Estoque ↔ Financeiro
+
+- Estoque alimenta o financeiro com: custo médio, variação de preço, impacto em procedimentos
+- Quando custo sobe: **sinalizar impacto potencial** (notificar precificação / Copilot)
+- **Nunca**: ajustar preço automaticamente | bloquear procedimento  
+
+---
+
+## Estoque ↔ Planos
+
+- Planos usam procedimentos; procedimentos usam insumos
+- Permitir: analisar se um plano consome muito estoque, avaliar sustentabilidade, explicar impacto ao gestor  
+
+---
+
+## Notificações de estoque
+
+Gerar notificações quando:
+
+- produto estiver acabando (com margem de segurança)  
+- consumo sair do padrão  
+- custo subir abruptamente  
+- agenda futura indicar risco de falta  
+
+**Sempre**: sinalizando | **Nunca**: bloqueando ou acusando erro  
+
+---
+
+## Papel do Copilot no estoque
+
+O Copilot **pode**: explicar divergências, mostrar padrões históricos, sugerir atenção, relacionar estoque ↔ custo ↔ procedimento  
+
+O Copilot **não pode**: ajustar estoque sozinho, decidir compra, assumir erro humano  
+
+---
+
+## Segurança e limites
+
+- Não exigir dados fiscais complexos  
+- Não substituir contador  
+- Não assumir verdade absoluta  
+- Registrar histórico e auditoria  
+
+---
+
+## O que o estoque NÃO faz (por design)
+
+- Não trava atendimento  
+- Não exige precisão total  
+- Não vira ERP pesado  
+- Não controla fornecedor de forma rígida  
+- Não executa compras automaticamente  
+
+---
+
+## UX — Aba Estoque
+
+- Ser **simples** | Mostrar o que importa  
+- Botões claros: **"Entrada por OCR"** | **"Importar nota"** | **"Entrada manual"**  
+- Nada escondido em menus profundos  
+
+---
+
+## Frases-guia (não remover)
+
+- *"Estoque não precisa ser perfeito. Precisa ser honesto."*  
+- *"Consumo estimado ajuda a pensar. Conferência confirma."*
+
+## Frases-guia do OCR (transcrição canônica — OCR-CANON-PROJETO-SUCESSO.md)
+
+- *"Quanto menos digitar, melhor."*  
+- *"O sistema não pode depender da memória da clínica."*  
+- *"OCR ajuda a lembrar, não a decidir."*  
+- *"Se o dado entrou, o sistema faz sentido dele."*  
+- **OCR é meio, não fim.** | **OCR sugere dados, não fecha verdade.** | **Divergência não é falha, é informação.**  
+
+---
+
+## Critério de qualidade da implementação
+
+A funcionalidade está correta se:
+
+- entrada é rápida  
+- OCR reduz esforço  
+- sistema funciona com dados imperfeitos  
+- divergência gera aprendizado  
+- decisões continuam humanas  
+
+---
+
+## Frase final obrigatória
+
+*"Este módulo existe para sustentar decisões, não para travar a clínica."*

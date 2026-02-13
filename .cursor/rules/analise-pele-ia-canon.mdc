@@ -1,0 +1,149 @@
+---
+description: Análise de Pele por IA (MVP) — conceito oficial. Portal do Cliente + Validação Clínica + Atendimento Remoto. Não diagnostica; profissional valida.
+globs: 
+  - portal*.html
+  - **/portal/**/*.js
+  - **/analise-pele*
+  - **/pele-ia*
+  - api/pele*.js
+  - api/analise*.js
+---
+
+# ANÁLISE DE PELE POR IA (MVP) — CANÔNICO
+
+## CONTEXTO CRÍTICO DO PRODUTO
+
+Este sistema já possui: Agenda, Anamnese (com função Pele), Skincare, Portal do cliente, Copilot, fluxo clínico humano-validado.
+
+**Esta funcionalidade complementa o ecossistema existente.**
+
+- Não refatorar arquitetura existente.
+- Não criar diagnósticos automáticos.
+
+## DEFINIÇÃO OFICIAL
+
+A **Análise de Pele por IA** é uma **pré-anamnese visual e orientada**, usada para:
+
+- educar o cliente
+- organizar queixas
+- gerar contexto inicial
+- permitir alcance remoto
+- preparar validação profissional
+
+**Ela não substitui consulta clínica.**
+
+## PRINCÍPIO FUNDAMENTAL (NÃO NEGOCIÁVEL)
+
+> A IA prepara. O profissional valida. Só depois vira cuidado.
+
+## PAPEL DO MODELO
+
+**Não é:** dermatologista virtual, sistema de diagnóstico, prescritor automático, scanner milagroso.
+
+**É:** camada de organização e explicação, inspirada no uso responsável de IA em clínicas coreanas.
+
+## FLUXO GERAL (OBRIGATÓRIO)
+
+1. Cliente inicia análise no **Portal**
+2. IA conduz coleta estruturada
+3. IA gera análise preliminar
+4. **Clínica valida**
+5. Opcionalmente, agenda atendimento remoto
+6. Informações validadas entram na **Anamnese (função Pele)**
+
+---
+
+## ETAPA 1 — COLETA DE IMAGENS (ESSENCIAL)
+
+- Explicar por que imagens são necessárias
+- Orientar como tirar as fotos
+- Solicitar **mínimo:** frontal + lateral
+- Regras: luz natural, sem maquiagem, permitir repetir, **nunca** uma única foto como base final
+- **Imagem é entrada, não resposta.**
+
+## ETAPA 2 — PERFIS E CONTEXTO HUMANO
+
+Perguntas simples: principal queixa, quando começou, o que incomoda, o que já tentou, como se sente em relação à pele. Objetivo: transformar percepção subjetiva em pré-anamnese organizada.
+
+## ETAPA 3 — ANÁLISE POR IA (FORMATO CORRETO)
+
+**Pode:** identificar pontos de atenção visuais, observar padrões, relacionar com respostas do cliente.
+
+**Não pode:** fechar diagnóstico, usar termos definitivos, prometer resultado.
+
+**Linguagem obrigatória:** “pode estar relacionado a…”, “costuma aparecer quando…”, “vale investigar com um profissional…”
+
+## ETAPA 4 — RESULTADO PARA O CLIENTE (APÓS VALIDAÇÃO)
+
+- Cliente **não** vê análise preliminar da IA; vê apenas “Análise recebida. A clínica validará e você receberá o retorno em breve.”
+- A devolutiva (texto_validado) aparece no portal **somente** quando a clínica validar
+- Explicação clara, linguagem acessível, reforço de que **não é diagnóstico**
+
+## ETAPA 5 — VALIDAÇÃO PELA CLÍNICA
+
+Clínica recebe: imagens, respostas, análise preliminar da IA. Profissional pode validar, corrigir, complementar. **Somente após validação:** entra na Anamnese (função Pele), pode sustentar skincare/plano.
+
+## ETAPA 6 — ATENDIMENTO REMOTO (OPCIONAL)
+
+Oferecer: “Deseja conversar com um profissional para validar sua análise?” Nunca obrigar ou empurrar. Objetivo: conforto, alcance geográfico, escala ética.
+
+---
+
+## RELAÇÃO COM SKINCARE
+
+- Análise por IA **não gera** skincare automaticamente
+- Skincare **só existe após validação profissional**
+- Skincare é continuidade, não solução isolada
+
+## RELAÇÃO COM ANAMNESE
+
+- A análise entra como **pré-anamnese**
+- Profissional decide o que vira registro oficial
+- Histórico mantido com data e contexto
+
+## TOM DE VOZ OBRIGATÓRIO
+
+Educativo, calmo, responsável, humano, sem termos alarmistas.
+
+## O QUE ESTA FUNCIONALIDADE NÃO FAZ
+
+Não diagnostica. Não prescreve. Não gera laudo. Não promete resultado. Não substitui consulta presencial quando necessária.
+
+## CRITÉRIO DE QUALIDADE DO MVP
+
+Está correto se: gera confiança, reduz ansiedade, prepara o atendimento, não cria risco clínico, respeita o profissional, permite escala real.
+
+## FRASES-GUIA (NÃO REMOVER)
+
+- “Imagem sem contexto não é análise.”
+- “A IA organiza, o profissional valida.”
+- “Análise prepara o cuidado, não substitui o encontro.”
+
+## FRASE FINAL OBRIGATÓRIA
+
+> “Esta análise existe para aproximar pessoas do cuidado profissional, mesmo à distância.”
+
+---
+
+## MELHORIAS DE EVOLUÇÃO DO MVP (incorporadas)
+
+### Consentimento e uso das imagens
+Antes da coleta de fotos: checkbox obrigatório "Autorizo o uso das imagens apenas para análise preliminar e validação pela clínica." Reforça confiança e LGPD.
+
+### "Próximo passo" sempre visível
+Após a análise preliminar, o cliente vê de forma fixa: "Próximo passo: um profissional da clínica validará e você receberá o retorno em breve (por e-mail ou notificação)." Evita sensação de "acabou aqui".
+
+### Critério para sugerir consulta presencial
+Em alguns casos a clínica pode recomendar avaliação presencial. Incluir nas frases-guia: "Em alguns casos é importante uma avaliação presencial. A clínica pode entrar em contato para combinar." A IA não decide; a clínica sugere na validação.
+
+### Menores e responsável
+Se for coletada idade ou "sou menor": exigir que um responsável autorize a análise e o uso das imagens (checkbox + campo "Responsável legal"). Boas práticas e proteção.
+
+### Histórico de análises no portal
+O cliente pode ver "Suas análises" (lista com data e status: Aguardando validação / Validada pela clínica) e rever a última. Transparência e reforço de que a clínica valida.
+
+### Notificação para a clínica
+Quando o cliente finaliza uma análise, a clínica recebe aviso (notificação no dashboard): "Nova análise de pele para validar — [Nome do cliente]." Evita análises esquecidas.
+
+### Frase sobre refazer a análise
+Incluir: "Você pode refazer a análise quando quiser (por exemplo, após um tratamento) para acompanhar mudanças." Reforça uso contínuo e responsável.

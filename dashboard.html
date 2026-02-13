@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>SkinClinic</title>
+
+<script
+ src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
+</script>
+
+<link rel="stylesheet" href="./js/css/style.css">
+
+<!-- Chart.js 4 (UMD com todos os componentes: linear, doughnut, bar) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+</head>
+
+<body>
+
+<div class="app-wrapper">
+
+  <!-- SIDEBAR (menu lateral – abre/fecha) -->
+  <aside class="sidebar" id="sidebar" aria-label="Menu principal">
+    <div class="sidebar-header">
+      <span class="sidebar-logo" id="sidebarLogo" data-fallback="SkinClinic">SkinClinic</span>
+      <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Abrir/fechar menu" title="Abrir/fechar menu">
+        <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <ul class="sidebar-menu">
+        <li><button type="button" class="sidebar-item active" data-view="dashboard" title="Dashboard"><span class="sidebar-icon">📊</span><span class="sidebar-label">Dashboard</span></button></li>
+        <li class="sidebar-cadastrar-wrap" id="cadastrarWrap">
+          <button type="button" class="sidebar-item sidebar-item-parent" id="btnCadastrar" data-cadastrar-parent aria-expanded="false" title="Cadastrar">
+            <span class="sidebar-icon sidebar-icon-user-plus" aria-hidden="true">
+              <span class="icon-user">👤</span>
+              <span class="icon-plus-badge">➕</span>
+            </span>
+            <span class="sidebar-label">Cadastrar</span>
+            <span class="sidebar-chevron" aria-hidden="true">▾</span>
+          </button>
+          <ul class="sidebar-submenu" id="cadastrarSubmenu">
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="clientes" data-cadastrar-child title="Clientes"><span class="sidebar-icon">👤</span><span class="sidebar-label">Clientes</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="team" data-cadastrar-child title="Equipe"><span class="sidebar-icon">👥</span><span class="sidebar-label">Equipe</span></button></li>
+          </ul>
+        </li>
+        <li><button type="button" class="sidebar-item" data-view="agenda" title="Agenda"><span class="sidebar-icon">📅</span><span class="sidebar-label">Agenda</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="procedimento" title="Procedimentos e precificação"><span class="sidebar-icon">🩺</span><span class="sidebar-label">Procedimentos</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="financeiro" title="Financeiro"><span class="sidebar-icon">💰</span><span class="sidebar-label">Financeiro</span></button></li>
+        <li class="sidebar-divider"></li>
+        <li class="sidebar-marketing-wrap" id="marketingWrap">
+          <button type="button" class="sidebar-item sidebar-item-parent" id="btnMarketing" data-marketing-parent aria-expanded="false" title="Marketing">
+            <span class="sidebar-icon">📢</span><span class="sidebar-label">Marketing</span>
+            <span class="sidebar-chevron" aria-hidden="true">▾</span>
+          </button>
+          <ul class="sidebar-submenu" id="marketingSubmenu">
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="marketing" title="Sugestões e métricas"><span class="sidebar-icon">📢</span><span class="sidebar-label">Sugestões</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="calendario-conteudo" title="Calendário de conteúdo"><span class="sidebar-icon">📆</span><span class="sidebar-label">Calendário</span></button></li>
+          </ul>
+        </li>
+        <li><button type="button" class="sidebar-item" data-view="estoque" title="Estoque"><span class="sidebar-icon">📦</span><span class="sidebar-label">Estoque</span></button></li>
+        <li id="menuWrapAnamnese" class="menu-item-hidden"><button type="button" class="sidebar-item" data-view="anamnese" title="Ficha de Anamnese"><span class="sidebar-icon">📋</span><span class="sidebar-label">Anamnese</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="skincare" title="Skincare"><span class="sidebar-icon">✨</span><span class="sidebar-label">Skincare</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="protocolo" title="Protocolo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Protocolo</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="estudo-caso" title="Estudo de caso"><span class="sidebar-icon">📚</span><span class="sidebar-label">Estudo de caso</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="ocr" title="Notas fiscais — emissão"><span class="sidebar-icon">📄</span><span class="sidebar-label">Notas fiscais</span></button></li>
+        <li class="sidebar-divider"></li>
+        <li><button type="button" class="sidebar-item" data-view="export" title="Exportar e importar dados" aria-label="Exportar e importar dados"><span class="sidebar-icon">📤</span><span class="sidebar-label">Exportar e importar</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="para-clinicas" title="Para clínicas — ajuda e posicionamento"><span class="sidebar-icon">📖</span><span class="sidebar-label">Para clínicas</span></button></li>
+        <li class="admin-only"><button type="button" class="sidebar-item" data-view="master" title="Configurações da organização"><span class="sidebar-icon">⚙️</span><span class="sidebar-label">Configurações</span></button></li>
+      </ul>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button type="button" class="sidebar-item" id="btnTutorialIniciar" title="Passo a passo para conhecer o app">📖 <span class="sidebar-label">Tutorial</span></button>
+      <button type="button" class="sidebar-item" id="btnTheme" title="Tema">🌙</button>
+      <button type="button" class="sidebar-item sidebar-item-logout" id="btnLogout" title="Sair">🚪 <span class="sidebar-label">Sair</span></button>
+      <p class="sidebar-powered" id="sidebarPowered" aria-hidden="true">Powered by <strong>SkinClinic</strong></p>
+    </div>
+  </aside>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <div class="main-content">
+    <header class="main-header">
+      <div class="main-header-top">
+        <div>
+          <h1 id="mainHeaderTitle">SkinClinic</h1>
+          <p id="headerViewTitle">Sistema Inteligente</p>
+        </div>
+        <div class="main-header-actions">
+          <button type="button" id="btnNotifBell" class="notif-bell" aria-label="Notificações" title="Se apareceu um número ali, vale a pena clicar.">
+            <span class="notif-bell-icon" aria-hidden="true">🔔</span>
+            <span id="badgeNotif" class="notif-bell-badge hidden" aria-live="polite">0</span>
+          </button>
+        </div>
+      </div>
+      <div class="stats-grid" id="dashboardStatsGrid">
+        <div class="stat-card" id="statCardClientes" data-metric="clientes">
+          <div class="stat-label" id="statLabelClientes">Clientes</div>
+          <div class="stat-value" id="mClientes">0</div>
+        </div>
+        <div class="stat-card" id="statCardAgenda" data-metric="agenda">
+          <div class="stat-label" id="statLabelAgenda">Agenda hoje</div>
+          <div class="stat-value" id="mAgenda">0</div>
+        </div>
+        <div class="stat-card" id="statCardSaldo" data-metric="saldo">
+          <div class="stat-label">Saldo</div>
+          <div class="stat-value" id="mSaldo">R$ 0</div>
+        </div>
+        <div class="stat-card hidden" id="statCardPrevisto" data-metric="previsto">
+          <div class="stat-label" id="statLabelPrevisto">Meu previsto hoje</div>
+          <div class="stat-value" id="mPrevisto">R$ 0</div>
+        </div>
+      </div>
+    </header>
+
+    <div id="notifPanel" class="notif-panel hidden" role="dialog" aria-label="Notificações" aria-modal="false">
+      <div class="notif-panel-header">
+        <span class="notif-panel-title">Notificações</span>
+        <button type="button" class="notif-panel-close" id="notifPanelClose" aria-label="Fechar">×</button>
+      </div>
+      <div id="notifPanelList" class="notif-panel-list"></div>
+      <div class="notif-panel-footer">
+        <button type="button" id="notifPanelVerTodas" class="notif-panel-ver-todas">Ver todas</button>
+      </div>
+    </div>
+
+    <main id="mainContent" class="content-area" tabindex="-1">
+      <div id="viewLoadingOverlay" class="view-loading-overlay hidden" aria-live="polite" aria-busy="false">
+        <div class="view-loading-spinner"></div>
+        <span>Carregando...</span>
+      </div>
+      <!-- Todas as views com class="view" para o SPA mostrar só uma por vez -->
+
+      <section id="view-dashboard" class="view">
+        <div class="filter-bar">
+          <label for="filterPeriod" class="sr-only">Período</label>
+          <select id="filterPeriod" aria-label="Período do dashboard">
+            <option value="today">Hoje</option>
+            <option value="week">Semana</option>
+            <option value="month">Mês</option>
+            <option value="custom">Personalizado</option>
+          </select>
+          <input type="date" id="startDate" hidden aria-label="Data inicial">
+          <input type="date" id="endDate" hidden aria-label="Data final">
+          <button type="button" id="applyFilter" class="btn-secondary">Aplicar</button>
+        </div>
+        <div class="dashboard-protocolos-dia" id="dashboardProtocolosDia">
+          <h3 class="dashboard-protocolos-dia-title">Protocolos aplicados hoje</h3>
+          <div id="dashboardProtocolosDiaList" class="dashboard-protocolos-dia-list"></div>
+        </div>
+        <canvas id="chartFinanceiro"></canvas>
+        <canvas id="chartAgenda"></canvas>
+      </section>
+
+      <section id="view-export" class="view hidden">
+        <div class="view-header">
+          <h2>Exportar e importar dados</h2>
+          <p class="view-lead">Exporte por tipo (CSV) ou use importação em lote para migrar clientes, procedimentos, financeiro e agenda. Para backup completo e restauração, use <a href="#" data-view="backup">Backup</a> no menu.</p>
+        </div>
+        <div class="export-import-grid">
+          <div class="view-card export-block">
+            <h3 class="view-card-title">Exportar</h3>
+            <button type="button" id="btnExportClientes" class="btn-primary">Clientes (CSV)</button>
+            <button type="button" id="btnExportFinanceiro" class="btn-primary">Financeiro (CSV)</button>
+            <button type="button" id="btnExportBackupJson" class="btn-secondary" title="Arquivo único para restaurar depois">Backup completo</button>
+          </div>
+          <div class="view-card import-block">
+            <h3 class="view-card-title">Importar em lote (CSV)</h3>
+            <label for="importTipo">Tipo de dados</label>
+            <select id="importTipo">
+              <option value="clientes">Clientes</option>
+              <option value="procedimentos">Procedimentos</option>
+              <option value="custo_fixo">Tabela de custo fixo</option>
+              <option value="financeiro">Planilha financeira</option>
+              <option value="agenda">Agenda de clientes</option>
+            </select>
+            <p class="view-hint import-duplicados-hint">Em caso de duplicado (e-mail, CPF ou nome):</p>
+            <label class="import-opcao-duplicado">
+              <input type="radio" name="importDuplicados" value="pular" checked>
+              Pular duplicados
+            </label>
+            <label class="import-opcao-duplicado">
+              <input type="radio" name="importDuplicados" value="todas">
+              Importar todas (revisar erros depois)
+            </label>
+            <div class="import-actions">
+              <a href="#" id="btnDownloadTemplate" class="btn-secondary">Baixar modelo CSV</a>
+              <label for="importFile" class="sr-only">Selecionar arquivo CSV para importar</label>
+              <input type="file" id="importFile" accept=".csv,text/csv,application/csv" class="import-file" aria-label="Arquivo CSV para importar">
+              <button type="button" id="btnImportarLote" class="btn-primary">Importar</button>
+            </div>
+            <div id="importResult" class="import-result hidden"></div>
+          </div>
+        </div>
+        <div class="export-backup-unico">
+          <h3 class="export-backup-unico-title">Backup único (outro sistema) <span class="info-icon" title="Se o outro sistema exportar todos os dados em um único arquivo JSON, use aqui. Formato: clientes, procedimentos, financeiro, agenda. Cada chave é um array de objetos com os mesmos campos dos CSV (nome, email, etc.)." aria-label="Informação">ℹ️</span></h3>
+          <p class="export-backup-hint">Se o outro sistema exportar <strong>todos os dados em um único arquivo JSON</strong>, use aqui. Formato: <code>{ "clientes": [...], "procedimentos": [...], "financeiro": [...], "agenda": [...] }</code>. Cada chave é um array de objetos com os mesmos campos dos CSV (nome, email, etc.).</p>
+          <label for="importBackupFile" class="sr-only">Selecionar arquivo JSON de backup</label>
+          <input type="file" id="importBackupFile" accept=".json,application/json" class="import-file" aria-label="Arquivo JSON de backup">
+          <button type="button" id="btnRestaurarBackup" class="btn-primary">Restaurar backup</button>
+          <div id="importBackupResult" class="import-result hidden"></div>
+        </div>
+        <div class="export-relatorio-procedimentos">
+          <h3>Relatório: procedimentos realizados por período</h3>
+          <p class="export-relatorio-hint">Quantidade de agendamentos por procedimento em um intervalo de datas.</p>
+          <div class="export-relatorio-filtros">
+            <label for="relatorioProcStart">De</label>
+            <input type="date" id="relatorioProcStart" aria-label="Data inicial">
+            <label for="relatorioProcEnd">Até</label>
+            <input type="date" id="relatorioProcEnd" aria-label="Data final">
+            <label for="relatorioProcProfessional">Profissional</label>
+            <select id="relatorioProcProfessional" aria-label="Filtrar por profissional"><option value="">Todos</option></select>
+            <label for="relatorioProcProcedure">Procedimento</label>
+            <select id="relatorioProcProcedure" aria-label="Filtrar por procedimento"><option value="">Todos</option></select>
+            <button type="button" id="btnRelatorioProcedimentos" class="btn-primary">Gerar relatório</button>
+          </div>
+          <div id="relatorioProcedimentosResult" class="relatorio-procedimentos-result hidden"></div>
+        </div>
+      </section>
+
+      <section id="view-planos" class="view hidden">
+        <div class="view-header">
+          <h2>Planos</h2>
+          <p class="view-lead">Propostas comerciais (pacotes, assinaturas). Vincule procedimentos e use o simulador de recebimento para ver margem por forma de pagamento.</p>
+        </div>
+        <div class="view-card">
+          <div id="listaPlanos"></div>
+        </div>
+      </section>
+
+      <section id="view-empresa" class="view hidden">
+        <div class="empresa-header">
+          <h2>Cadastro da empresa</h2>
+          <p class="empresa-lead">Informações da clínica usadas em todo o sistema e na identidade visual.</p>
+        </div>
+        <div id="empresaResumo" class="empresa-resumo hidden">
+          <div class="empresa-resumo-content"></div>
+          <button type="button" id="empresaBtnEditar" class="btn-primary">Editar cadastro</button>
+        </div>
+        <form id="empresaForm" class="empresa-form">
+          <section class="empresa-card" aria-labelledby="empresa-identidade-title">
+            <h3 id="empresa-identidade-title" class="empresa-card-title">Identidade</h3>
+            <div class="empresa-field">
+              <label for="empresaNome">Nome</label>
+              <input type="text" id="empresaNome" placeholder="Nome da clínica">
+            </div>
+            <div class="empresa-field">
+              <label for="empresaCidade">Cidade e estado</label>
+              <div class="empresa-row">
+                <input type="text" id="empresaCidade" placeholder="Cidade">
+                <input type="text" id="empresaEstado" placeholder="UF" maxlength="2">
+              </div>
+            </div>
+            <div class="empresa-field empresa-field-logo">
+              <label>Logo</label>
+              <div class="empresa-logo-upload-area">
+                <input type="file" id="empresaLogoFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="empresa-logo-file-input">
+                <label for="empresaLogoFile" class="empresa-logo-import-btn">
+                  <span class="empresa-logo-import-icon">📷</span>
+                  <span>Importar imagem</span>
+                </label>
+                <p class="empresa-logo-hint">PNG ou WEBP, quadrado (ex.: 512×512px). Máx. ~500 KB.</p>
+              </div>
+              <div id="empresaLogoPreview" class="empresa-logo-preview" aria-live="polite"></div>
+              <details class="empresa-logo-url-details">
+                <summary>Ou informar URL da imagem</summary>
+                <input type="url" id="empresaLogoUrl" placeholder="https://…">
+              </details>
+            </div>
+            <div class="empresa-field">
+              <label for="empresaTelefone">Telefone</label>
+              <input type="tel" id="empresaTelefone" placeholder="Telefone da empresa">
+            </div>
+          </section>
+          <section class="empresa-card" aria-labelledby="empresa-fiscal-title">
+            <h3 id="empresa-fiscal-title" class="empresa-card-title">Endereço e dados fiscais</h3>
+            <div class="empresa-field empresa-field-cep">
+              <label for="empresaCep">CEP</label>
+              <span class="info-icon" title="Informe o CEP e clique em Buscar para preencher automaticamente cidade, estado e endereço." aria-hidden="true">ℹ️</span>
+              <div class="empresa-cep-wrap">
+                <input type="text" id="empresaCep" placeholder="00000-000" maxlength="9" inputmode="numeric">
+                <button type="button" id="empresaCepBuscar" class="btn-secondary btn-sm empresa-cep-buscar" title="Buscar endereço pelo CEP">Buscar</button>
+              </div>
+            </div>
+            <div class="empresa-field">
+              <label for="empresaEndereco">Endereço</label>
+              <input type="text" id="empresaEndereco" placeholder="Endereço completo">
+            </div>
+            <div class="empresa-field">
+              <label for="empresaComplemento">Complemento</label>
+              <span class="info-icon" title="Ex.: sala, bloco, conjunto. Ajuda a localizar a clínica." aria-hidden="true">ℹ️</span>
+              <input type="text" id="empresaComplemento" placeholder="Apto, sala, bloco…">
+            </div>
+            <div class="empresa-field">
+              <label for="empresaCnpj">CNPJ</label>
+              <input type="text" id="empresaCnpj" placeholder="CNPJ">
+            </div>
+            <div class="empresa-field">
+              <label for="empresaNotaFiscalEmitirUrl">Link para emitir nota fiscal</label>
+              <input type="url" id="empresaNotaFiscalEmitirUrl" placeholder="https://… (sistema da prefeitura ou contador)">
+              <span class="empresa-hint-inline">Aparece em Notas fiscais → Emitir nota fiscal.</span>
+            </div>
+          </section>
+          <section class="empresa-card empresa-card-preferences" aria-labelledby="empresa-prefs-title">
+            <h3 id="empresa-prefs-title" class="empresa-card-title">Preferências</h3>
+            <p class="empresa-preferences-intro">Como o menu e as mensagens de aniversário se comportam para a sua equipe.</p>
+            <div class="empresa-preferences-grid">
+              <label class="empresa-toggle">
+                <input type="checkbox" id="empresaMenuAnamnese">
+                <span class="empresa-toggle-text">Mostrar &quot;Anamnese&quot; no menu</span>
+              </label>
+              <label class="empresa-toggle">
+                <input type="checkbox" id="empresaBrindeAniversario">
+                <span class="empresa-toggle-text">Incluir brinde no texto de aniversário</span>
+              </label>
+            </div>
+            <p class="empresa-preferences-note">Anamnese continua acessível pelo perfil do cliente e pela agenda. Brinde: o texto sugerido em Agenda → Aniversariantes passa a incluir oferta; a empresa decide se oferece.</p>
+          </section>
+          <div class="empresa-form-actions">
+            <button type="submit" id="empresaBtnSalvar" class="btn-primary">Salvar</button>
+          </div>
+        </form>
+        <section class="empresa-card empresa-salas-block" aria-labelledby="empresa-salas-title">
+          <h3 id="empresa-salas-title" class="empresa-card-title">Salas e capacidade</h3>
+          <p class="empresa-salas-hint">Cadastre salas e cabines e os tipos de procedimento que cada uma suporta. Na agenda, só aparecem salas compatíveis com o procedimento escolhido.</p>
+          <div class="empresa-salas-actions">
+            <p id="empresaSalasCount" class="empresa-salas-count">0 sala(s) cadastrada(s)</p>
+            <div class="empresa-salas-buttons">
+              <button type="button" id="empresaBtnNovaSala" class="btn-primary">+ Nova sala</button>
+              <button type="button" id="empresaBtnGerenciarSalas" class="btn-secondary">Atualizar lista</button>
+            </div>
+          </div>
+          <div id="empresaSalasLista" class="empresa-salas-lista"></div>
+        </section>
+      </section>
+
+      <section id="view-team" class="view hidden">
+        <div class="view-team-header">
+          <h2>Equipe</h2>
+          <button type="button" id="btnInvite" class="btn-primary">+ Convidar usuário</button>
+        </div>
+        <p class="view-lead view-team-google-hint">Conecte a agenda Google de cada membro para ver disponibilidade ao criar agendamentos.</p>
+        <div id="listaTeam"></div>
+        <div id="teamPaymentWrap" class="view-card team-payment-wrap hidden">
+          <h3 class="view-card-title team-payment-title">Modelo de pagamento (master)</h3>
+          <p class="view-hint team-payment-hint">Registro para análise financeira. Não executa pagamento nem expõe valores em telas operacionais.</p>
+          <div id="listaTeamPayment" class="lista-team-payment"></div>
+        </div>
+        <div id="teamAfazeresWrap" class="view-card team-afazeres-wrap">
+          <h3 class="view-card-title team-afazeres-title">Afazeres</h3>
+          <p class="view-hint team-afazeres-hint">Tarefas com responsável e prazo; não ocupam a agenda de atendimento.</p>
+          <button type="button" id="btnNovoAfazer" class="btn-secondary">+ Novo afazer</button>
+          <div id="listaAfazeres" class="lista-afazeres"></div>
+        </div>
+        <div id="teamIndiceCuidadoWrap" class="view-card team-indice-cuidado-wrap">
+          <h3 class="view-card-title team-indice-cuidado-title">Índice de cuidado</h3>
+          <p class="view-hint team-indice-cuidado-hint">Avaliações de produtos pelos profissionais; referência para bonificação e engajamento.</p>
+          <div id="listaIndiceCuidado" class="lista-indice-cuidado"></div>
+        </div>
+      </section>
+
+      <section id="view-clientes" class="view hidden">
+        <div class="view-clientes-header">
+          <h2>Clientes</h2>
+          <div class="view-clientes-actions">
+            <button type="button" id="btnNovoCliente" class="btn-primary">Adicionar cliente</button>
+            <details class="clientes-import-details">
+              <summary class="btn-secondary clientes-import-summary" title="Usado no início para migrar muitos clientes de uma vez">Importar em lote</summary>
+              <div class="clientes-import-dropdown">
+                <input type="file" id="importClientesFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
+                <label class="import-opcao-inline" title="Desmarque para importar todas; duplicadas aparecerão como erro para revisar">
+                  <input type="checkbox" id="clientesPularDuplicados" checked> Pular duplicados
+                </label>
+                <button type="button" id="btnImportarClientes" class="btn-secondary btn-sm" title="Selecionar arquivo CSV">Selecionar CSV</button>
+                <a href="#" id="btnModeloClientes" class="btn-link" title="Baixar modelo CSV">Modelo CSV</a>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div class="view-clientes-toolbar">
+          <label for="clientesSearch" class="sr-only">Buscar clientes</label>
+          <input type="search" id="clientesSearch" placeholder="Buscar por nome, telefone ou e-mail" class="clientes-search" aria-label="Buscar por nome, telefone ou e-mail">
+          <label for="clientesFilterState" class="sr-only">Estado do cliente</label>
+          <select id="clientesFilterState" class="clientes-filter" aria-label="Filtrar por estado do cliente">
+            <option value="">Todos os estados</option>
+            <option value="em_acompanhamento">Em acompanhamento</option>
+            <option value="pre_cadastro">Pré-cadastro</option>
+            <option value="pausado">Pausado</option>
+            <option value="alta">Alta</option>
+            <option value="arquivado">Arquivado</option>
+          </select>
+        </div>
+        <div class="clientes-table-wrap">
+          <table class="clientes-table" id="clientesTable">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Estado</th>
+                <th>Contato</th>
+                <th>Criação</th>
+                <th class="clientes-col-acoes">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="listaClientes"></tbody>
+          </table>
+        </div>
+        <p id="clientesEmpty" class="clientes-empty hidden">Nenhum cliente encontrado.</p>
+      </section>
+
+      <section id="view-cliente-perfil" class="view hidden">
+        <div id="clientePerfilContent"></div>
+      </section>
+
+      <section id="view-agenda" class="view hidden">
+        <div class="agenda-layout">
+          <div class="agenda-calendar-wrap">
+            <div class="agenda-calendar-header">
+              <button type="button" id="agendaPrevMonth" class="btn-icon" title="Mês anterior">‹</button>
+              <h2 id="agendaMonthTitle" class="agenda-month-title">—</h2>
+              <button type="button" id="agendaNextMonth" class="btn-icon" title="Próximo mês">›</button>
+            </div>
+            <button type="button" id="agendaGoToday" class="btn-secondary agenda-go-today">Hoje</button>
+            <div id="agendaCalendar" class="agenda-calendar" role="grid" aria-label="Calendário mensal"></div>
+          </div>
+          <div class="agenda-day-wrap">
+            <div class="agenda-day-header">
+              <h3 id="agendaDayTitle" class="agenda-day-title">Agendamentos do dia</h3>
+              <div class="agenda-day-actions">
+                <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
+                <button type="button" id="btnImportarAgenda" class="btn-secondary" title="Importar agenda (CSV)">📥 Importar CSV</button>
+            <a href="#" id="btnModeloAgenda" class="btn-link" title="Baixar modelo CSV">Modelo CSV</a>
+                <button type="button" id="btnNovoAgendamento" class="btn-primary">+ Novo agendamento</button>
+              </div>
+            </div>
+            <div id="listaAgenda" class="lista-agenda"></div>
+            <div id="agendaAniversariantesWrap" class="agenda-aniversariantes-wrap">
+              <h3 class="agenda-aniversariantes-title">Aniversariantes</h3>
+              <p class="agenda-aniversariantes-hint">Clientes que fazem aniversário hoje ou nesta semana. Envie uma mensagem (ou oferta de brinde, se ativado em <strong>Empresa</strong>).</p>
+              <div id="agendaAniversariantesList" class="agenda-aniversariantes-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-procedimento" class="view hidden">
+        <div class="view-procedimento-header">
+          <h2>Procedimentos e precificação</h2>
+          <p class="view-lead" style="margin:0 0 0.75rem;">Cadastre serviços e valores. Use o bloco de apoio à precificação (IA) ao criar/editar; conecta agenda, estoque e finanças.</p>
+          <div class="view-procedimento-actions">
+            <input type="file" id="importProcedimentosFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
+            <label class="import-opcao-inline" title="Desmarque para importar todas; duplicados aparecerão como erro para revisar">
+              <input type="checkbox" id="procedimentosPularDuplicados" checked> Pular duplicados
+            </label>
+            <button type="button" id="btnImportarProcedimentos" class="btn-secondary" title="Importar procedimentos (CSV)">📥 Importar CSV</button>
+            <button type="button" id="btnNovoProcedimento" class="btn-primary">+ Novo procedimento</button>
+          </div>
+        </div>
+        <div id="procedimentoCardMargemRisco" class="card-margem-risco hidden" aria-live="polite"></div>
+        <div id="procedimentoFilters" class="procedimento-filters">
+          <button type="button" id="procFiltersToggle" class="procedimento-filters__toggle" aria-expanded="false" aria-controls="procFiltersPanel">
+            <span class="procedimento-filters__toggle-icon">▾</span>
+            <span class="procedimento-filters__toggle-text">Filtros e ordenação</span>
+          </button>
+          <div id="procFiltersPanel" class="procedimento-filters__panel" role="region" aria-label="Filtros" hidden>
+            <div class="procedimento-filters__grid">
+              <label class="procedimento-filters__label">Categoria <select id="procFilterCategory"><option value="">Todos</option></select></label>
+              <span class="procedimento-filters__nova"><button type="button" id="btnNovaCategoria" class="procedimento-filters__link">+ Nova categoria</button></span>
+              <label class="procedimento-filters__label">Status <select id="procFilterStatus"><option value="">Todos</option><option value="active">Ativos</option><option value="inactive">Inativos</option></select></label>
+              <label class="procedimento-filters__label">Valor <select id="procFilterValor"><option value="">Todos</option><option value="with">Com valor</option><option value="without">Sem valor</option></select></label>
+              <label class="procedimento-filters__label">Ordenar <select id="procFilterSort"><option value="name">Nome</option><option value="valor">Valor</option><option value="duration">Duração</option></select></label>
+            </div>
+          </div>
+        </div>
+        <div id="listaProcedimentos"></div>
+        <div id="procedimentoPlanosWrap" class="procedimento-planos-wrap">
+          <button type="button" id="procPlanosToggle" class="procedimento-planos__toggle" aria-expanded="false" aria-controls="procPlanosPanel">
+            <span class="procedimento-planos__toggle-icon">▾</span>
+            <span class="procedimento-planos__toggle-text">Planos baseados nesses procedimentos</span>
+          </button>
+          <div id="procPlanosPanel" class="procedimento-planos__panel" role="region" aria-label="Planos terapêuticos" hidden>
+            <p class="procedimento-planos__hint">Plano é resposta à dor do cliente, construída com procedimentos que fazem sentido para a clínica. Não é pacote de venda.</p>
+            <p class="procedimento-planos__hint procedimento-planos__hint-taxas" id="procPlanosHintTaxas">Para definir como cobrar o plano (parcelas, desconto à vista) com margem garantida, configure as taxas em <strong>Configurações → Taxas da maquininha</strong>. Assim, ao precificar, você já sabe quanto recebe e qual desconto pode oferecer.</p>
+            <button type="button" id="btnCriarPlanoTerapeutico" class="btn-primary">+ Criar plano</button>
+            <div id="listaPlanosTerapeuticos" class="lista-planos-terapeuticos"></div>
+          </div>
+        </div>
+        <div id="procedimentoDiscussaoWrap" class="procedimento-discussao-wrap">
+          <button type="button" id="procDiscussaoToggle" class="procedimento-discussao__toggle" aria-expanded="false" aria-controls="procDiscussaoPanel">
+            <span class="procedimento-discussao__toggle-icon">▾</span>
+            <span class="procedimento-discussao__toggle-text">Discussão de caso — opinião da IA</span>
+          </button>
+          <div id="procDiscussaoPanel" class="procedimento-discussao__panel" role="region" aria-label="Discussão de caso" hidden>
+            <p class="procedimento-discussao__hint">Descreva o caso (queixa, condição, contexto) e peça a opinião da IA para <strong>amadurecer a ideia</strong> e se preparar. A IA traz discussão do caso, procedimentos que podem se alinhar (para você avaliar) e <strong>artigos/referências para você estudar</strong> — incluindo links para diretrizes, PubMed ou Google Scholar quando fizer sentido. Objetivo: formar profissionais que sabem alinhar procedimentos a cada caso, não encostar em protocolo pronto.</p>
+            <label class="procedimento-discussao__label">Descreva o caso</label>
+            <textarea id="discussaoCasoInput" class="procedimento-discussao__input" placeholder="Ex.: Paciente 35 anos, queixa de melasma em maçãs do rosto, já usou hidroquinona sem orientação. Fototipo III. Quer melhorar sem agredir a pele." rows="4"></textarea>
+            <button type="button" id="btnPedirOpiniao" class="btn-primary">Pedir opinião da IA</button>
+            <div id="discussaoCasoResult" class="procedimento-discussao__result" aria-live="polite" hidden></div>
+          </div>
+        </div>
+        <div id="procedimentoRelatorioWrap" class="procedimento-relatorio-wrap">
+          <button type="button" id="procRelatorioToggle" class="procedimento-relatorio__toggle" aria-expanded="false" aria-controls="procRelatorioPanel">
+            <span class="procedimento-relatorio__toggle-icon">▾</span>
+            <span class="procedimento-relatorio__toggle-text">Relatório: procedimentos realizados (período)</span>
+          </button>
+          <div id="procRelatorioPanel" class="procedimento-relatorio__panel" role="region" aria-label="Relatório procedimentos realizados" hidden>
+            <p class="procedimento-relatorio__hint">Quantidade de vezes que cada procedimento foi realizado na agenda no período. Use para metas e análise.</p>
+            <div class="procedimento-relatorio__filtros">
+              <label for="relatorioProcStartProc">De</label>
+              <input type="date" id="relatorioProcStartProc" aria-label="Data inicial do relatório">
+              <label for="relatorioProcEndProc">Até</label>
+              <input type="date" id="relatorioProcEndProc" aria-label="Data final do relatório">
+              <label for="relatorioProcProfessionalProc">Profissional</label>
+              <select id="relatorioProcProfessionalProc" aria-label="Filtrar por profissional"><option value="">Todos</option></select>
+              <button type="button" id="btnAtualizarRelatorioProc" class="btn-primary">Atualizar</button>
+              <button type="button" id="btnExportarRelatorioProc" class="btn-secondary">Exportar CSV</button>
+            </div>
+            <div id="relatorioProcedimentosRealizadosTable" class="procedimento-relatorio-table-wrap" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-financeiro" class="view hidden">
+        <div class="view-financeiro-header">
+          <h2>Financeiro</h2>
+          <p class="view-lead view-financeiro-lead">Transações manuais (ex.: aluguel, salários). Vincule a procedimento para receita por serviço; use contas/cartões ou importe extrato (CSV) para gastos. Use a aba <strong>Custo fixo</strong> para configurar aluguel, luz e outros custos recorrentes.</p>
+          <div class="financeiro-main-tabs" role="tablist" aria-label="Abas do Financeiro">
+            <button type="button" class="financeiro-main-tab is-active" data-tab="visao-geral" role="tab">Visão geral</button>
+            <button type="button" class="financeiro-main-tab" data-tab="custo-fixo" role="tab">Custo fixo</button>
+          </div>
+        </div>
+        <div id="financeiroPanelVisaoGeral" class="financeiro-main-panel" role="tabpanel" data-tab="visao-geral">
+          <div class="view-financeiro-actions">
+            <button type="button" id="btnImportarExtrato" class="btn-secondary">📥 Importar extrato</button>
+            <input type="file" id="importFinanceiroFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
+            <button type="button" id="btnImportarPlanilha" class="btn-secondary" title="Importar planilha financeira (CSV)">📥 Importar CSV</button>
+            <a href="#" id="btnModeloFinanceiro" class="btn-link" title="Baixar modelo CSV">Modelo CSV</a>
+            <button type="button" id="btnPdf" class="btn-secondary">📄 Exportar PDF</button>
+            <button type="button" id="btnNovaTransacao" class="btn-primary">+ Nova transação</button>
+          </div>
+          <div id="financeiroCardMargemRisco" class="card-margem-risco hidden" aria-live="polite"></div>
+          <div id="financeiroContasVinculadasWrap" class="financeiro-contas-vinculadas-wrap">
+            <div class="financeiro-contas-vinculadas-header">
+              <h3 class="financeiro-contas-vinculadas-title">Contas e cartões vinculados (tempo real)</h3>
+              <button type="button" id="btnVincularConta" class="btn-secondary">Vincular cartão ou conta</button>
+            </div>
+            <div id="listaContasVinculadas" class="lista-contas-vinculadas"></div>
+          </div>
+          <div id="financeiroImportacaoBanner" class="financeiro-importacao-banner hidden" role="status" aria-live="polite"></div>
+          <div id="financeiroResumo" class="financeiro-resumo"></div>
+          <div id="financeiroSaidasDetalhe" class="financeiro-saidas-detalhe"></div>
+          <div id="financeiroPorProcedimento" class="financeiro-por-procedimento"></div>
+          <h3 class="financeiro-list-title">Transações</h3>
+          <div id="listaFinanceiro"></div>
+
+          <div id="financeiroMasterWrap" class="financeiro-master-wrap hidden" aria-label="Área Master — dados sensíveis">
+          <h3 class="financeiro-master-title">Área Master (contas a pagar, fluxo, reserva, metas, participação)</h3>
+          <p class="financeiro-master-hint">Estes dados são visíveis apenas para o master da organização.</p>
+          <div class="financeiro-master-tabs" role="tablist">
+            <button type="button" class="financeiro-master-tab is-active" data-tab="contas" role="tab">Contas a pagar</button>
+            <button type="button" class="financeiro-master-tab" data-tab="fluxo" role="tab">Fluxo de caixa</button>
+            <button type="button" class="financeiro-master-tab" data-tab="reserva" role="tab">Reserva e metas</button>
+            <button type="button" class="financeiro-master-tab" data-tab="participacao" role="tab">Participação nos lucros</button>
+          </div>
+          <div id="financeiroMasterContas" class="financeiro-master-panel" role="tabpanel" data-tab="contas">
+            <div class="financeiro-master-panel-header">
+              <h4>Contas a pagar</h4>
+              <button type="button" id="btnNovaContaAPagar" class="btn-secondary">+ Nova conta</button>
+            </div>
+            <div id="listaContasAPagar" class="lista-contas-a-pagar"></div>
+          </div>
+          <div id="financeiroMasterFluxo" class="financeiro-master-panel hidden" role="tabpanel" data-tab="fluxo">
+            <h4>Fluxo de caixa</h4>
+            <div id="fluxoCaixaResumo" class="fluxo-caixa-resumo"></div>
+          </div>
+          <div id="financeiroMasterReserva" class="financeiro-master-panel hidden" role="tabpanel" data-tab="reserva">
+            <div class="financeiro-master-panel-header">
+              <h4>Reserva de emergência e metas</h4>
+              <button type="button" id="btnNovaMeta" class="btn-secondary">+ Nova meta</button>
+            </div>
+            <div id="listaFinanceiroMetas" class="lista-financeiro-metas"></div>
+          </div>
+          <div id="financeiroMasterParticipacao" class="financeiro-master-panel hidden" role="tabpanel" data-tab="participacao">
+            <div class="financeiro-master-panel-header">
+              <h4>Participação nos lucros (master e sócios)</h4>
+              <button type="button" id="btnNovaParticipacao" class="btn-secondary">+ Nova participação</button>
+            </div>
+            <div id="listaParticipacaoLucros" class="lista-participacao-lucros"></div>
+          </div>
+          </div>
+        </div>
+        <div id="financeiroCustoFixoPanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="custo-fixo" aria-label="Custo fixo — organizar custos da clínica">
+          <!-- Conteúdo injetado por custo-fixo (ex-setup-inicial) -->
+        </div>
+      </section>
+
+      <section id="view-precificacao-taxas" class="view hidden">
+        <div class="view-header">
+          <h2>Taxas da maquininha e simulador</h2>
+          <p class="view-lead">Configure as taxas reais do banco. O sistema usa esses dados na precificação dos procedimentos e planos para mostrar margem real e sugerir como cobrar (parcelas, desconto à vista).</p>
+        </div>
+        <div class="view-card precificacao-taxas-block">
+          <h3 class="view-card-title">Suas taxas com o banco</h3>
+          <p class="view-hint precificacao-taxas-hint">Informe o que a maquininha cobra; o simulador mostrará o valor líquido.</p>
+          <form id="precificacaoTaxasForm" class="precificacao-taxas-form">
+            <div class="precificacao-taxas-grid">
+              <div class="precificacao-taxas-group">
+                <label for="precificacaoTaxaTransacao">Taxa de transação (%)</label>
+                <input type="number" id="precificacaoTaxaTransacao" min="0" max="100" step="0.01" placeholder="Ex.: 0,50">
+                <span class="precificacao-field-hint">Cobrada em toda transação, além da taxa por forma de pagamento.</span>
+              </div>
+              <div class="precificacao-taxas-group">
+                <label for="precificacaoTaxaAvistaDebito">À vista — Débito (%)</label>
+                <input type="number" id="precificacaoTaxaAvistaDebito" min="0" max="100" step="0.01" placeholder="Ex.: 1,49">
+              </div>
+              <div class="precificacao-taxas-group">
+                <label for="precificacaoTaxaAvistaCredito">À vista — Crédito (%)</label>
+                <input type="number" id="precificacaoTaxaAvistaCredito" min="0" max="100" step="0.01" placeholder="Ex.: 2,49">
+              </div>
+            </div>
+            <p class="precificacao-parcelado-label">Taxa por parcela — cada número de vezes tem sua própria taxa (%)</p>
+            <div class="precificacao-parcelado-grid">
+              <div class="precificacao-taxas-group" id="precificacaoParcelado2"><label for="precificacaoTaxa2">2x</label><input type="number" id="precificacaoTaxa2" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado3"><label for="precificacaoTaxa3">3x</label><input type="number" id="precificacaoTaxa3" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado4"><label for="precificacaoTaxa4">4x</label><input type="number" id="precificacaoTaxa4" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado5"><label for="precificacaoTaxa5">5x</label><input type="number" id="precificacaoTaxa5" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado6"><label for="precificacaoTaxa6">6x</label><input type="number" id="precificacaoTaxa6" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado7"><label for="precificacaoTaxa7">7x</label><input type="number" id="precificacaoTaxa7" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado8"><label for="precificacaoTaxa8">8x</label><input type="number" id="precificacaoTaxa8" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado9"><label for="precificacaoTaxa9">9x</label><input type="number" id="precificacaoTaxa9" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado10"><label for="precificacaoTaxa10">10x</label><input type="number" id="precificacaoTaxa10" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado11"><label for="precificacaoTaxa11">11x</label><input type="number" id="precificacaoTaxa11" min="0" max="100" step="0.01" placeholder="%"></div>
+              <div class="precificacao-taxas-group" id="precificacaoParcelado12"><label for="precificacaoTaxa12">12x</label><input type="number" id="precificacaoTaxa12" min="0" max="100" step="0.01" placeholder="%"></div>
+            </div>
+            <button type="submit" id="precificacaoBtnSalvarTaxas" class="btn-primary">Salvar taxas</button>
+          </form>
+        </div>
+        <div class="view-card precificacao-simulador-block">
+          <h3 class="view-card-title">Simulador: quanto você recebe</h3>
+          <label for="precificacaoValorProcedimento">Valor do procedimento ou plano (R$)</label>
+          <p class="view-hint precificacao-simulador-hint">Digite o valor para ver o líquido por forma de pagamento e qual desconto à vista faz sentido.</p>
+          <input type="text" id="precificacaoValorProcedimento" inputmode="decimal" placeholder="Ex.: 500,00 ou 2.100,00" class="precificacao-input-valor">
+          <div id="precificacaoTabelaSimulador" class="precificacao-tabela-wrap" aria-live="polite"></div>
+        </div>
+        <div id="precificacaoBlocoDescontoAvista" class="precificacao-desconto-avista hidden" aria-live="polite">
+          <h3>Desconto à vista</h3>
+          <p class="precificacao-desconto-text"></p>
+        </div>
+        <div id="precificacaoRecomendacao" class="precificacao-recomendacao hidden" aria-live="polite">
+          <h3>Recomendação</h3>
+          <p class="precificacao-recomendacao-text"></p>
+        </div>
+      </section>
+
+      <section id="view-auditoria" class="view hidden">
+        <div class="view-logs-header">
+          <h2>Auditoria</h2>
+          <div class="view-logs-toolbar">
+            <label class="logs-filter-wrap" for="logsFilterPeriod">
+              <span>Período:</span>
+              <select id="logsFilterPeriod" class="logs-filter" title="Últimos 7 ou 30 dias" aria-label="Filtrar por período">
+                <option value="all">Todo o período</option>
+                <option value="7">Últimos 7 dias</option>
+                <option value="30">Últimos 30 dias</option>
+              </select>
+            </label>
+            <label class="logs-filter-wrap" for="logsFilterType">
+              <span>Tipo:</span>
+              <select id="logsFilterType" class="logs-filter" title="Filtrar por área (financeiro, clientes, procedimentos…)" aria-label="Filtrar por tipo de ação">
+                <option value="all">Todos</option>
+                <option value="financeiro">Financeiro</option>
+                <option value="cliente">Clientes / Edição</option>
+                <option value="procedimento">Procedimentos</option>
+                <option value="agenda">Agenda</option>
+                <option value="equipe">Equipe</option>
+                <option value="estoque">Estoque</option>
+                <option value="outros">Outros</option>
+              </select>
+            </label>
+            <label class="logs-filter-wrap" for="logsFilterAck">
+              <span>Status:</span>
+              <select id="logsFilterAck" class="logs-filter" title="Pendentes = itens que o gestor ainda não deu ok" aria-label="Filtrar por status">
+                <option value="all">Todos</option>
+                <option value="pending">Pendentes (sem ok do gestor)</option>
+              </select>
+            </label>
+            <button type="button" id="btnExportarAuditoriaCsv" class="btn-secondary btn-sm" title="Exportar logs filtrados em CSV">Exportar CSV</button>
+          </div>
+        </div>
+        <p class="view-lead">Registro de ações da equipe. Filtre por período, tipo ou itens pendentes de ok do gestor.</p>
+        <div id="listaLogs" class="logs-list"></div>
+        <div id="logsLoadMoreWrap" class="logs-load-more-wrap hidden">
+          <button type="button" id="btnLogsLoadMore" class="btn-secondary">Carregar mais</button>
+        </div>
+      </section>
+
+      <section id="view-backup" class="view hidden">
+        <div class="view-header">
+          <h2>Backup</h2>
+          <p class="view-lead">Cópia de segurança em JSON (clientes, procedimentos, financeiro, agenda). Para exportar/importar por tipo (CSV), use <a href="#" data-view="export">Exportar e importar</a> no menu.</p>
+        </div>
+        <div class="backup-blocks">
+          <div class="view-card backup-block">
+            <h3 class="view-card-title">Baixar backup</h3>
+            <p class="view-hint backup-block-hint">Gera um arquivo com todos os dados atuais.</p>
+            <button type="button" id="btnBackup" class="btn-primary">Baixar backup</button>
+          </div>
+          <div class="view-card backup-block">
+            <h3 class="view-card-title">Restaurar backup</h3>
+            <p class="view-hint backup-block-hint">Escolha um arquivo gerado por este sistema; os dados serão importados na organização atual.</p>
+            <input type="file" id="backupRestoreFile" accept=".json,application/json" class="hidden" aria-label="Arquivo de backup">
+            <button type="button" id="btnRestore" class="btn-primary">Escolher arquivo e restaurar</button>
+            <div id="backupRestoreResult" class="backup-result hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-documentos-termos" class="view hidden">
+        <div class="view-header">
+          <h2>Documentos e termos</h2>
+          <p class="view-lead">Contrato de prestação de serviços, termo de consentimento informado, autorização de imagem, orientações pós-procedimento, LGPD e política de cancelamento. Essencial para defesa judicial. Use os modelos como base e revise com advogado especializado antes de produção.</p>
+        </div>
+        <div class="view-card documentos-termos-aviso">
+          <p class="view-hint"><span class="info-icon" title="Os modelos são ponto de partida. A legislação varia por localidade." aria-label="Informação">ℹ️</span> Estes são <strong>modelos profissionais</strong> para respaldo até você contratar um advogado especializado. Devem ser revisados e adaptados por profissional em direito civil, contratos e direito da saúde/estética. A <strong>Anamnese</strong> (item 7) é a ficha clínica — use o menu Anamnese no app.</p>
+        </div>
+        <div id="documentosTermosLista" class="documentos-termos-lista"></div>
+      </section>
+
+      <section id="view-copiloto" class="view hidden">
+        <div class="view-header">
+          <h2>Copiloto do Negócio</h2>
+          <p class="view-lead">Pergunte sobre dados e indicadores da clínica; a IA responde com base no que está no sistema.</p>
+        </div>
+        <div class="view-card">
+          <div class="view-field">
+            <label for="pergunta">Sua pergunta</label>
+            <textarea id="pergunta" placeholder="Ex.: Qual foi o faturamento dos últimos 30 dias?" rows="3"></textarea>
+          </div>
+          <button type="button" id="btnPerguntar" class="btn-primary">Perguntar</button>
+        </div>
+        <pre id="resposta"></pre>
+      </section>
+
+      <section id="view-marketing" class="view hidden">
+        <div class="view-header">
+          <h2>Copilot de Marketing</h2>
+          <p class="view-lead">Sugestões de conteúdo, foco e métricas com base nos dados da clínica. Cidade e procedimentos vêm do cadastro da empresa e do catálogo; você pode editar.</p>
+        </div>
+        <div class="view-card">
+          <div class="view-field">
+            <label for="nicho">Nicho</label>
+            <input id="nicho" placeholder="Ex.: estética facial, dermatologia">
+          </div>
+          <div class="view-field">
+            <label for="cidade">Cidade / região</label>
+            <input id="cidade" placeholder="Ex.: São Paulo">
+          </div>
+          <div class="view-field">
+            <label for="ticket">Faixa de ticket (contexto)</label>
+            <input id="ticket" placeholder="Ex.: R$ 200–800">
+          </div>
+          <div class="view-field">
+            <label for="procedimentos">Procedimentos principais</label>
+            <textarea id="procedimentos" placeholder="Preenchido pelo catálogo; edite se quiser" rows="3"></textarea>
+          </div>
+          <button type="button" id="btnGerarMarketing" class="btn-primary">Sugerir conteúdo e métricas</button>
+        </div>
+        <p class="view-hint marketing-metricas-hint">A resposta inclui métricas de tráfego pago (CPL, CPA, ROAS): o que são e como aplicar. Leia o item 3 da resposta para interpretar.</p>
+        <pre id="resultadoMarketing"></pre>
+        <button type="button" id="btnMarketingParaCalendario" class="btn-secondary" style="margin-top:0.5rem;">Adicionar sugestão ao calendário</button>
+      </section>
+
+      <section id="view-calendario-conteudo" class="view hidden">
+        <div class="view-header">
+          <h2>Calendário de conteúdo</h2>
+          <p class="view-lead">Rascunho → aprovação → agendamento → publicação. Use as sugestões do <a href="#" data-view="marketing">Marketing</a> ou crie posts manualmente.</p>
+        </div>
+        <div class="view-card">
+          <h3 class="view-card-title">Conteúdos</h3>
+          <div class="view-calendario-conteudo-actions">
+            <button type="button" id="calendarioConteudoBtnNovo" class="btn-primary">+ Novo conteúdo</button>
+            <label for="calendarioConteudoFiltro">Status</label>
+            <select id="calendarioConteudoFiltro">
+              <option value="">Todos</option>
+              <option value="rascunho">Rascunho</option>
+              <option value="em_aprovacao">Em aprovação</option>
+              <option value="aprovado">Aprovado</option>
+              <option value="rejeitado">Rejeitado</option>
+              <option value="agendado">Agendado</option>
+              <option value="publicado">Publicado</option>
+            </select>
+          </div>
+          <div id="listaCalendarioConteudo" class="lista-calendario-conteudo"></div>
+        </div>
+      </section>
+
+      <section id="view-estoque" class="view hidden">
+        <div class="view-header">
+          <h2>Estoque</h2>
+          <p class="view-lead">Entrada por nota fiscal ou manual; consumo estimado por protocolo e indicador de acurácia (previsto vs real).</p>
+        </div>
+        <div class="view-card">
+          <div class="estoque-entrada-actions">
+            <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">📷 Ler nota fiscal</button>
+            <button type="button" id="btnEstoqueImportarNota" class="btn-secondary" disabled title="Em breve">📄 Importar nota (XML)</button>
+            <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">✏️ Entrada manual</button>
+          </div>
+        </div>
+        <div class="view-card estoque-acuracia-wrap" id="estoqueAcuraciaWrap">
+          <h3 class="view-card-title">Indicador de acurácia (previsto vs real)</h3>
+          <p class="view-hint estoque-acuracia-hint">Compare consumo previsto (protocolo) com o real que você registrar. Meta sugerida: 85%.</p>
+          <div class="estoque-acuracia-periodo">
+            <label for="estoqueAcuraciaPeriodo">Período</label>
+            <select id="estoqueAcuraciaPeriodo">
+              <option value="7">Últimos 7 dias</option>
+              <option value="30" selected>Últimos 30 dias</option>
+              <option value="90">Últimos 90 dias</option>
+            </select>
+            <button type="button" id="btnEstoqueRegistrarReal" class="btn-secondary">Registrar consumo real</button>
+          </div>
+          <div id="estoqueAcuraciaCard" class="estoque-acuracia-card"></div>
+          <div id="estoqueAcuraciaTabela" class="estoque-acuracia-tabela"></div>
+        </div>
+        <div class="view-card estoque-resumo-wrap" id="estoqueResumoWrap">
+          <h3 class="view-card-title">Resumo por produto</h3>
+          <div id="estoqueResumo" class="estoque-resumo"></div>
+        </div>
+        <div class="view-card">
+          <h3 class="view-card-title">Últimas entradas</h3>
+          <div id="listaEstoqueEntradas" class="lista-estoque-entradas"></div>
+          <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Use Ler nota fiscal ou entrada manual.</p>
+        </div>
+        <div class="view-card estoque-analise-wrap">
+          <button type="button" id="btnAnalisarEstoque" class="btn-secondary">Analisar estoque (sugestões IA)</button>
+          <pre id="resultadoEstoque" class="estoque-resultado hidden"></pre>
+        </div>
+      </section>
+
+      <section id="view-ocr" class="view hidden">
+        <div class="view-header">
+          <h2>Notas fiscais</h2>
+          <p class="view-lead">Emissão de nota fiscal de serviço (NFS-e). Para dar entrada no estoque a partir de nota de compra, use <a href="#" data-view="estoque">Estoque</a> → Ler nota fiscal.</p>
+        </div>
+        <div class="view-card ocr-emitir-card">
+          <h3 class="view-card-title">Emitir nota fiscal</h3>
+          <p class="view-hint">Emita NFS-e ou NF-e a partir dos atendimentos e receitas. Use o link do sistema da prefeitura ou do seu contador; em breve: integração direta aqui.</p>
+          <a id="ocrEmitirLink" href="#" target="_blank" rel="noopener noreferrer" class="btn-primary ocr-emitir-btn hidden">Abrir sistema de emissão</a>
+          <p id="ocrEmitirPlaceholder" class="ocr-emitir-placeholder">Configure em <a href="#" data-view="empresa">Empresa</a> (Configurações) o link do sistema de emissão da sua prefeitura ou contador para o botão aparecer aqui.</p>
+        </div>
+      </section>
+
+      <section id="view-skincare" class="view hidden">
+        <div class="view-header">
+          <h2>Skincare IA</h2>
+          <p class="view-lead">Carregue o contexto do cliente, preencha uma ficha rápida ou tire fotos em cabine; depois use os campos abaixo e gere a rotina.</p>
+        </div>
+        <div class="view-card">
+        <div class="skincare-ia-actions">
+          <button type="button" id="btnSkincarePesquisarCliente" class="btn-secondary">Pesquisar cliente</button>
+          <button type="button" id="btnSkincareFichaRapida" class="btn-secondary">Ficha rápida (para a IA)</button>
+          <button type="button" id="btnSkincareFotosCabine" class="btn-secondary">Tirar fotos em cabine</button>
+        </div>
+        <div id="skincareFotosCabineWrap" class="skincare-fotos-cabine-wrap hidden">
+          <div class="skincare-fotos-cabine-buttons">
+            <input type="file" id="skincareFotosCabineInput" accept="image/*" multiple class="hidden">
+            <button type="button" id="btnSkincareFotosEscolher" class="btn-secondary">Escolher fotos</button>
+            <button type="button" id="btnSkincareFotosCamera" class="btn-secondary">Usar câmera</button>
+          </div>
+          <div id="skincareFotosCabineCamera" class="skincare-camera-area hidden">
+            <video id="skincareCameraVideo" class="skincare-camera-video" autoplay playsinline muted></video>
+            <button type="button" id="btnSkincareCapturar" class="btn-primary">Capturar foto</button>
+          </div>
+          <div id="skincareFotosPreview" class="skincare-fotos-preview"></div>
+        </div>
+        <div id="skincareContextoLabel" class="skincare-ia-contexto-badge hidden" aria-live="polite"></div>
+        <div class="skincare-ia-form">
+          <div class="skincare-ia-field-block">
+            <label for="skincareAnalise" class="skincare-ia-label">Análise / contexto (opcional)</label>
+            <textarea id="skincareAnalise" class="skincare-ia-textarea" rows="6" placeholder="Texto ou JSON da análise de pele ou contexto do cliente"></textarea>
+          </div>
+          <div class="skincare-ia-field-block">
+            <label for="skincareProtocolo" class="skincare-ia-label">Protocolo (opcional)</label>
+            <textarea id="skincareProtocolo" class="skincare-ia-textarea skincare-ia-textarea--short" rows="3" placeholder="Texto ou JSON do protocolo atual"></textarea>
+          </div>
+          <button type="button" id="btnGerarSkincare" class="btn-primary">Gerar rotina</button>
+        </div>
+        <pre id="resultadoSkincare" class="skincare-ia-resultado"></pre>
+        <div id="skincareSalvarWrap" class="skincare-salvar-wrap hidden">
+          <p class="skincare-salvar-hint">Revise o texto acima e, se estiver ok, salve no perfil do cliente. Depois você pode editar na aba Rotina skincare do cliente e liberar no portal.</p>
+          <button type="button" id="btnSkincareSalvarCliente" class="btn-primary">Salvar no perfil do cliente</button>
+        </div>
+        </div>
+      </section>
+
+      <section id="view-estudo-caso" class="view hidden">
+        <div class="view-header">
+          <h2>Estudo de caso</h2>
+          <p class="view-lead">Casos anonimizados ligados ao protocolo (método + histórico). Faça <strong>perguntas pertinentes</strong> para obter um melhor resultado e, após ler os artigos sugeridos, <strong>esclareça dúvidas</strong> para aprender de verdade.</p>
+        </div>
+        <div class="view-card">
+        <label>Protocolo</label>
+        <select id="estudoCasoProtocolo">
+          <option value="">— Selecione o protocolo —</option>
+        </select>
+        <div id="estudoCasoAgregacao" class="estudo-caso-agregacao hidden"></div>
+        <div id="estudoCasoLista" class="estudo-caso-lista"></div>
+        <div class="estudo-caso-novo">
+          <h3>Registrar novo caso (anonimizado)</h3>
+          <p class="estudo-caso-form-hint">Tipo de pele e fototipo são diferentes: tipo = oleosa/mista/seca; fototipo = Fitzpatrick (reação ao sol). Protocolo = procedimento aplicado; análise de pele = avaliação/contexto.</p>
+          <div class="estudo-caso-form-row">
+            <div class="estudo-caso-form-field">
+              <label for="estudoCasoTipoPele">Tipo de pele</label>
+              <select id="estudoCasoTipoPele">
+                <option value="">— Opcional —</option>
+                <option value="oleosa">Oleosa</option>
+                <option value="mista">Mista</option>
+                <option value="seca">Seca</option>
+                <option value="normal">Normal</option>
+                <option value="sensivel">Sensível</option>
+                <option value="outro">Outro</option>
+              </select>
+            </div>
+            <div class="estudo-caso-form-field">
+              <label for="estudoCasoFototipo">Fototipo (Fitzpatrick)</label>
+              <select id="estudoCasoFototipo">
+                <option value="">— Opcional —</option>
+                <option value="I">I</option>
+                <option value="II">II</option>
+                <option value="III">III</option>
+                <option value="IV">IV</option>
+                <option value="V">V</option>
+                <option value="VI">VI</option>
+              </select>
+            </div>
+          </div>
+          <label for="estudoCasoQueixa">Queixa principal</label>
+          <input type="text" id="estudoCasoQueixa" placeholder="Ex.: melasma, acne grau II">
+          <label for="estudoCasoAnalisePele">Análise de pele (resumo, opcional)</label>
+          <textarea id="estudoCasoAnalisePele" rows="2" placeholder="Resumo da avaliação da pele (diferente do protocolo aplicado)"></textarea>
+          <label for="estudoCasoResposta">Resposta observada</label>
+          <select id="estudoCasoResposta">
+            <option value="">— Selecione —</option>
+            <option value="melhora">Melhora</option>
+            <option value="sem_mudanca">Sem mudança</option>
+            <option value="efeito_adverso">Efeito adverso</option>
+          </select>
+          <label for="estudoCasoNSessoes">Nº de sessões (opcional)</label>
+          <input type="number" id="estudoCasoNSessoes" min="1" placeholder="Ex.: 6">
+          <label for="estudoCasoObservacao">Observação (opcional)</label>
+          <textarea id="estudoCasoObservacao" rows="2" placeholder="Detalhes que ajudem o estudo"></textarea>
+          <button type="button" id="estudoCasoBtnRegistrar" class="btn-primary">Registrar caso</button>
+        </div>
+        <div class="estudo-caso-esclarecer-global">
+          <h3>Esclarecer dúvida após leitura</h3>
+          <p class="estudo-caso-esclarecer-hint">Leu um artigo e ficou com dúvida? Descreva o tema ou o que leu e a sua dúvida; a IA ajuda a esclarecer para você aprender de verdade.</p>
+          <label>Tema ou artigo que você leu (opcional)</label>
+          <textarea id="estudoCasoEsclarecerTema" rows="2" placeholder="Ex.: guideline de melasma, artigo sobre ácido retinóico"></textarea>
+          <label>Sua dúvida</label>
+          <textarea id="estudoCasoEsclarecerDuvida" rows="3" placeholder="Ex.: Não entendi a diferença entre X e Y..."></textarea>
+          <button type="button" id="estudoCasoBtnEsclarecer" class="btn-primary">Esclarecer dúvida</button>
+          <pre id="estudoCasoEsclarecerResultado" class="estudo-caso-resultado hidden"></pre>
+        </div>
+        </div>
+      </section>
+
+      <section id="view-protocolo" class="view hidden">
+        <div class="view-header">
+          <h2 class="protocolo-ia-title">Protocolo IA <span class="info-icon" title="Use os campos abaixo ou o resultado da Análise de Pele (view Pele) como entrada. Idade e fototipo melhoram a sugestão." aria-label="Informação">ℹ️</span></h2>
+        </div>
+        <div class="view-card">
+        <div class="protocolo-ia-form">
+          <label for="protocoloAnalise" class="protocolo-ia-label">Análise <span class="info-icon" title="Cole o resultado da view Análise de Pele (JSON) ou descreva o caso em texto livre." aria-label="Informação">ℹ️</span></label>
+          <textarea id="protocoloAnalise" class="protocolo-ia-textarea" rows="5" placeholder="Resultado da Análise de Pele (JSON) ou descrição do caso"></textarea>
+          <div class="protocolo-ia-row">
+            <div class="protocolo-ia-field">
+              <label for="protocoloIdade">Idade</label>
+              <input type="text" id="protocoloIdade" placeholder="Ex.: 35">
+            </div>
+            <div class="protocolo-ia-field">
+              <label for="protocoloFototipo">Fototipo</label>
+              <input type="text" id="protocoloFototipo" placeholder="Ex.: III">
+            </div>
+          </div>
+          <button type="button" id="btnGerarProtocolo" class="btn-primary">Gerar protocolo</button>
+        </div>
+        <pre id="resultadoProtocolo" class="protocolo-ia-resultado"></pre>
+        </div>
+      </section>
+
+      <section id="view-anamnese" class="view hidden">
+        <div class="view-header">
+          <h2>Ficha de Anamnese</h2>
+          <p class="view-lead">Ficha por área/queixa (cabelo, rosto — pele ou injetáveis —, corpo). Abra pelo perfil do cliente ou pela Agenda, ou escolha o cliente abaixo. <strong>Registro completo</strong> (ficha) ou só <strong>evolução</strong> (fotos e comentário).</p>
+        </div>
+        <div class="view-card">
+        <div class="anamnese-cliente-select-wrap">
+          <label for="anamneseClienteSelect">Cliente</label>
+          <select id="anamneseClienteSelect" class="anamnese-cliente-select">
+            <option value="">— Selecione o cliente —</option>
+          </select>
+        </div>
+        <div id="anamneseContext" class="anamnese-context hidden"></div>
+        <div id="anamneseFormWrap" class="anamnese-form-wrap hidden">
+          <label>Tipo de registro</label>
+          <select id="anamneseTipoRegistro">
+            <option value="completo">Ficha completa (primeira vez ou reassessment)</option>
+            <option value="evolucao">Só evolução (fotos e comentário desta sessão)</option>
+          </select>
+          <label>Área / Queixa</label>
+          <select id="anamneseFuncao"></select>
+          <div id="anamneseFichaCamposWrap" class="anamnese-ficha-wrap">
+            <div id="anamneseFichaCampos" class="anamnese-ficha-campos"></div>
+          </div>
+          <label>Observações gerais</label>
+          <textarea id="anamneseConteudo" placeholder="Observações livres deste atendimento…" rows="3"></textarea>
+          <label>Fotos</label>
+          <input type="file" id="anamneseFotos" accept="image/*" multiple>
+          <div id="anamneseFotosPreview" class="anamnese-fotos-preview"></div>
+          <label>Conduta do tratamento</label>
+          <textarea id="anamneseConduta" placeholder="Plano, próximos passos, como conduzir o tratamento…" rows="3"></textarea>
+          <button type="button" id="btnAnamneseSalvar">Salvar ficha</button>
+        </div>
+        <div id="anamneseSemCliente" class="anamnese-sem-cliente hidden">
+          <p>Selecione um cliente no campo acima para acessar a ficha e o histórico.</p>
+        </div>
+        <div id="anamneseHistorio" class="anamnese-historio">
+          <h3>Histórico (evolutivo)</h3>
+          <div id="anamneseRegistros"></div>
+          <div id="anamneseCompareWrap" class="anamnese-compare-wrap hidden"></div>
+        </div>
+        </div>
+      </section>
+
+      <section id="view-analise-pele" class="view hidden">
+        <div class="view-header">
+          <h2>Análises de pele</h2>
+          <p class="view-lead">Análises enviadas pelo portal do cliente. Valide e incorpore à Anamnese (Pele) quando fizer sentido.</p>
+        </div>
+        <div id="analisePeleLista" class="view-card"></div>
+        <div id="analisePeleDetalhe" class="analise-pele-detalhe-wrap hidden" aria-live="polite"></div>
+      </section>
+
+      <section id="view-pele" class="view hidden">
+        <h2>Análise de Pele</h2>
+        <input type="file" id="fotos" multiple>
+        <input id="idade" placeholder="Idade">
+        <input id="fototipo" placeholder="Fototipo">
+        <textarea id="queixa" placeholder="Queixa"></textarea>
+        <button type="button" id="btnAnalisar">Analisar</button>
+        <pre id="resultado"></pre>
+      </section>
+
+      <section id="view-notificacoes" class="view hidden">
+        <div class="view-header">
+          <h2>Notificações</h2>
+          <p class="view-lead">Se apareceu um número no sino (canto superior direito), vale a pena clicar. Aqui você vê todas e pode marcar como lida ou limpar.</p>
+        </div>
+        <div class="view-card">
+          <div id="listaNotificacoes"></div>
+        </div>
+      </section>
+
+      <section id="view-para-clinicas" class="view hidden">
+        <div class="view-header">
+          <h2>Central de ajuda</h2>
+          <p class="view-lead">Dúvidas frequentes, atalhos para as telas e como usar o sistema no dia a dia. Use o tutorial para um passo a passo guiado.</p>
+        </div>
+        <div class="view-card">
+          <p class="para-clinicas-tutorial-wrap">
+            <button type="button" id="btnTutorialRecomecar" class="btn-secondary">📖 Iniciar ou refazer o tutorial</button>
+            <span class="para-clinicas-tutorial-hint">Passo a passo para conhecer o app; também no menu lateral.</span>
+          </p>
+          <p class="para-clinicas-suporte">Precisa de suporte? Entre em contato pelo e-mail ou canal indicado no seu contrato. Para dúvidas de uso, consulte a FAQ abaixo e os atalhos para cada tela.</p>
+        </div>
+        <div class="view-card">
+          <h3 class="view-card-title">Perguntas frequentes</h3>
+          <div class="para-clinicas-faq" id="paraClinicasFaq">
+          <details class="para-clinicas-details">
+            <summary>Por que precificação com taxas da maquininha?</summary>
+            <p>O sistema usa as <strong>taxas reais</strong> que o banco cobra (à vista, parcelado 2–6x, 7–12x) para calcular quanto você <strong>realmente recebe</strong> em cada forma de pagamento. Assim você vê a <strong>margem real</strong> por procedimento e por plano, e define descontos ou parcelas sem perder lucro. O simulador e a precificação dos procedimentos usam esses dados.</p>
+            <p><a href="#" data-view="precificacao-taxas">Ir para Configurações → Taxas da maquininha</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>O que é protocolo aplicado? E a diferença para plano?</summary>
+            <p><strong>Plano</strong> é a proposta comercial (dor do cliente + valor cobrado, ex.: pacote de sessões). <strong>Protocolo</strong> é o método: quais passos, quais produtos, quanto de cada um. O SkinClinic valoriza o <strong>registro do que foi aplicado</strong>: ao marcar “protocolo aplicado” no atendimento, o sistema registra consumo de estoque e mantém histórico. Isso gera rastreabilidade e alimenta o indicador de acurácia de estoque (previsto vs real).</p>
+            <p><a href="#" data-view="protocolo">Ir para Protocolo</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>Como usar planos e margem sem perder lucro?</summary>
+            <p>Cadastre os procedimentos com custo e margem desejada. Ao montar um <strong>plano terapêutico</strong> (vários procedimentos + quantidades), o sistema mostra o valor sugerido do plano. Use o botão <strong>Simular recebimento</strong> para ver quanto você recebe à vista, em 6x ou 12x, e qual desconto pode oferecer. Configure as taxas em <strong>Configurações → Taxas da maquininha</strong> para que os números reflitam a realidade.</p>
+            <p><a href="#" data-view="procedimento">Ir para Procedimentos</a> · <a href="#" data-view="precificacao-taxas">Taxas da maquininha</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>Onde ver fotos e evolução do cliente (antes/depois)?</summary>
+            <p>No <strong>perfil do cliente</strong>, aba <strong>Histórico / Linha do tempo</strong>, há a seção <strong>Fotos antes/depois</strong>: adicione fotos por data e tipo (antes ou depois), opcionalmente vinculadas a um procedimento. Também há o resumo da evolução por área (anamnese) e, na <strong>Ficha de Anamnese</strong>, o <strong>Comparar</strong> para ver dois registros lado a lado e gerar relatório.</p>
+            <p><a href="#" data-view="clientes">Clientes</a> · <a href="#" data-view="anamnese">Anamnese</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>Lembrete de agendamento e mensagem de aniversário</summary>
+            <p>Na <strong>Agenda</strong>, cada agendamento tem: <strong>✉️ E-mail</strong> (abre seu programa de e-mail com mensagem personalizada — custo zero), <strong>📋 Lembrete</strong> (copia o texto com link de confirmação) e <strong>📲 WhatsApp</strong>. Use E-mail quando o cliente tiver e-mail cadastrado. Abaixo da lista do dia, o bloco <strong>Aniversariantes</strong> mostra aniversariantes da semana; use <strong>Enviar mensagem</strong> para parabéns. Em <strong>Empresa</strong> você pode habilitar oferta de brinde de aniversário.</p>
+            <p><a href="#" data-view="agenda">Ir para Agenda</a> · <a href="#" data-view="empresa">Empresa</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>O que é o indicador de acurácia de estoque?</summary>
+            <p>Compara <strong>consumo previsto</strong> (o que o protocolo indica que seria usado) com o <strong>consumo real</strong> que você registra (ex.: após contagem). A meta sugerida é ~85%: quanto mais próximo, melhor a previsão. Em <strong>Estoque</strong>, o bloco “Indicador de acurácia” mostra o período, os totais e a tabela por produto. Use <strong>Registrar consumo real</strong> para informar o que foi realmente consumido.</p>
+            <p><a href="#" data-view="estoque">Ir para Estoque</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>O sistema sugere preço ou desconto sozinho?</summary>
+            <p>Não. A <strong>IA sugere</strong> (valor de procedimento, textos de marketing, estudo de caso, etc.), mas <strong>quem decide é a clínica</strong>. O financeiro não aplica descontos automáticos; o simulador de taxas mostra cenários para você escolher. No portal do cliente, resultados de análise de pele ou rotina passam por <strong>validação</strong> antes do cliente ver — reforçando que a decisão clínica fica com você.</p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>Onde ficam os termos, contratos e documentação jurídica?</summary>
+            <p>Em <strong>Configurações → Documentos e termos</strong> você gerencia: política de privacidade, termo de tratamento de dados (LGPD), política de cancelamento e remarcação, contrato de prestação de serviços e termo de consentimento completo. Essencial para defesa judicial. Os modelos devem ser revisados por advogado. O termo por cliente é no perfil do cliente; cada procedimento pode ter cláusula específica em Procedimentos.</p>
+            <p><a href="#" data-view="documentos-termos">Ir para Documentos e termos</a> · <a href="#" data-view="clientes">Clientes (termo por cliente)</a></p>
+          </details>
+          <details class="para-clinicas-details">
+            <summary>Como obter suporte?</summary>
+            <p>Entre em contato pelo e-mail ou canal indicado no seu contrato ou no momento da assinatura. Para dúvidas de uso do sistema, use esta <strong>Central de ajuda</strong> (FAQ e atalhos acima) e o <strong>tutorial</strong> para conhecer o passo a passo. Em <strong>Configurações</strong> você encontra backup, auditoria, <a href="#" data-view="documentos-termos">documentos e termos</a> e dados da empresa.</p>
+          </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-master" class="view hidden">
+        <div class="view-header">
+          <h2>Configurações</h2>
+          <p class="view-lead">Informações e configurações importantes da organização. Dados da empresa e planos de assinatura ficam aqui.</p>
+        </div>
+        <div class="master-settings-grid">
+          <div class="master-settings-card" data-view="para-clinicas">
+            <span class="master-settings-icon">❓</span>
+            <h3>Central de ajuda</h3>
+            <p>FAQ, atalhos para as telas e tutorial. Dúvidas de uso e como obter suporte.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="empresa">
+            <span class="master-settings-icon">🏢</span>
+            <h3>Dados da empresa</h3>
+            <p>Nome, endereço, CNPJ, logo e salas da clínica.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="planos">
+            <span class="master-settings-icon">💳</span>
+            <h3>Planos</h3>
+            <p>Assinatura e planos da organização.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="precificacao-taxas">
+            <span class="master-settings-icon">📐</span>
+            <h3>Taxas da maquininha</h3>
+            <p>Configure as taxas reais do banco. O sistema usa esses dados na precificação dos procedimentos e dos planos para mostrar margem real e como cobrar.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="backup">
+            <span class="master-settings-icon">💾</span>
+            <h3>Backup</h3>
+            <p>Baixar backup completo ou restaurar dados.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="auditoria">
+            <span class="master-settings-icon">📜</span>
+            <h3>Auditoria</h3>
+            <p>Registro de ações da equipe na organização.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="documentos-termos">
+            <span class="master-settings-icon">📋</span>
+            <h3>Documentos e termos</h3>
+            <p>Política de privacidade, termo LGPD, contrato de prestação de serviços e políticas. Essencial para defesa judicial.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" data-view="analise-pele">
+            <span class="master-settings-icon">🔬</span>
+            <h3>Análises de pele (portal)</h3>
+            <p>Análises enviadas pelos clientes; validar e incorporar à anamnese.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card" id="masterCardPagamento" data-view="pagamento">
+            <span class="master-settings-icon">💳</span>
+            <h3>Pagamento pelo app</h3>
+            <p>Taxa melhor negociada em volume e ganho vindo da operadora.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
+          <div class="master-settings-card master-settings-card--wide" id="masterCardEquipe">
+            <span class="master-settings-icon">👥</span>
+            <h3>Equipe e convites</h3>
+            <p><strong id="masterTotalUsers">0</strong> usuário(s) na organização. Convites pendentes:</p>
+            <ul id="masterListaConvites" class="master-convites-list"></ul>
+            <a href="#" data-view="team" class="btn-secondary master-card-btn">Ir para Equipe</a>
+          </div>
+          <div class="master-settings-card master-settings-card--wide" id="masterCardVisao">
+            <span class="master-settings-icon">📊</span>
+            <h3>Visão geral (esta organização)</h3>
+            <div class="master-metrics-row">
+              <span>Clientes: <strong id="masterMClientes">—</strong></span>
+              <span>Agenda hoje: <strong id="masterMAgenda">—</strong></span>
+              <span>Faturamento mês: <strong id="masterMSaldo">—</strong></span>
+            </div>
+            <div id="masterCompareWrap" class="master-compare-wrap hidden">
+              <h4>Comparativo (todas as organizações)</h4>
+              <div class="master-compare-table-wrap">
+                <table class="master-compare-table">
+                  <thead><tr><th>Organização</th><th>Clientes</th><th>Faturamento</th></tr></thead>
+                  <tbody id="masterCompareTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      <section id="view-pagamento" class="view hidden">
+        <div id="pagamentoContent"></div>
+      </section>
+    </main>
+
+    <!-- Modo tutorial: cartão fixo com passo a passo -->
+    <div id="tutorialWrap" class="tutorial-wrap hidden" aria-hidden="true" role="dialog" aria-label="Tutorial do app">
+      <div class="tutorial-card">
+        <p id="tutorialProgress" class="tutorial-progress" aria-live="polite"></p>
+        <h3 id="tutorialTitle" class="tutorial-title"></h3>
+        <p id="tutorialBody" class="tutorial-body"></p>
+        <div class="tutorial-actions">
+          <button type="button" id="tutorialBtnPrev" class="btn-secondary tutorial-btn-prev">Anterior</button>
+          <button type="button" id="tutorialBtnNext" class="btn-primary">Próximo</button>
+          <button type="button" id="tutorialBtnSkip" class="btn-secondary tutorial-btn-skip">Pular tutorial</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copilot: botão flutuante + painel no canto inferior direito -->
+  <button type="button" id="copilotFab" class="copilot-fab" aria-label="Abrir Copilot" title="Perguntar ao Copilot">🤖</button>
+  <div id="copilotPanel" class="copilot-panel hidden" role="dialog" aria-label="Copilot — Esclarecer dúvidas">
+    <div class="copilot-panel-header">
+      <span class="copilot-panel-title">🤖 Copilot</span>
+      <button type="button" class="copilot-panel-close" id="copilotPanelClose" aria-label="Fechar">×</button>
+    </div>
+    <div class="copilot-panel-context" id="copilotPanelContext"></div>
+    <div class="copilot-panel-chat" id="copilotPanelChat"></div>
+    <div class="copilot-panel-input-wrap">
+      <textarea id="copilotPanelInput" rows="2" placeholder="Pergunte algo sobre esta notificação ou dados da clínica…" autocomplete="off"></textarea>
+      <button type="button" id="copilotPanelSend" class="copilot-panel-send-btn" aria-label="Enviar">Enviar</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL GLOBAL -->
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="modalTitle"></h3>
+    <form id="modalForm">
+      <div id="modalFields"></div>
+      <button type="submit" class="btn-primary">Salvar</button>
+      <button type="button" class="btn-secondary" id="modalCancel">Cancelar</button>
+    </form>
+  </div>
+  <!-- Form de convite não usado aqui: convite é feito pelo modal em Equipe > Convidar usuário -->
+  <form id="inviteForm" class="hidden" aria-hidden="true">
+    <label for="inviteEmail" class="sr-only">E-mail do usuário</label>
+    <input id="inviteEmail" type="email" placeholder="Email do usuário" required aria-label="E-mail do usuário" />
+    <label for="inviteRole" class="sr-only">Função</label>
+    <select id="inviteRole" aria-label="Função do usuário">
+      <option value="funcionario">Funcionário</option>
+      <option value="gestor">Gestor</option>
+    </select>
+    <button type="submit">Convidar</button>
+  </form>
+  <script type="module" src="./js/views/invite-user.views.js"></script>
+</div>
+
+<!-- MODAL DE CONFIRMAÇÃO (ex.: sair) -->
+<div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+  <div class="modal-card modal-card--confirm">
+    <h3 id="confirmTitle"></h3>
+    <p id="confirmMessage" class="confirm-message"></p>
+    <div class="modal-actions">
+      <button type="button" id="confirmCancel" class="btn-secondary">Cancelar</button>
+      <button type="button" id="confirmOk" class="btn-primary">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/core/spa.js"></script>
+
+</body>
+</html>

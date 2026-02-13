@@ -1,0 +1,84 @@
+Desktop
+ └ sucesso
+    ├ index.html
+    ├ dashboard.html
+    ├ reset.html
+    ├ sw.js
+    ├ new-password.html
+    ├agenda.html
+    └/api
+    |    ├copiloto.js
+    |    ├estoque.js
+    |    ├marketing.js
+    |    ├ocr.js
+    |    ├pele.js
+    |    ├preco.js
+    |    ├protocolo.js
+    |    ├skincare.js
+    └ /js
+        ├ /core
+        |     ├auth.js
+        |     ├permissions.js
+        |     ├spa.js
+        |     └supabase.js
+        ├/ css
+        |    └style.css
+        ├ /services
+        |         ├backup.service.js
+        |         ├financeiro.service.js
+        |         ├limits.service.js
+        |         ├notificacoes.service.js
+        |         ├payments.service.js
+        |         ├permissions.service.js
+        |         ├push.service.js
+        |         ├theme.service.js
+        |         ├user.service.js
+        |         ├whatsapp.service.js
+        |         ├logs.service.js
+        |         ├copiloto.service.js
+        |         ├estoque.service.js
+        |         ├export.service.js
+        |         ├marketing.service.js
+        |         ├ocr.service.js
+        |         ├pele.service.js
+        |         ├preco.service.js
+        |         ├protocolo.service.js
+        |         ├skincare.service.js
+        |         └cliente.service.js
+        |         
+        ├/ ui
+        |   ├modal.js
+        |   ├toast.js
+        |   ├errorBoundary.js
+        |   ├loader.js
+        |   └ui.js
+        ├/ utils
+        |      ├pdf.js
+        |      ├cache.js
+        |      └csv.js
+        ├/views
+              ├agenda.views.js
+              ├backup.views.js
+	      ├clientes.views.js
+	      ├dashboard.views.js
+	      ├financeiro.views.js
+	      ├logs.views.js
+	      ├notificacoes.views.js
+	      ├planos.views.js
+	      ├profile.views.js
+	      ├team.views.js
+	      ├copiloto.views.js
+	      ├estoque.views.js
+	      ├export.views.js
+	      ├marketing.views.js
+	      ├ocr.views.js
+	      ├pele.views.js
+	      ├preco.views.js
+	      ├protocolo.views.js
+	      ├skincare.views.js
+	      ├login.views.js
+	      ├new-password.views.js
+	      ├reset.views.js
+	      └skincare.views.js
+	      ├
+

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkinClinic — Onboarding</title>
+  <link rel="stylesheet" href="./js/css/style.css" />
+  <link rel="stylesheet" href="./js/css/onboarding.css" />
+</head>
+
+<body>
+
+  <main class="onboarding">
+    <section class="onboarding-card">
+      <h1>Bem-vindo ao SkinClinic</h1>
+      <p>Vamos criar sua clínica em poucos segundos.</p>
+
+      <form id="onboardingForm">
+        <label>
+          Nome da clínica
+          <input type="text" id="orgName" name="orgName" autocomplete="organization" placeholder="Ex: Clínica Dermatologia" required />
+        </label>
+        <button type="submit" id="btnCreateOrg">Criar clínica</button>
+      </form>
+
+      <p id="onboardingError" class="hidden" style="color: #c00; margin-top: 12px; font-size: 13px;"></p>
+    </section>
+  </main>
+
+  <script type="module" src="./js/onboarding-standalone.js"></script>
+</body>
+</html>

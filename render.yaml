@@ -1,0 +1,16 @@
+# Render.com – Web Service para fase de teste
+# Dashboard → New → Blueprint → selecione o repo; depois configure as env vars no painel do serviço.
+
+services:
+  - type: web
+    name: sucesso-skinclinic
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Configure no painel do Render (Environment):
+      # SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY
+      # OPENAI_KEY (opcional)
+      # BASE_URL = https://seu-app.onrender.com (a URL que o Render der)

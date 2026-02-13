@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    { "source": "/onboarding", "destination": "/onboarding.html" },
+    { "source": "/onboarding/**", "destination": "/onboarding.html" },
+    { "source": "/accept-invite", "destination": "/index.html" },
+    { "source": "/accept-invite/**", "destination": "/index.html" },
+    { "source": "/select-org", "destination": "/index.html" },
+    { "source": "/select-org/**", "destination": "/index.html" }
+  ]
+}

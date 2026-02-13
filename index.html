@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SkinClinic</title>
+  <link rel="stylesheet" href="./js/css/style.css">
+</head>
+<body>
+
+<div id="view-select-org" class="view hidden">
+  <h2>Escolha a clínica</h2>
+  <div id="orgList"></div>
+</div>
+
+<div id="view-login" class="view">
+<div class="card">
+
+<h1>SkinClinic</h1>
+<p>Acesso ao sistema</p>
+
+<form id="loginForm">
+
+  <input 
+    type="email" 
+    id="email" 
+    placeholder="Digite seu email" 
+    required
+  >
+
+  <input 
+    type="password" 
+    id="password" 
+    placeholder="Digite sua senha" 
+    required
+  >
+
+  <button type="submit">
+    Entrar
+  </button>
+
+</form>
+
+<button id="btnGoogle" class="btn-google">
+ Entrar com Google
+</button>
+
+
+<button id="registerBtn">
+  Criar conta
+</button>
+
+<div id="registerModal" class="modal hidden">
+
+  <div class="modal-content">
+
+    <h2>Criar conta</h2>
+
+  <form id="registerForm">
+
+  <input 
+    type="text" 
+    id="name"
+    placeholder="Nome completo"
+    required
+  >
+
+  <input 
+    type="email" 
+    id="registerEmail"
+    placeholder="Email"
+    required
+  >
+
+  <input 
+    type="text" 
+    id="cpf"
+    placeholder="CPF"
+    required
+  >
+
+  <input 
+    type="password" 
+    id="registerPassword"
+    placeholder="Senha"
+    required
+  >
+
+  <input 
+    type="password" 
+    id="confirmPassword"
+    placeholder="Confirmar senha"
+    required
+  >
+
+  <button type="submit">
+    Criar conta
+  </button>
+
+  <p id="registerMsg"></p>
+
+</form>
+
+    <button id="closeModal" class="close">
+      Fechar
+    </button>
+
+
+
+  </div>
+</div>
+
+<a href="./reset.html">
+  Esqueci minha senha
+</a>
+
+<div id="view-master" class="view hidden">
+
+ <h2>Painel Master</h2>
+
+<div class="charts">
+
+ <canvas id="chartFaturamento"></canvas>
+
+ <canvas id="chartClientes"></canvas>
+
+</div>
+
+<h3>Comparativo entre clínicas</h3>
+
+<table class="table">
+ <thead>
+  <tr>
+   <th>Clínica</th>
+   <th>Clientes</th>
+   <th>Faturamento</th>
+  </tr>
+ </thead>
+ <tbody id="compareTable"></tbody>
+</table>
+
+ <div>
+  Usuários:
+  <b id="totalUsers">0</b>
+ </div>
+
+ <h3>Convites Pendentes</h3>
+ <ul id="listaConvites"></ul>
+
+</div>
+
+</div>
+<!-- fim view-login -->
+
+<div id="view-onboarding" class="view hidden">
+  <p style="padding: 1rem;">Carregando…</p>
+</div>
+<div id="view-dashboard" class="view hidden"></div>
+
+
+</div>
+
+
+<script type="module" src="./js/views/login.views.js"></script>
+<script type="module" src="./js/core/spa.js"></script>
+
+</body>
+</html>

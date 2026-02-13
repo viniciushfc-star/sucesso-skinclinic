@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Agenda</title>
+<link rel="stylesheet" href="js/css/style.css">
+</head>
+
+<body>
+
+<div class="card">
+
+<h1>Agenda</h1>
+
+<form id="agendaForm">
+
+<label>Data</label>
+<input type="date" id="date" required>
+
+<label>Hora</label>
+<input type="time" id="time" required>
+
+<label>Cliente</label>
+<select id="clientSelect"></select>
+
+<label>Procedimento</label>
+<input id="procedure" required>
+
+<button class="btn-primary">
+Agendar
+</button>
+
+<button
+ onclick="location.href='dashboard.html'"
+ class="btn-secondary">
+Voltar
+</button>
+
+
+</form>
+
+<hr>
+
+<h3>Agendamentos do dia</h3>
+<pre id="agendaList"></pre>
+
+</div>
+
+<script type="module" src="./js/views/agenda.views.js">
+</script>
+
+</body>
+</html>

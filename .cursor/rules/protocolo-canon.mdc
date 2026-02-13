@@ -1,0 +1,244 @@
+---
+description: Botão Protocolo — lógica clínica + estudo de casos + viabilidade financeira. Não substitui módulos; conecta e organiza. Projeto Sucesso.
+globs:
+  - **/protocolo*
+  - **/planos*
+  - **/plano*
+  - PLANO-CANONICO.md
+  - **/preco*.js
+  - api/protocolo.js
+---
+
+# PROMPT — BOTÃO PROTOCOLO
+## (Lógica Clínica + Estudo de Casos + Viabilidade Financeira)
+### Projeto Sucesso
+
+## CONTEXTO DO SISTEMA
+
+Este sistema já possui:
+
+- Anamnese (com função Pele)
+- Procedimentos
+- Planos
+- Skincare
+- Agenda
+- Financeiro
+- Estoque
+- Copilot
+
+O botão Protocolo **não substitui** nenhum desses módulos.
+Ele **conecta e organiza**.
+
+⚠️ **Não refatorar arquitetura existente.**
+
+---
+
+## DEFINIÇÃO OFICIAL
+
+**Protocolo** = o que é feito **dentro** do procedimento (método + registro do que foi aplicado) + proteção da empresa +, no futuro, inteligência histórica e viabilidade financeira. Protocolo **não é** oferta, **não é** preço, **não é** promessa.
+
+---
+
+## PRINCÍPIO FUNDAMENTAL
+
+**Protocolo organiza o cuidado.**
+**Dados ajudam a escolher melhor.**
+**Humanos decidem.**
+
+---
+
+## AS 3 DIMENSÕES DO PROTOCOLO
+
+1. **Clínica** — como tratar
+2. **Histórica** — o que funcionou melhor
+3. **Financeira** — como sustentar sem perder margem
+
+📌 Isso é extremamente SaaS e extremamente raro em clínica.
+
+---
+
+## PROTOCOLO: PROTEÇÃO DA EMPRESA + ENTRADA FÁCIL
+
+O protocolo é uma forma de **prevenir a empresa** com **o que foi aplicado no paciente**. A entrada de dados tem que ser **fácil e rápida** — não ocupar tanto o tempo do profissional; não ficar sem preencher (fluxo de atendimento já pode ser exaustivo). **Protocolo só cumpre o papel se for rápido de preencher.**
+
+## ONDE O PROTOCOLO VIVE: ABA DO CLIENTE + ATALHO AGENDA + PROTOCOLOS DO DIA
+
+- **Protocolo na aba do cliente:** registro do que foi aplicado fica **na aba do cliente**. Fluxo: agenda → cliente → aba do cliente → preenche protocolo. Não é fluxo separado e pesado.
+- **Atalho da agenda (recomendado):** a partir do **atendimento na agenda**, abrir direto "Registrar o que foi aplicado" **sem** abrir o perfil inteiro do cliente. Agenda → clica no atendimento → registra protocolo (mais rápido).
+- **Protocolos do dia:** visão que cruza **todos os protocolos do dia** — onde: **agenda** (filtro hoje + aba/resumo do dia) ou **dashboard** (bloco "Protocolos hoje"). Cruzar com estoque e histórico.
+
+## ESTRUTURA DO PROTOCOLO
+
+Um protocolo pode conter (o que é feito **dentro** do procedimento):
+
+- passos, produtos aplicados, técnica
+- **descartáveis por protocolo** (o que cada protocolo usa de descartáveis — para o estoque assumir consumo quando o protocolo for aplicado)
+- observações por procedimento
+- registro por sessão/paciente: o que foi aplicado (formulário rápido, poucos campos, sugestões a partir do protocolo)
+
+## ESTOQUE VÊ PELO PROTOCOLO O QUE FOI USADO
+
+- O **estoque** lê pelo protocolo o que foi usado em cada protocolo.
+- **Assume descartáveis:** ao registrar que o protocolo foi aplicado, o sistema **assume** que os descartáveis cadastrados para aquele protocolo também foram usados. Ajuda na análise do estoque sem o profissional registrar item a item.
+- **Histórico para acurácia (meta 85%):** acurácia = **previsão de consumo** (protocolo) vs **consumo real** (registrado/ajustado). Com o tempo, o histórico refina; meta = previsão **no mínimo 85% acertiva**.
+- **Alerta opcional:** ao registrar protocolo aplicado, o sistema pode **alertar** se descartável daquele protocolo estiver em estoque baixo/zerado — para repor ou ajustar, sem bloquear o registro.
+
+---
+
+## ESTUDO DE CASOS (INTELIGÊNCIA HISTÓRICA)
+
+O sistema deve permitir:
+
+- associar **casos reais** aos protocolos
+- **anonimizar** dados
+- agrupar por:
+  - tipo de pele
+  - queixa principal
+  - protocolo aplicado
+  - resposta observada
+
+A IA pode:
+
+- identificar padrões
+- sugerir quais protocolos costumam se adaptar melhor
+
+A IA **não pode**:
+
+- garantir resultado
+- criar promessa clínica
+- substituir julgamento profissional
+
+**Limite importante:** não cria promessa, não garante resultado, não vira argumento clínico automático.  
+📌 **IA explica tendência, não define conduta.**
+
+---
+
+## RELAÇÃO COM ANAMNESE
+
+O protocolo:
+
+- **só pode ser aplicado após anamnese**
+- pode ser adaptado caso a caso
+- **nunca** é imposto automaticamente
+
+---
+
+## RELAÇÃO COM PLANOS
+
+- **Plano** = conjunto de procedimentos + valores de venda (como apresentar ao cliente).
+- **Protocolo** = o que é feito **dentro** do procedimento + registro do que foi aplicado (proteção da empresa). Dois botões que se conversam.
+
+---
+
+## DIMENSÃO FINANCEIRA DO PROTOCOLO
+
+O sistema deve permitir:
+
+- calcular **custo médio** do protocolo
+- considerar:
+  - tempo de agenda
+  - consumo de estoque
+  - custo operacional
+- definir **margem planejada**
+
+---
+
+## SIMULAÇÃO DE DESCONTO E PAGAMENTO — SEMPRE SIMULAÇÃO, NUNCA SUGESTÃO AUTOMÁTICA
+
+Desconto e parcelamento são **sempre simulação**: o usuário escolhe cenários e vê o impacto. O sistema **nunca** sugere automaticamente “dê X% de desconto” ou “parcele em Y vezes”.
+
+Permitir simulações como:
+
+- desconto à vista (usuário informa % e vê margem resultante)
+- parcelamento em X vezes (usuário informa vezes e vê impacto + taxas)
+- impacto de taxas
+
+Sempre mostrando:
+
+- margem final
+- limite seguro de desconto / parcelamento (quando o usuário simula)
+
+📌 **O sistema informa, não decide. Simulação = permitida; sugestão automática = proibida.**
+
+Exemplo de leitura correta: *"Até X parcelas mantém a margem mínima."*  
+Exemplo proibido: *"Recomendamos 5% de desconto à vista."*
+
+---
+
+## VIABILIDADE (NÃO PROMOÇÃO)
+
+O protocolo apoia **viabilidade** (margem, custo, simulação). **Não** é módulo de promoção. O discurso do botão Protocolo é **método + histórico + viabilidade**, nunca “promoção”.
+
+O sistema pode:
+
+- mostrar custo e margem
+- permitir **simulação** de desconto/parcelamento (usuário testa cenários)
+
+O sistema **não pode**:
+
+- gerar promoções ou ofertas automaticamente
+- sugerir desconto ou parcelamento automaticamente (só simulação, nunca sugestão)
+- posicionar o módulo como “promoção” ou “venda”
+
+---
+
+## PAPEL DO COPILOT
+
+O Copilot pode:
+
+- explicar dados
+- resumir estudos de caso
+- mostrar tendências
+- alertar riscos financeiros
+
+**Nunca**:
+
+- criar protocolo clínico sozinho
+- definir preço final
+- substituir decisão humana
+
+---
+
+## CONTROLE DE PERMISSÃO
+
+O botão Protocolo:
+
+- é **técnico**
+- pode ser restrito a cargos específicos
+- não precisa ser visível para todos
+
+---
+
+## O QUE ESTE MÓDULO NÃO FAZ
+
+- Não vende
+- Não promete
+- Não diagnostica
+- Não prescreve sozinho
+- Não decide por humanos
+
+**O botão Protocolo não vira:** módulo comercial puro, oferta automática, gerador de promoções, promessa clínica.  
+Tudo continua: **explicável, auditável, humano-validado.**
+
+---
+
+## FRASES-GUIA (NÃO REMOVER)
+
+- *"Protocolo organiza o cuidado."*
+- *"Histórico orienta, não garante."*
+- *"Margem protege a clínica."*
+- *"O sistema informa, o humano decide."*
+- *"Este módulo existe para transformar experiência em método."*
+- *"Protocolo só cumpre o papel se for rápido de preencher."*
+
+---
+
+## CRITÉRIO DE QUALIDADE
+
+Este módulo está correto se:
+
+- melhora decisão clínica
+- reduz improviso
+- protege margem
+- evita promoções irresponsáveis
+- mantém ética e clareza

@@ -1,0 +1,13 @@
+Quando o bootstrap inicia ele volta para a criação de organização poderia so explicar se o erro ainda e o banco e o que teria que ser feito para eu atualizae o banco de forma correta ou deixar a pasta e os itens com o mesmo nome para funcionar de verdade ?
+
+
+dentro de skincare.. seria interessante o cadastro do cliente também com foto então na interface do cliente ter essa implementação de dados antes do cliente iniciar de fato a anaminese e a analise com ia, 
+
+implementação de contratos de divulgação de imagem e contratos que protejam a clinica de forma segura e com embasamento da lei, 
+ter um dado diferente de qual cliente autorizou o uso de imagem para poder capitar essas imagens com mais facilidade e poder postar ...
+
+dentro da agenda do dia vai aparecer o que esta agendado para aquele horário : exemplo procedimento.. etc e quando clica no horário que esta ocupado aparece o paciente e a ficha dele... para estudo de caso antes da entrada em cabine 
+
+ficha de anaminesse pode ser preenchida pelo cliente quando o plano for a distancia ou o profissional assim decidir ou pode ser preenchido junto ao profissional para reter o máximo de informação possível 
+
+o cadastro pode ser enviado para o cliente para ele acessar o portal dele e ele preencher com as informações e tirar a selfie ou add a foto que ele achar melhor para o cadastro ficar sempre completo mas ainda assim mostrar na auditoria que foi o cliente x quem fez o cadastro dele mesmo, e ai fica disponível um único cadastro por cliente..

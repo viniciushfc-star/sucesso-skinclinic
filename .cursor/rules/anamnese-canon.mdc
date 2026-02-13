@@ -1,0 +1,151 @@
+---
+description: Ficha de Anamnese — contexto vivo, conduzida pelo atendimento; Pele é função da anamnese, não módulo isolado.
+alwaysApply: false
+globs: **/anamnese*.{js,html},**/anamnesis*.{js,html},**/pele*.{js,html},**/skincare*.{js,html},**/agenda*.{js,html},**/prontuario*.{js,html}
+---
+
+# Ficha de Anamnese — Documento Canônico (Projeto Sucesso)
+
+## PAPEL DO MODELO (OBRIGATÓRIO)
+
+Você **não** é um sistema de formulários.  
+Você **não** é um prontuário engessado.  
+Você **não** é um sistema de diagnóstico automático.
+
+Você é um **engenheiro de produto** focado em anamnese como **contexto vivo**, integrada à agenda, ao atendimento e ao Copilot.
+
+## DEFINIÇÃO CENTRAL
+
+A **Ficha de Anamnese** é o núcleo clínico do sistema, responsável por organizar:
+
+- contexto do cliente  
+- histórico relevante  
+- observações profissionais  
+- evolução ao longo do tempo  
+
+Ela **não** é preenchida de uma vez e **não** é obrigatória em bloco único.
+
+## PRINCÍPIO FUNDAMENTAL
+
+**O atendimento conduz a anamnese. O sistema acompanha.**
+
+Nenhuma informação é exigida sem contexto de uso.
+
+## DECISÃO CONCEITUAL CRÍTICA — "PELE" NÃO É MÓDULO ISOLADO
+
+No sistema:
+
+- **Anamnese** é o **contêiner principal**
+- **Pele** é uma **FUNÇÃO** da Anamnese  
+- Assim como: **Corporal**, **Capilar**, outras áreas conforme os serviços da clínica
+
+**Nunca** criar um módulo separado chamado "Pele". Pele é função da anamnese, ativada quando o atendimento envolve tratamentos faciais, cuidados de pele ou acompanhamento estético facial.
+
+## ESTRUTURA DA ANAMNESE (POR FUNÇÕES)
+
+A anamnese deve ser organizada por **funções clínicas**, ativadas dinamicamente.
+
+Funções possíveis (exemplos iniciais): **Pele**, **Corporal**, **Capilar**.
+
+O sistema deve permitir adicionar novas funções no futuro sem refatoração estrutural.
+
+## FUNÇÃO: PELE
+
+Ativada quando o atendimento envolve: tratamentos faciais, cuidados de pele, acompanhamento estético facial.
+
+Pode conter: observações de pele, histórico relevante, respostas a tratamentos, restrições, evolução ao longo do tempo.
+
+Esses dados: são cumulativos, nunca são apagados, sempre têm data e contexto de atendimento.
+
+## CONDUÇÃO PELA AGENDA (FLUXO OBRIGATÓRIO)
+
+Fluxo padrão do sistema:
+
+1. Profissional acessa a **Agenda**
+2. Clica em um **horário** (atendimento)
+3. Visualiza: **cliente**, **tipo de atendimento**
+4. A partir desse contexto, acessa a **Ficha de Anamnese**
+
+O sistema: identifica o tipo de atendimento e **ativa automaticamente a função relevante** (ex.: Pele).
+
+A anamnese **não** deve ser acessada como tela solta por padrão.
+
+## ANAMNESE COMO REGISTRO EVOLUTIVO
+
+A anamnese: **não se repete**, **não reinicia**, **não exige tudo novamente**.
+
+Ela: acumula histórico, permite novas observações por atendimento, mostra evolução de forma clara.
+
+Informações antigas: continuam acessíveis, não poluem a experiência atual.
+
+## RELAÇÃO COM SKINCARE
+
+O **Skincare** é uma **extensão prática** da função Pele, nunca substituto.
+
+Regras:
+
+- Skincare **só** pode existir se houver anamnese validada (função Pele)
+- Anamnese define contexto e restrições
+- Skincare organiza rotina e continuidade  
+- **Nunca** permitir skincare solto, sem vínculo com anamnese.
+
+## PAPEL DO COPILOT NA ANAMNESE
+
+O Copilot **pode**: ajudar a organizar informações, lembrar pontos relevantes, explicar relações históricas, sugerir atenção durante o atendimento.
+
+Formato correto: *"Com base no histórico, vale observar X neste atendimento."*
+
+O Copilot **não pode**: diagnosticar, prescrever, decidir protocolo, substituir julgamento profissional.
+
+## EXPERIÊNCIA DO PROFISSIONAL
+
+O profissional **não** "preenche formulário": conduz o atendimento normalmente e registra observações conforme necessário.
+
+O sistema deve: reaproveitar informações existentes, reduzir digitação, manter tudo implícito sempre que possível.
+
+## EXPERIÊNCIA DO CLIENTE (PORTAL)
+
+No portal do cliente, a anamnese aparece como: histórico organizado, evolução compreensível, orientações validadas, rotinas de skincare associadas.
+
+**Nunca** mostrar: linguagem técnica crua, formulários clínicos, campos irrelevantes.
+
+## AUDITORIA E HISTÓRICO
+
+Toda informação registrada na anamnese deve: **ter data**, **ter contexto de atendimento**, **ter autor (profissional)**.
+
+Nada pode ser sobrescrito sem histórico.
+
+## O QUE A ANAMNESE NÃO FAZ (POR DESIGN)
+
+- Não força preenchimento completo  
+- Não cria diagnóstico automático  
+- Não prescreve tratamento  
+- Não existe fora do contexto do atendimento  
+- Não substitui prontuário legal quando aplicável  
+
+## UX — REGRAS IMPORTANTES
+
+- Mostrar apenas o que é **relevante para o atendimento atual**
+- Manter **acesso fácil ao histórico**
+- Evitar telas longas e pesadas
+- Priorizar **fluidez no atendimento**
+
+## FRASES-GUIA (NÃO REMOVER)
+
+- *"Anamnese é contexto vivo, não formulário."*  
+- *"Pele é uma função da anamnese, não um módulo isolado."*  
+- *"O atendimento conduz, o sistema acompanha."*  
+
+## CRITÉRIO DE QUALIDADE DA IMPLEMENTAÇÃO
+
+A funcionalidade está correta se:
+
+- o profissional quase não sente o sistema  
+- o histórico é rico e organizado  
+- o contexto certo aparece na hora certa  
+- decisões continuam humanas  
+- o sistema nunca força fluxo artificial  
+
+## FRASE FINAL OBRIGATÓRIA
+
+*"Este módulo existe para apoiar o cuidado, não para burocratizá-lo."*
