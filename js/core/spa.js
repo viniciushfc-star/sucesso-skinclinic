@@ -1,5 +1,6 @@
 import { openModal, closeModal, openConfirmModal } from "../ui/modal.js";
 import { checkPermission } from "./permissions.js";
+import { getActiveOrg } from "./org.js";
 import { protectPage, logout, getSession } from "./auth.js";
 import { loadTheme, toggleTheme } from "../services/theme.service.js";
 
@@ -297,6 +298,7 @@ async function init() {
 
 async function applyMenuPermissions() {
   const items = document.querySelectorAll("[data-view]");
+  const orgId = getActiveOrg();
 
   for (const item of items) {
     /* Subitens do Cadastrar: tratados em initCadastrarMenu */
@@ -320,11 +322,16 @@ async function applyMenuPermissions() {
       continue;
     }
 
+    /* Sem org ativa: mantém itens do sidebar visíveis para não deixar menu vazio (ex.: após deploy ou sessão atrasada) */
     let allowed = false;
-    try {
-      allowed = await checkPermission(route.permission);
-    } catch (_) {
-      if (isSidebarItem) allowed = true;
+    if (isSidebarItem && !orgId) {
+      allowed = true;
+    } else {
+      try {
+        allowed = await checkPermission(route.permission);
+      } catch (_) {
+        if (isSidebarItem) allowed = true;
+      }
     }
 
     if (!allowed) {
