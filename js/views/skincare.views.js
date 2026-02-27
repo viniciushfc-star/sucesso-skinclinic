@@ -10,6 +10,8 @@ import { getClientById, getClientes } from "../services/clientes.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listAnalisesPeleByClient } from "../services/analise-pele.service.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina } from "../services/skincare-rotina.service.js";
+import { createAfazer } from "../services/afazeres.service.js";
+import { supabase } from "../core/supabase.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 
@@ -404,7 +406,25 @@ function bindSalvarCliente() {
     }
     try {
       await upsertSkincareRotina(clientId, { conteudo });
-      toast("Rotina salva no perfil do cliente. Edite na aba Rotina skincare e libere no portal quando quiser.");
+      const { data: { user } } = await supabase.auth.getUser();
+      const hoje = new Date().toISOString().slice(0, 10);
+      let nomeCliente = "cliente";
+      try {
+        const client = await getClientById(clientId);
+        nomeCliente = (client?.name || client?.nome || "cliente").replace(/</g, "");
+      } catch (_) {}
+      try {
+        await createAfazer({
+          responsavelUserId: user?.id || null,
+          titulo: `Rotina skincare – enviar/entregar a ${nomeCliente}`,
+          descricao: `Rotina gerada por IA salva no perfil. Entregar ao cliente ou liberar no portal.`,
+          prazo: hoje,
+          tipo: "skincare_remoto",
+        });
+      } catch (e) {
+        console.warn("Afazer skincare:", e);
+      }
+      toast("Rotina salva no perfil do cliente. Tarefa do dia criada na agenda (não ocupa horário).");
       if (skincareSalvarWrap) skincareSalvarWrap.classList.add("hidden");
     } catch (err) {
       console.error(err);

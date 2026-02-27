@@ -16,6 +16,8 @@ import { getSession }
 import { audit }
  from "../services/audit.service.js";
 
+import { redirect } from "../core/base-path.js";
+
 
 export async function init() {
   const container = document.getElementById("view-accept-invite");
@@ -25,7 +27,7 @@ export async function init() {
   const email = session?.user?.email;
 
   if (!email) {
-    window.location.href = "/index.html";
+    redirect("/index.html");
     return;
   }
 
@@ -33,7 +35,7 @@ export async function init() {
 
   if (!invite) {
     toast("Convite não encontrado");
-    window.location.href = "/onboarding.html";
+    redirect("/onboarding.html");
     return;
   }
 
@@ -56,7 +58,7 @@ function bindAccept(invite) {
       showLoader();
       await acceptInviteAndSetActive(invite);
       toast("Bem-vindo à clínica!");
-      window.location.href = "/dashboard.html";
+      redirect("/dashboard.html");
     } 
 await audit({
   action: "team.accept_invite",

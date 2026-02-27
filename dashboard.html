@@ -2,6 +2,11 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="theme-color" content="#16213e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SkinClinic">
+<link rel="manifest" href="manifest.json">
 <title>SkinClinic</title>
 
 <script
@@ -10,8 +15,8 @@
 
 <link rel="stylesheet" href="./js/css/style.css">
 
-<!-- Chart.js 4 (UMD com todos os componentes: linear, doughnut, bar) -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 
 </head>
 
@@ -47,7 +52,18 @@
         </li>
         <li><button type="button" class="sidebar-item" data-view="agenda" title="Agenda"><span class="sidebar-icon">📅</span><span class="sidebar-label">Agenda</span></button></li>
         <li><button type="button" class="sidebar-item" data-view="procedimento" title="Procedimentos e precificação"><span class="sidebar-icon">🩺</span><span class="sidebar-label">Procedimentos</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="financeiro" title="Financeiro"><span class="sidebar-icon">💰</span><span class="sidebar-label">Financeiro</span></button></li>
+        <li class="sidebar-financeiro-wrap" id="financeiroWrap">
+          <button type="button" class="sidebar-item sidebar-item-parent" id="btnFinanceiro" data-financeiro-parent aria-expanded="false" title="Financeiro">
+            <span class="sidebar-icon">💰</span>
+            <span class="sidebar-label">Financeiro</span>
+            <span class="sidebar-chevron" aria-hidden="true">▾</span>
+          </button>
+          <ul class="sidebar-submenu" id="financeiroSubmenu">
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="visao-geral" title="Visão geral"><span class="sidebar-icon">📊</span><span class="sidebar-label">Visão geral</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="dre" title="DRE e relatórios"><span class="sidebar-icon">📈</span><span class="sidebar-label">DRE</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
+          </ul>
+        </li>
         <li class="sidebar-divider"></li>
         <li class="sidebar-marketing-wrap" id="marketingWrap">
           <button type="button" class="sidebar-item sidebar-item-parent" id="btnMarketing" data-marketing-parent aria-expanded="false" title="Marketing">
@@ -104,9 +120,10 @@
           <div class="stat-label" id="statLabelAgenda">Agenda hoje</div>
           <div class="stat-value" id="mAgenda">0</div>
         </div>
-        <div class="stat-card" id="statCardSaldo" data-metric="saldo">
-          <div class="stat-label">Saldo</div>
+        <div class="stat-card" id="statCardSaldo" data-metric="saldo" title="Soma das entradas cadastradas em Financeiro no período do filtro (Hoje/Semana/Mês).">
+          <div class="stat-label" id="statLabelSaldo">Faturamento</div>
           <div class="stat-value" id="mSaldo">R$ 0</div>
+          <div class="stat-hint" id="statSaldoHint"></div>
         </div>
         <div class="stat-card hidden" id="statCardPrevisto" data-metric="previsto">
           <div class="stat-label" id="statLabelPrevisto">Meu previsto hoje</div>
@@ -114,6 +131,13 @@
         </div>
       </div>
     </header>
+
+    <div id="apiErrorBanner" class="api-error-banner hidden" role="alert">
+      <span class="api-error-banner-text">Alguns dados não carregaram. Verifique a conexão ou acesse Configurações.</span>
+      <a href="#" data-view="master" class="api-error-banner-link">Configurações</a>
+      <button type="button" id="apiErrorBannerRetry" class="api-error-banner-link api-error-banner-retry">Tentar novamente</button>
+      <button type="button" class="api-error-banner-dismiss" aria-label="Fechar">×</button>
+    </div>
 
     <div id="notifPanel" class="notif-panel hidden" role="dialog" aria-label="Notificações" aria-modal="false">
       <div class="notif-panel-header">
@@ -146,12 +170,41 @@
           <input type="date" id="endDate" hidden aria-label="Data final">
           <button type="button" id="applyFilter" class="btn-secondary">Aplicar</button>
         </div>
+        <div class="dashboard-agenda-hoje" id="dashboardAgendaHoje">
+          <div class="dashboard-agenda-hoje-header">
+            <h3 class="dashboard-agenda-hoje-title">Agendamentos de hoje</h3>
+            <a href="#" data-view="agenda" class="btn-primary dashboard-agenda-abrir-btn" id="btnDashboardAbrirAgenda">Abrir Agenda</a>
+          </div>
+          <p class="dashboard-agenda-hoje-hint">Mesma data da Agenda. Quantidade e faturamento previsto do dia.</p>
+          <div id="dashboardAgendaHojeList" class="dashboard-agenda-hoje-list"></div>
+          <div id="dashboardAgendaHojePrevisto" class="dashboard-agenda-hoje-previsto"></div>
+          <div id="dashboardConcluidosHoje" class="dashboard-concluidos-hoje">
+            <h4 class="dashboard-concluidos-hoje-title">Concluídos hoje (dar baixa)</h4>
+            <div id="dashboardConcluidosHojeList" class="dashboard-concluidos-hoje-list"></div>
+          </div>
+        </div>
+        <div class="dashboard-chart-wrap" id="dashboardChartWrap">
+          <h3 class="dashboard-chart-title">Faturamento no período</h3>
+          <div class="dashboard-chart-inner">
+            <canvas id="chartFinanceiroLinha" aria-label="Gráfico de linha: faturamento por dia"></canvas>
+          </div>
+        </div>
+        <div class="dashboard-rankings" id="dashboardRankings">
+          <div class="dashboard-ranking-card" id="dashboardRankingProcedimentos">
+            <h3 class="dashboard-ranking-title">Ranking de procedimentos</h3>
+            <div id="dashboardRankingProcedimentosList" class="dashboard-ranking-list"></div>
+            <a href="#" data-view="procedimento" class="dashboard-ranking-link">Ver mais</a>
+          </div>
+          <div class="dashboard-ranking-card" id="dashboardRankingProdutos">
+            <h3 class="dashboard-ranking-title">Ranking de produtos</h3>
+            <div id="dashboardRankingProdutosList" class="dashboard-ranking-list"></div>
+            <a href="#" data-view="protocolo" class="dashboard-ranking-link">Ver mais</a>
+          </div>
+        </div>
         <div class="dashboard-protocolos-dia" id="dashboardProtocolosDia">
           <h3 class="dashboard-protocolos-dia-title">Protocolos aplicados hoje</h3>
           <div id="dashboardProtocolosDiaList" class="dashboard-protocolos-dia-list"></div>
         </div>
-        <canvas id="chartFinanceiro"></canvas>
-        <canvas id="chartAgenda"></canvas>
       </section>
 
       <section id="view-export" class="view hidden">
@@ -218,6 +271,28 @@
           </div>
           <div id="relatorioProcedimentosResult" class="relatorio-procedimentos-result hidden"></div>
         </div>
+        <div class="export-relatorio-contador view-card">
+          <h3 class="view-card-title">Relatório para o contador</h3>
+          <p class="view-hint export-contador-hint">Gere um relatório <strong>mastigado</strong>: um bloco por cliente (nome, CPF, e-mail, atendimentos no período) e totais de entradas/saídas. Assim você pode barganhar: oferecer <strong>mais clientes</strong> com valor menor; o contador recebe tudo resumido e não perde tempo.</p>
+          <div class="export-contador-filtros">
+            <label for="contadorDataInicio">De</label>
+            <input type="date" id="contadorDataInicio" aria-label="Data inicial">
+            <label for="contadorDataFim">Até</label>
+            <input type="date" id="contadorDataFim" aria-label="Data final">
+            <label for="contadorLimiteClientes">Incluir até</label>
+            <select id="contadorLimiteClientes" aria-label="Limite de clientes no relatório">
+              <option value="">Todos os clientes</option>
+              <option value="20">20 clientes</option>
+              <option value="50">50 clientes</option>
+              <option value="100">100 clientes</option>
+            </select>
+            <span class="export-contador-limite-hint">(os que mais tiveram atendimentos no período)</span>
+          </div>
+          <div class="export-contador-actions">
+            <button type="button" id="btnContadorPdf" class="btn-primary">Baixar PDF</button>
+            <button type="button" id="btnContadorWord" class="btn-secondary">Baixar Word</button>
+          </div>
+        </div>
       </section>
 
       <section id="view-planos" class="view hidden">
@@ -254,7 +329,7 @@
               </div>
             </div>
             <div class="empresa-field empresa-field-logo">
-              <label>Logo</label>
+              <span class="form-label">Logo</span>
               <div class="empresa-logo-upload-area">
                 <input type="file" id="empresaLogoFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="empresa-logo-file-input">
                 <label for="empresaLogoFile" class="empresa-logo-import-btn">
@@ -266,6 +341,7 @@
               <div id="empresaLogoPreview" class="empresa-logo-preview" aria-live="polite"></div>
               <details class="empresa-logo-url-details">
                 <summary>Ou informar URL da imagem</summary>
+                <label for="empresaLogoUrl" class="sr-only">URL da imagem</label>
                 <input type="url" id="empresaLogoUrl" placeholder="https://…">
               </details>
             </div>
@@ -329,7 +405,7 @@
             <p id="empresaSalasCount" class="empresa-salas-count">0 sala(s) cadastrada(s)</p>
             <div class="empresa-salas-buttons">
               <button type="button" id="empresaBtnNovaSala" class="btn-primary">+ Nova sala</button>
-              <button type="button" id="empresaBtnGerenciarSalas" class="btn-secondary">Atualizar lista</button>
+              <button type="button" id="empresaBtnGerenciarSalas" class="btn-secondary" title="Recarrega a lista de salas do servidor (útil se algo mudou em outra aba ou após criar/editar salas)."><span class="btn-icon-inline" aria-hidden="true">ℹ️</span> Atualizar lista</button>
             </div>
           </div>
           <div id="empresaSalasLista" class="empresa-salas-lista"></div>
@@ -339,13 +415,27 @@
       <section id="view-team" class="view hidden">
         <div class="view-team-header">
           <h2>Equipe</h2>
+          <p id="teamLinkGerenciarWrap" class="view-team-gerenciar-wrap hidden"><a href="#" id="teamLinkGerenciar" class="btn-link">Gerenciar equipe (convidar, remover, procedimentos)</a> em Configurações.</p>
           <button type="button" id="btnInvite" class="btn-primary">+ Convidar usuário</button>
         </div>
         <p class="view-lead view-team-google-hint">Conecte a agenda Google de cada membro para ver disponibilidade ao criar agendamentos.</p>
+        <details class="team-google-config-details">
+          <summary class="team-google-config-summary">Não consegue vincular? Verifique a configuração</summary>
+          <ul class="team-google-config-list">
+            <li><strong>Servidor:</strong> no <code>.env</code> defina <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> e <code>BASE_URL</code> (ex.: <code>http://localhost:3000</code>).</li>
+            <li><strong>Google Cloud:</strong> Credenciais → OAuth 2.0 → URIs de redirecionamento → adicione <code>[BASE_URL]/api/google-calendar/callback</code> (ex.: <code>http://localhost:3000/api/google-calendar/callback</code>).</li>
+            <li><strong>Supabase:</strong> rode o script <code>supabase-google-calendar-connections.sql</code> para criar a tabela.</li>
+          </ul>
+        </details>
+        <div id="teamDesempenhoWrap" class="view-card team-desempenho-wrap">
+          <h3 class="view-card-title">Desempenho por profissional</h3>
+          <p class="view-hint">Faturamento (entradas com baixa na agenda) e tarefas concluídas no período.</p>
+          <div id="listaTeamDesempenho" class="lista-team-desempenho"></div>
+        </div>
         <div id="listaTeam"></div>
         <div id="teamPaymentWrap" class="view-card team-payment-wrap hidden">
-          <h3 class="view-card-title team-payment-title">Modelo de pagamento (master)</h3>
-          <p class="view-hint team-payment-hint">Registro para análise financeira. Não executa pagamento nem expõe valores em telas operacionais.</p>
+          <h3 class="view-card-title team-payment-title">Como cada membro da equipe é pago</h3>
+          <p class="view-hint team-payment-hint">Defina o modelo de pagamento de cada pessoa (salário fixo, comissão, diária ou combinado). Os valores servem só para sua análise; o sistema não processa pagamentos.</p>
           <div id="listaTeamPayment" class="lista-team-payment"></div>
         </div>
         <div id="teamAfazeresWrap" class="view-card team-afazeres-wrap">
@@ -413,34 +503,51 @@
         <div id="clientePerfilContent"></div>
       </section>
 
+      <section id="view-profissional-perfil" class="view hidden">
+        <div id="profissionalPerfilContent"></div>
+      </section>
+
       <section id="view-agenda" class="view hidden">
+        <div class="agenda-google-style">
+          <header class="agenda-toolbar">
+            <button type="button" id="btnNovoAgendamento" class="agenda-toolbar-create">Criar</button>
+            <div class="agenda-toolbar-nav">
+              <button type="button" id="agendaPrevMonth" class="agenda-toolbar-btn" title="Mês anterior" aria-label="Mês anterior">‹</button>
+              <button type="button" id="agendaGoToday" class="agenda-toolbar-today">Hoje</button>
+              <button type="button" id="agendaNextMonth" class="agenda-toolbar-btn" title="Próximo mês" aria-label="Próximo mês">›</button>
+            </div>
+            <h2 id="agendaMonthTitle" class="agenda-toolbar-title">—</h2>
+            <div class="agenda-toolbar-actions">
+              <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
+              <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
+              <a href="#" id="btnModeloAgenda" class="agenda-toolbar-action" title="Modelo CSV">Modelo</a>
+            </div>
+          </header>
         <div class="agenda-layout">
           <div class="agenda-calendar-wrap">
-            <div class="agenda-calendar-header">
-              <button type="button" id="agendaPrevMonth" class="btn-icon" title="Mês anterior">‹</button>
-              <h2 id="agendaMonthTitle" class="agenda-month-title">—</h2>
-              <button type="button" id="agendaNextMonth" class="btn-icon" title="Próximo mês">›</button>
-            </div>
-            <button type="button" id="agendaGoToday" class="btn-secondary agenda-go-today">Hoje</button>
             <div id="agendaCalendar" class="agenda-calendar" role="grid" aria-label="Calendário mensal"></div>
           </div>
           <div class="agenda-day-wrap">
-            <div class="agenda-day-header">
-              <h3 id="agendaDayTitle" class="agenda-day-title">Agendamentos do dia</h3>
-              <div class="agenda-day-actions">
-                <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
-                <button type="button" id="btnImportarAgenda" class="btn-secondary" title="Importar agenda (CSV)">📥 Importar CSV</button>
-            <a href="#" id="btnModeloAgenda" class="btn-link" title="Baixar modelo CSV">Modelo CSV</a>
-                <button type="button" id="btnNovoAgendamento" class="btn-primary">+ Novo agendamento</button>
-              </div>
+            <div class="agenda-day-filtro">
+              <label for="agendaFiltroProfissional" class="agenda-filtro-label">Profissional</label>
+              <select id="agendaFiltroProfissional" class="agenda-filtro-select" aria-label="Filtrar agenda por profissional">
+                <option value="">Todos</option>
+              </select>
             </div>
-            <div id="listaAgenda" class="lista-agenda"></div>
+            <h3 id="agendaDayTitle" class="agenda-day-title">Agendamentos do dia</h3>
+            <div id="listaAgenda" class="lista-agenda lista-agenda--day"></div>
+            <div id="agendaAfazeresWrap" class="agenda-afazeres-wrap">
+              <h4 class="agenda-afazeres-title">Tarefas do dia (não ocupam horário)</h4>
+              <p class="agenda-afazeres-hint">Lembretes para este dia; não bloqueiam horários na agenda.</p>
+              <div id="listaAgendaAfazeres" class="lista-agenda-afazeres"></div>
+            </div>
             <div id="agendaAniversariantesWrap" class="agenda-aniversariantes-wrap">
               <h3 class="agenda-aniversariantes-title">Aniversariantes</h3>
               <p class="agenda-aniversariantes-hint">Clientes que fazem aniversário hoje ou nesta semana. Envie uma mensagem (ou oferta de brinde, se ativado em <strong>Empresa</strong>).</p>
               <div id="agendaAniversariantesList" class="agenda-aniversariantes-list"></div>
             </div>
           </div>
+        </div>
         </div>
       </section>
 
@@ -524,19 +631,26 @@
       <section id="view-financeiro" class="view hidden">
         <div class="view-financeiro-header">
           <h2>Financeiro</h2>
-          <p class="view-lead view-financeiro-lead">Transações manuais (ex.: aluguel, salários). Vincule a procedimento para receita por serviço; use contas/cartões ou importe extrato (CSV) para gastos. Use a aba <strong>Custo fixo</strong> para configurar aluguel, luz e outros custos recorrentes.</p>
+          <p class="view-lead view-financeiro-lead">Resumo, transações e custos da clínica. Use as abas <strong>Visão geral</strong> e <strong>Custo fixo</strong> para organizar entradas, saídas e gastos recorrentes.</p>
           <div class="financeiro-main-tabs" role="tablist" aria-label="Abas do Financeiro">
             <button type="button" class="financeiro-main-tab is-active" data-tab="visao-geral" role="tab">Visão geral</button>
+            <button type="button" class="financeiro-main-tab" data-tab="dre" role="tab">DRE</button>
             <button type="button" class="financeiro-main-tab" data-tab="custo-fixo" role="tab">Custo fixo</button>
           </div>
         </div>
         <div id="financeiroPanelVisaoGeral" class="financeiro-main-panel" role="tabpanel" data-tab="visao-geral">
+          <p class="view-lead view-financeiro-tab-lead">Resumo do período, gráficos, transações e o que mais traz lucro. Importe extrato ou planilha, cadastre entradas e saídas e acompanhe contas vinculadas.</p>
           <div class="view-financeiro-actions">
-            <button type="button" id="btnImportarExtrato" class="btn-secondary">📥 Importar extrato</button>
+            <details class="financeiro-import-export-dropdown">
+              <summary class="btn-secondary financeiro-import-export-summary" aria-label="Abrir opções de importar e exportar">📥📄 Importar e exportar</summary>
+              <div class="financeiro-import-export-menu" role="menu">
+                <button type="button" id="btnImportarExtrato" class="financeiro-import-export-item" role="menuitem">Importar extrato</button>
+                <button type="button" id="btnImportarPlanilha" class="financeiro-import-export-item" title="Importar planilha financeira (CSV)" role="menuitem">Importar CSV</button>
+                <a href="#" id="btnModeloFinanceiro" class="financeiro-import-export-item financeiro-import-export-link" title="Baixar modelo CSV" role="menuitem">Modelo CSV</a>
+                <button type="button" id="btnPdf" class="financeiro-import-export-item" role="menuitem">Exportar PDF</button>
+              </div>
+            </details>
             <input type="file" id="importFinanceiroFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
-            <button type="button" id="btnImportarPlanilha" class="btn-secondary" title="Importar planilha financeira (CSV)">📥 Importar CSV</button>
-            <a href="#" id="btnModeloFinanceiro" class="btn-link" title="Baixar modelo CSV">Modelo CSV</a>
-            <button type="button" id="btnPdf" class="btn-secondary">📄 Exportar PDF</button>
             <button type="button" id="btnNovaTransacao" class="btn-primary">+ Nova transação</button>
           </div>
           <div id="financeiroCardMargemRisco" class="card-margem-risco hidden" aria-live="polite"></div>
@@ -549,8 +663,78 @@
           </div>
           <div id="financeiroImportacaoBanner" class="financeiro-importacao-banner hidden" role="status" aria-live="polite"></div>
           <div id="financeiroResumo" class="financeiro-resumo"></div>
+          <div id="financeiroResumoMes" class="financeiro-resumo-mes" aria-label="Resumo do mês atual"></div>
+          <div id="financeiroPrevistoReceber" class="financeiro-previsto-receber" aria-label="A receber com agendamentos"></div>
+          <div id="financeiroChartMensal" class="financeiro-chart-mensal" aria-label="Gráfico entradas e saídas por mês"></div>
+          <div id="financeiroRankingLucro" class="financeiro-ranking-lucro" aria-label="O que mais traz lucro"></div>
           <div id="financeiroSaidasDetalhe" class="financeiro-saidas-detalhe"></div>
           <div id="financeiroPorProcedimento" class="financeiro-por-procedimento"></div>
+
+          <details class="financeiro-simulador-formas-wrap" id="financeiroSimuladorFormasWrap">
+            <summary class="financeiro-simulador-formas-summary">Simulador por forma de pagamento</summary>
+            <p class="view-hint financeiro-simulador-hint">Simule quanto a clínica recebe em débito, crédito à vista ou parcelado. Taxas em <a href="#" data-view="precificacao-taxas">Configurações → Taxas da maquininha</a>.</p>
+            <details class="financeiro-simulador-entenda" open>
+              <summary class="financeiro-simulador-entenda-summary">Entenda o impacto: por que parcelas e taxas importam</summary>
+              <div class="financeiro-simulador-entenda-content">
+                <p><strong>Exemplo prático (Botox):</strong></p>
+                <ul class="financeiro-simulador-entenda-list">
+                  <li><strong>Valor cobrado do cliente:</strong> R$ 1.800</li>
+                  <li><strong>Custo do procedimento</strong> (produto, etc.): R$ 700</li>
+                  <li><strong>Comissão do profissional</strong> (30% sobre o valor): R$ 540</li>
+                  <li>Lucro bruto (antes da maquininha): 1.800 − 700 − 540 = <strong>R$ 560</strong></li>
+                  <li>Se o cliente pagar em <strong>12x no cartão</strong>, a taxa pode ficar em torno de 20%: a maquininha fica com <strong>R$ 360</strong>.</li>
+                  <li>O que sobra para a clínica: 560 − 360 = <strong>R$ 200</strong> — pouco para cobrir estrutura e risco.</li>
+                </ul>
+                <p class="financeiro-simulador-entenda-conclusao">Por isso: use o simulador para ver quanto você <em>realmente</em> recebe em cada forma de pagamento e, se preencher custo e comissão, o <strong>lucro da clínica</strong>. Assim você decide até quantas parcelas aceitar e qual desconto à vista oferecer.</p>
+              </div>
+            </details>
+            <div class="financeiro-simulador-form">
+              <div class="financeiro-simulador-field">
+                <label for="financeiroSimuladorValor">Valor cobrado do cliente (R$)</label>
+                <input type="text" id="financeiroSimuladorValor" inputmode="decimal" placeholder="Ex.: 1800,00" class="financeiro-simulador-input">
+              </div>
+              <div class="financeiro-simulador-field financeiro-simulador-field-opcional">
+                <label for="financeiroSimuladorCusto">Custo do procedimento (R$) <span class="financeiro-simulador-opcional">opcional</span></label>
+                <input type="text" id="financeiroSimuladorCusto" inputmode="decimal" placeholder="Ex.: 700,00" class="financeiro-simulador-input" title="Produto, material, etc.">
+              </div>
+              <div class="financeiro-simulador-field financeiro-simulador-field-opcional">
+                <label for="financeiroSimuladorComissao">Comissão do profissional (%) <span class="financeiro-simulador-opcional">opcional</span></label>
+                <input type="number" id="financeiroSimuladorComissao" min="0" max="100" step="0.5" placeholder="Ex.: 30" class="financeiro-simulador-input" title="Percentual sobre o valor cobrado">
+              </div>
+              <div class="financeiro-simulador-field">
+                <label>Tipo</label>
+                <div class="financeiro-simulador-tipo">
+                  <label class="financeiro-simulador-radio"><input type="radio" name="financeiroSimuladorTipo" value="debito"> Débito</label>
+                  <label class="financeiro-simulador-radio"><input type="radio" name="financeiroSimuladorTipo" value="credito" checked> Crédito</label>
+                </div>
+              </div>
+              <div class="financeiro-simulador-field">
+                <label for="financeiroSimuladorParcelas">Parcelas</label>
+                <select id="financeiroSimuladorParcelas" class="financeiro-simulador-select">
+                  <option value="1">1x (à vista)</option>
+                  <option value="2">2x</option>
+                  <option value="3">3x</option>
+                  <option value="4">4x</option>
+                  <option value="5">5x</option>
+                  <option value="6">6x</option>
+                  <option value="7">7x</option>
+                  <option value="8">8x</option>
+                  <option value="9">9x</option>
+                  <option value="10">10x</option>
+                  <option value="11">11x</option>
+                  <option value="12">12x</option>
+                </select>
+              </div>
+              <div class="financeiro-simulador-field">
+                <label for="financeiroSimuladorMargem">Margem mínima desejada (%)</label>
+                <input type="number" id="financeiroSimuladorMargem" min="0" max="100" value="80" step="1" class="financeiro-simulador-input financeiro-simulador-margem" title="Ex.: 80 = receber pelo menos 80% do valor cobrado">
+              </div>
+              <button type="button" id="btnFinanceiroSimular" class="btn-primary financeiro-simulador-btn">Simular</button>
+            </div>
+            <div id="financeiroSimuladorResultado" class="financeiro-simulador-resultado hidden" aria-live="polite"></div>
+            <div id="financeiroSimuladorTabela" class="financeiro-simulador-tabela-wrap" aria-live="polite"></div>
+          </details>
+
           <h3 class="financeiro-list-title">Transações</h3>
           <div id="listaFinanceiro"></div>
 
@@ -590,8 +774,22 @@
           </div>
           </div>
         </div>
+        <div id="financeiroDrePanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="dre" aria-label="DRE — Demonstrativo de Resultados">
+          <p class="view-lead view-financeiro-tab-lead">Demonstrativo de Resultados do Exercício por período. Receitas (entradas), despesas (saídas) e resultado. Exporte em CSV para análise.</p>
+          <div class="financeiro-dre-controls">
+            <label for="financeiroDreInicio">De</label>
+            <input type="date" id="financeiroDreInicio" class="financeiro-dre-input" aria-label="Data inicial">
+            <label for="financeiroDreFim">até</label>
+            <input type="date" id="financeiroDreFim" class="financeiro-dre-input" aria-label="Data final">
+            <button type="button" id="btnFinanceiroDreAtualizar" class="btn-secondary">Atualizar</button>
+            <button type="button" id="btnFinanceiroDreExportCsv" class="btn-primary">Exportar CSV</button>
+          </div>
+          <div id="financeiroDreResumo" class="financeiro-dre-resumo" aria-live="polite"></div>
+          <div id="financeiroDreDetalhe" class="financeiro-dre-detalhe"></div>
+        </div>
         <div id="financeiroCustoFixoPanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="custo-fixo" aria-label="Custo fixo — organizar custos da clínica">
-          <!-- Conteúdo injetado por custo-fixo (ex-setup-inicial) -->
+          <p class="view-lead view-financeiro-tab-lead financeiro-custo-fixo-placeholder">Organize aluguel, luz, internet e outros gastos recorrentes. Marque os itens, informe o valor e crie os lançamentos no Financeiro.</p>
+          <div id="financeiroCustoFixoContent" class="financeiro-custo-fixo-content"></div>
         </div>
       </section>
 
@@ -600,9 +798,23 @@
           <h2>Taxas da maquininha e simulador</h2>
           <p class="view-lead">Configure as taxas reais do banco. O sistema usa esses dados na precificação dos procedimentos e planos para mostrar margem real e sugerir como cobrar (parcelas, desconto à vista).</p>
         </div>
+        <details class="view-card precificacao-referencia-block" open>
+          <summary class="precificacao-referencia-summary">Referência: como funcionam as taxas (estilo PagSeguro)</summary>
+          <div class="precificacao-referencia-body">
+            <p>Em adquirentes como <strong>PagSeguro</strong>, as taxas costumam incluir:</p>
+            <ul>
+              <li><strong>Taxa de transação</strong> — cobrada em toda venda (ex.: 0,49% a 0,99%), além da taxa por forma.</li>
+              <li><strong>Débito à vista</strong> — geralmente menor (ex.: 1,49% a 1,99%).</li>
+              <li><strong>Crédito à vista</strong> — um pouco maior (ex.: 2,49% a 3,99%).</li>
+              <li><strong>Crédito parcelado</strong> — taxa maior e pode subir a cada parcela (ex.: 2,49% + 0,99% por parcela a partir da 2ª).</li>
+              <li><strong>Por bandeira</strong> — Visa, Master, Elo etc. podem ter percentuais diferentes no seu contrato.</li>
+            </ul>
+            <p>PIX, dinheiro e transferência costumam não ter taxa da maquininha (você recebe o valor integral). Consulte sempre o contrato do seu banco ou maquininha para preencher os valores reais abaixo.</p>
+          </div>
+        </details>
         <div class="view-card precificacao-taxas-block">
           <h3 class="view-card-title">Suas taxas com o banco</h3>
-          <p class="view-hint precificacao-taxas-hint">Informe o que a maquininha cobra; o simulador mostrará o valor líquido.</p>
+          <p class="view-hint precificacao-taxas-hint">Como na PagSeguro e em outras adquirentes: as taxas variam por <strong>bandeira</strong> (Visa, Master, Elo etc.) e por <strong>forma</strong> (débito, crédito à vista, parcelado). Informe o que a maquininha cobra; o simulador mostrará o valor líquido por forma de pagamento e, se preencher por bandeira, também por bandeira.</p>
           <form id="precificacaoTaxasForm" class="precificacao-taxas-form">
             <div class="precificacao-taxas-grid">
               <div class="precificacao-taxas-group">
@@ -633,15 +845,70 @@
               <div class="precificacao-taxas-group" id="precificacaoParcelado11"><label for="precificacaoTaxa11">11x</label><input type="number" id="precificacaoTaxa11" min="0" max="100" step="0.01" placeholder="%"></div>
               <div class="precificacao-taxas-group" id="precificacaoParcelado12"><label for="precificacaoTaxa12">12x</label><input type="number" id="precificacaoTaxa12" min="0" max="100" step="0.01" placeholder="%"></div>
             </div>
+            <div class="precificacao-bandeiras-block" id="precificacaoBandeirasBlock">
+              <h4 class="precificacao-bandeiras-title">Taxas por bandeira (opcional)</h4>
+              <p class="view-hint precificacao-bandeiras-hint">Assim como na PagSeguro: você pode informar a taxa de cada bandeira para ver no simulador quanto recebe por bandeira. Se deixar em branco, o sistema usa as taxas gerais acima.</p>
+              <div class="precificacao-bandeiras-table-wrap" role="region" aria-label="Tabela de taxas por bandeira">
+                <table class="precificacao-bandeiras-table" aria-label="Taxas por bandeira">
+                  <thead>
+                    <tr>
+                      <th scope="col">Bandeira</th>
+                      <th scope="col">Débito (%)</th>
+                      <th scope="col">Crédito à vista (%)</th>
+                      <th scope="col">Parcelado 2x–6x (%)</th>
+                      <th scope="col">Parcelado 7x–12x (%)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Visa</td><td><input type="number" id="precificacaoBandeiraVisaDebito" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraVisaCredito" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraVisaParcelado26" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraVisaParcelado712" min="0" max="100" step="0.01" placeholder="—"></td></tr>
+                    <tr><td>Master</td><td><input type="number" id="precificacaoBandeiraMasterDebito" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraMasterCredito" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraMasterParcelado26" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraMasterParcelado712" min="0" max="100" step="0.01" placeholder="—"></td></tr>
+                    <tr><td>Elo</td><td><input type="number" id="precificacaoBandeiraEloDebito" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraEloCredito" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraEloParcelado26" min="0" max="100" step="0.01" placeholder="—"></td><td><input type="number" id="precificacaoBandeiraEloParcelado712" min="0" max="100" step="0.01" placeholder="—"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="precificacao-margem-comissao-policy">
+              <h4 class="precificacao-parcelamento-policy-title">Margem alvo e comissão (análise por procedimento)</h4>
+              <p class="view-hint precificacao-parcelamento-hint">Usado no Financeiro para ver quais procedimentos estão abaixo da margem desejada (custo = material + comissão do profissional). A IA poderá usar esses dados + mercado para sugerir preço, custo ou margem.</p>
+              <div class="precificacao-parcelamento-fields">
+                <div class="precificacao-taxas-group">
+                  <label for="precificacaoMargemAlvoPadrao">Margem alvo padrão (%)</label>
+                  <input type="number" id="precificacaoMargemAlvoPadrao" min="0" max="100" value="40" step="1" placeholder="40">
+                  <span class="precificacao-field-hint">Ex.: 40 = você quer 40% de lucro. Procedimentos sem margem própria usam este valor.</span>
+                </div>
+                <div class="precificacao-taxas-group">
+                  <label for="precificacaoComissaoPadrao">Comissão profissional padrão (%)</label>
+                  <input type="number" id="precificacaoComissaoPadrao" min="0" max="100" step="0.5" placeholder="Ex.: 30">
+                  <span class="precificacao-field-hint">% sobre o valor cobrado que vai para o profissional. Custo total = material + este %.</span>
+                </div>
+              </div>
+            </div>
+            <div class="precificacao-parcelamento-policy">
+              <h4 class="precificacao-parcelamento-policy-title">Regra de parcelamento para vendas</h4>
+              <p class="view-hint precificacao-parcelamento-hint">Só master/gestor altera. Quem for cobrar verá na hora da venda até quantas vezes pode parcelar para manter o lucro da empresa. Se houver dois ou mais procedimentos (valor total), o sistema calcula pelo valor total.</p>
+              <div class="precificacao-parcelamento-fields">
+                <div class="precificacao-taxas-group">
+                  <label for="precificacaoParcelamentoMargem">Margem mínima que a empresa deve manter (%)</label>
+                  <input type="number" id="precificacaoParcelamentoMargem" min="0" max="100" value="80" step="1" placeholder="80">
+                  <span class="precificacao-field-hint">Ex.: 80 = receber pelo menos 80% do valor cobrado (após taxa da maquininha).</span>
+                </div>
+                <div class="precificacao-taxas-group">
+                  <label for="precificacaoParcelamentoMax">Máximo de parcelas a sugerir na cobrança</label>
+                  <input type="number" id="precificacaoParcelamentoMax" min="1" max="12" step="1" placeholder="Ex.: 6 ou vazio">
+                  <span class="precificacao-field-hint">Ex.: 6 = na hora de cobrar aparece "Pode parcelar em até 6x". Deixe vazio para o sistema calcular pelo valor de cada venda.</span>
+                </div>
+              </div>
+            </div>
             <button type="submit" id="precificacaoBtnSalvarTaxas" class="btn-primary">Salvar taxas</button>
           </form>
         </div>
         <div class="view-card precificacao-simulador-block">
           <h3 class="view-card-title">Simulador: quanto você recebe</h3>
           <label for="precificacaoValorProcedimento">Valor do procedimento ou plano (R$)</label>
-          <p class="view-hint precificacao-simulador-hint">Digite o valor para ver o líquido por forma de pagamento e qual desconto à vista faz sentido.</p>
+          <p class="view-hint precificacao-simulador-hint">Digite o valor para ver o líquido por forma de pagamento e qual desconto à vista faz sentido. Use este simulador para mostrar ao responsável como fica o valor recebido em cada forma.</p>
           <input type="text" id="precificacaoValorProcedimento" inputmode="decimal" placeholder="Ex.: 500,00 ou 2.100,00" class="precificacao-input-valor">
           <div id="precificacaoTabelaSimulador" class="precificacao-tabela-wrap" aria-live="polite"></div>
+          <div id="precificacaoTabelaSimuladorBandeiras" class="precificacao-tabela-wrap precificacao-simulador-bandeiras hidden" aria-live="polite"></div>
         </div>
         <div id="precificacaoBlocoDescontoAvista" class="precificacao-desconto-avista hidden" aria-live="polite">
           <h3>Desconto à vista</h3>
@@ -703,8 +970,12 @@
         <div class="backup-blocks">
           <div class="view-card backup-block">
             <h3 class="view-card-title">Baixar backup</h3>
-            <p class="view-hint backup-block-hint">Gera um arquivo com todos os dados atuais.</p>
-            <button type="button" id="btnBackup" class="btn-primary">Baixar backup</button>
+            <p class="view-hint backup-block-hint">Escolha o formato. <strong>JSON</strong> serve para restaurar os dados no sistema. <strong>PDF</strong> e <strong>Word</strong> são relatórios limpos para leitura (sem aspas nem códigos).</p>
+            <div class="backup-download-options" role="group" aria-label="Formato do backup">
+              <button type="button" id="btnBackupJson" class="btn-primary">Baixar JSON</button>
+              <button type="button" id="btnBackupPdf" class="btn-secondary">Baixar PDF</button>
+              <button type="button" id="btnBackupWord" class="btn-secondary">Baixar Word</button>
+            </div>
           </div>
           <div class="view-card backup-block">
             <h3 class="view-card-title">Restaurar backup</h3>
@@ -719,12 +990,20 @@
       <section id="view-documentos-termos" class="view hidden">
         <div class="view-header">
           <h2>Documentos e termos</h2>
-          <p class="view-lead">Contrato de prestação de serviços, termo de consentimento informado, autorização de imagem, orientações pós-procedimento, LGPD e política de cancelamento. Essencial para defesa judicial. Use os modelos como base e revise com advogado especializado antes de produção.</p>
+          <p class="view-lead">Aqui estão os <strong>documentos que uma clínica de estética costuma precisar</strong>: contrato de prestação de serviços, termo de consentimento informado, autorização de uso de imagem, orientações pós-procedimento, termo de privacidade (LGPD), política de cancelamento e remarcação, além da referência à anamnese. Use os modelos como base e revise com advogado especializado antes de usar em produção.</p>
         </div>
         <div class="view-card documentos-termos-aviso">
-          <p class="view-hint"><span class="info-icon" title="Os modelos são ponto de partida. A legislação varia por localidade." aria-label="Informação">ℹ️</span> Estes são <strong>modelos profissionais</strong> para respaldo até você contratar um advogado especializado. Devem ser revisados e adaptados por profissional em direito civil, contratos e direito da saúde/estética. A <strong>Anamnese</strong> (item 7) é a ficha clínica — use o menu Anamnese no app.</p>
+          <p class="view-hint"><span class="info-icon" title="Os modelos são ponto de partida. A legislação varia por localidade." aria-label="Informação">ℹ️</span> Estes são <strong>modelos profissionais</strong> para respaldo até você contratar um advogado especializado. Devem ser revisados e adaptados por profissional em direito civil, contratos e direito da saúde/estética. O advogado pode sugerir outros termos conforme sua prática (ex.: responsabilidade por menores). A <strong>Anamnese</strong> (item 7) é a ficha clínica — use o menu Anamnese no app.</p>
         </div>
         <div id="documentosTermosLista" class="documentos-termos-lista"></div>
+      </section>
+
+      <section id="view-modelos-mensagem" class="view hidden">
+        <div class="view-header">
+          <h2>Modelos de mensagem</h2>
+          <p class="view-lead">Defina textos à sua cara para envio ao cliente. O sistema só preenche o nome do cliente, data, hora, nome da clínica e link de confirmação quando aplicável.</p>
+        </div>
+        <div id="modelosMensagemContainer" class="modelos-mensagem-container"></div>
       </section>
 
       <section id="view-copiloto" class="view hidden">
@@ -825,6 +1104,11 @@
         <div class="view-card estoque-resumo-wrap" id="estoqueResumoWrap">
           <h3 class="view-card-title">Resumo por produto</h3>
           <div id="estoqueResumo" class="estoque-resumo"></div>
+        </div>
+        <div class="view-card estoque-proximos-vencer-wrap" id="estoqueProximosVencerWrap">
+          <h3 class="view-card-title">Próximo a vencer</h3>
+          <p class="view-hint estoque-proximos-vencer-hint">Produtos com validade nos próximos 60 dias. Use para priorizar uso ou lançar campanhas nos procedimentos que utilizam cada produto.</p>
+          <div id="estoqueProximosVencerList" class="estoque-proximos-vencer-list"></div>
         </div>
         <div class="view-card">
           <h3 class="view-card-title">Últimas entradas</h3>
@@ -1015,7 +1299,11 @@
           <label>Observações gerais</label>
           <textarea id="anamneseConteudo" placeholder="Observações livres deste atendimento…" rows="3"></textarea>
           <label>Fotos</label>
-          <input type="file" id="anamneseFotos" accept="image/*" multiple>
+          <p class="anamnese-fotos-hint">Adicione arquivos ou tire foto. Para cada foto você pode datar e colocar uma observação.</p>
+          <div class="anamnese-fotos-actions">
+            <input type="file" id="anamneseFotos" accept="image/*" multiple aria-label="Selecionar fotos">
+            <button type="button" id="btnAnamneseTirarFoto" class="btn-secondary">Tirar foto</button>
+          </div>
           <div id="anamneseFotosPreview" class="anamnese-fotos-preview"></div>
           <label>Conduta do tratamento</label>
           <textarea id="anamneseConduta" placeholder="Plano, próximos passos, como conduzir o tratamento…" rows="3"></textarea>
@@ -1171,6 +1459,12 @@
             <p>Política de privacidade, termo LGPD, contrato de prestação de serviços e políticas. Essencial para defesa judicial.</p>
             <button type="button" class="btn-secondary master-card-btn">Abrir</button>
           </div>
+          <div class="master-settings-card" data-view="modelos-mensagem">
+            <span class="master-settings-icon">💬</span>
+            <h3>Modelos de mensagem</h3>
+            <p>Textos personalizados para lembrete de agendamento, aniversário e marketing. Você escreve; o sistema só troca nome, data e hora.</p>
+            <button type="button" class="btn-secondary master-card-btn">Abrir</button>
+          </div>
           <div class="master-settings-card" data-view="analise-pele">
             <span class="master-settings-icon">🔬</span>
             <h3>Análises de pele (portal)</h3>
@@ -1188,7 +1482,7 @@
             <h3>Equipe e convites</h3>
             <p><strong id="masterTotalUsers">0</strong> usuário(s) na organização. Convites pendentes:</p>
             <ul id="masterListaConvites" class="master-convites-list"></ul>
-            <a href="#" data-view="team" class="btn-secondary master-card-btn">Ir para Equipe</a>
+            <button type="button" id="btnMasterEquipe" class="btn-secondary master-card-btn">Gerenciar equipe</button>
           </div>
           <div class="master-settings-card master-settings-card--wide" id="masterCardVisao">
             <span class="master-settings-icon">📊</span>

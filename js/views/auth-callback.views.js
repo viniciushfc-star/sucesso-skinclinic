@@ -1,5 +1,6 @@
 import { supabase }
 from "../core/supabase.js";
+import { redirect } from "../core/base-path.js";
 
 /* =========================
    AUTH CALLBACK VIEW
@@ -20,11 +21,9 @@ async function validateSession(){
    .getSession();
 
   if(session){
-   window.location.href =
-    "/dashboard.html";
+   redirect("/dashboard.html");
   }else{
-   window.location.href =
-    "/index.html";
+   redirect("/index.html");
   }
 
  }catch(err){
@@ -34,8 +33,7 @@ async function validateSession(){
    err
   );
 
-  window.location.href =
-   "/index.html";
+  redirect("/index.html");
  }
 }
 

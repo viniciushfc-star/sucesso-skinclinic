@@ -9,6 +9,7 @@ import {
   createOrgAndSetActive,
   clearActiveOrg,
 } from "./core/org.js";
+import { redirect } from "./core/base-path.js";
 
 const form = document.getElementById("onboardingForm");
 const input = document.getElementById("orgName");
@@ -32,7 +33,7 @@ async function init() {
     session = await getSession();
   }
   if (!session) {
-    window.location.href = "/index.html";
+    redirect("/index.html");
     return;
   }
 
@@ -40,7 +41,7 @@ async function init() {
 
   const orgs = await loadUserOrganizations();
   if (orgs && orgs.length > 0) {
-    window.location.href = "/dashboard.html";
+    redirect("/dashboard.html");
     return;
   }
 
@@ -60,7 +61,7 @@ async function init() {
 
     try {
       await createOrgAndSetActive(name);
-      window.location.href = "/dashboard.html";
+      redirect("/dashboard.html");
     } catch (err) {
       console.error("[ONBOARDING]", err);
       showError(err.message || "Erro ao criar clínica. Tente de novo.");

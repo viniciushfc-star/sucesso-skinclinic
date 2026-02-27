@@ -1,7 +1,8 @@
 import { openModal, closeModal, openConfirmModal } from "../ui/modal.js";
 import { checkPermission } from "./permissions.js";
 import { getActiveOrg } from "./org.js";
-import { protectPage, logout, getSession } from "./auth.js";
+import { protectPage, logout, getSession, setupSessionExpiredRedirect } from "./auth.js";
+import { getBase, redirect, replace } from "./base-path.js";
 import { loadTheme, toggleTheme } from "../services/theme.service.js";
 
 /** Títulos exibidos no header ao trocar de view */
@@ -11,6 +12,7 @@ const VIEW_TITLES = {
   procedimento: "Procedimentos",
   clientes: "Clientes",
   "cliente-perfil": "Perfil do cliente",
+  "profissional-perfil": "Perfil do profissional",
   financeiro: "Financeiro",
   "precificacao-taxas": "Taxas da maquininha",
   notificacoes: "Notificações",
@@ -33,6 +35,7 @@ const VIEW_TITLES = {
   "analise-pele": "Análises de pele",
   pagamento: "Pagamento pelo app",
   "documentos-termos": "Documentos e termos",
+  "modelos-mensagem": "Modelos de mensagem",
   "para-clinicas": "Para clínicas",
 };
 
@@ -65,6 +68,10 @@ const routes = {
   "cliente-perfil": {
     view: "cliente-perfil.views.js",
     permission: "clientes:view",
+  },
+  "profissional-perfil": {
+    view: "profissional-perfil.views.js",
+    permission: "team:view",
   },
   financeiro: {
     view: "financeiro.views.js",
@@ -154,6 +161,10 @@ const routes = {
     view: "documentos-termos.views.js",
     permission: "master:access",
   },
+  "modelos-mensagem": {
+    view: "modelos-mensagem.views.js",
+    permission: "master:access",
+  },
   "para-clinicas": {
     view: "para-clinicas.views.js",
     permission: "dashboard:view",
@@ -182,20 +193,23 @@ const routes = {
 
 function isLoginPage() {
   const p = typeof window !== "undefined" ? window.location.pathname : "";
-  return p === "/" || p === "/index.html" || p.endsWith("/index.html");
+  const base = getBase();
+  return p === "/" || p === base || p === base + "/" || p.endsWith("/index.html") || p === base + "/index.html";
 }
 
 /* Redireciona /onboarding para página dedicada; accept-invite e select-org para hash no index */
 function normalizeSpaUrl() {
   const p = typeof window !== "undefined" ? window.location.pathname : "";
+  const parts = p.split("/").filter(Boolean);
+  const name = parts[parts.length - 1] || "";
   const strip = (s) => s.replace(/^\//, "").replace(/\.html$/, "");
-  const name = strip(p);
-  if (name === "onboarding") {
-    window.location.replace("/onboarding.html");
+  const baseName = strip(name);
+  if (baseName === "onboarding") {
+    replace("/onboarding.html");
     return true;
   }
-  if (name === "accept-invite" || name === "select-org") {
-    window.location.replace("/index.html#" + name);
+  if (baseName === "accept-invite" || baseName === "select-org") {
+    replace("/index.html#" + baseName);
     return true;
   }
   return false;
@@ -205,6 +219,7 @@ async function init() {
   if (normalizeSpaUrl()) return;
 
   await protectPage();
+  setupSessionExpiredRedirect();
 
   const session = await getSession();
   const hash = (location.hash && location.hash.replace("#", "")) || "";
@@ -238,6 +253,8 @@ async function init() {
   bindThemeButton();
   bindTutorialButton();
   bindSkipLink();
+  bindApiErrorBanner();
+  registerPwaServiceWorker();
   updateThemeButtonIcon();
   /* Copilot FAB: inicializa cedo (só existe em dashboard.html) */
   if (document.getElementById("copilotFab")) {
@@ -248,6 +265,7 @@ async function init() {
   await applyMenuPermissions();
   await initCadastrarMenu();
   await initMarketingMenu();
+  await initFinanceiroMenu();
   await initMenuAnamneseVisibility();
 
   let route = hash || "dashboard";
@@ -263,7 +281,7 @@ async function init() {
       const { next } = await bootstrapAfterLogin();
       const target = next || "dashboard";
       if (target === "dashboard" && isLoginPage()) {
-        window.location.href = "/dashboard.html";
+        redirect("/dashboard.html");
         return;
       }
       await navigate(target);
@@ -273,7 +291,7 @@ async function init() {
     }
   } else {
     if (route === "onboarding") {
-      window.location.href = "/onboarding.html";
+      redirect("/onboarding.html");
       return;
     }
     if ((route === "accept-invite" || route === "select-org") && !session) {
@@ -283,6 +301,11 @@ async function init() {
     } else {
       await navigate(route);
     }
+  }
+
+  // Health check ao carregar: se perfil da org falhar, banner já fica visível (também chamado em carregarView)
+  if (session && document.getElementById("apiErrorBanner")) {
+    updateAppIdentity().catch(() => {});
   }
 
   initPushNotifications();
@@ -305,6 +328,8 @@ async function applyMenuPermissions() {
     if (item.closest("#cadastrarSubmenu")) continue;
     /* Subitens do Marketing: tratados em initMarketingMenu */
     if (item.closest("#marketingSubmenu")) continue;
+    /* Subitens do Financeiro: tratados em initFinanceiroMenu */
+    if (item.closest("#financeiroSubmenu")) continue;
 
     /* Itens dentro do sidebar: não remover, só esconder a linha se sem permissão (mantém layout) */
     const isSidebarItem = item.closest(".sidebar") !== null;
@@ -439,6 +464,33 @@ async function initMarketingMenu() {
 }
 
 /**
+ * Menu Financeiro: Visão geral + Custo fixo como submenu (abas acessíveis sem rolar).
+ */
+async function initFinanceiroMenu() {
+  const wrap = document.getElementById("financeiroWrap");
+  const btn = document.getElementById("btnFinanceiro");
+  const submenu = document.getElementById("financeiroSubmenu");
+  if (!wrap || !btn || !submenu) return;
+
+  let canFinanceiro = false;
+  try {
+    canFinanceiro = await checkPermission(routes.financeiro?.permission || "financeiro:view");
+  } catch (_) {}
+
+  if (!canFinanceiro) {
+    wrap.classList.add("menu-item-hidden");
+    return;
+  }
+  wrap.classList.remove("menu-item-hidden");
+  submenu.classList.add("sidebar-submenu--collapsed");
+
+  btn.onclick = () => {
+    submenu.classList.toggle("sidebar-submenu--collapsed");
+    btn.setAttribute("aria-expanded", submenu.classList.contains("sidebar-submenu--collapsed") ? "false" : "true");
+  };
+}
+
+/**
  * Mostra o item "Anamnese" no menu só se a org tiver menu_anamnese_visible e o usuário tiver permissão.
  */
 async function initMenuAnamneseVisibility() {
@@ -493,7 +545,7 @@ if (!route || typeof route !== "string") {
   }
 
   if (route === "dashboard" && isLoginPage()) {
-    window.location.href = "/dashboard.html";
+    redirect("/dashboard.html");
     return;
   }
 
@@ -533,6 +585,14 @@ async function renderRoute(route) {
   }
   hideAllViews();
   showView(route);
+  /* Financeiro: definir aba antes de setActive para o menu lateral marcar o subitem certo */
+  if (route === "financeiro") {
+    const viewEl = document.getElementById("view-financeiro");
+    if (viewEl) {
+      const tab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null;
+      viewEl.dataset.currentTab = (tab === "custo-fixo" ? "custo-fixo" : "visao-geral");
+    }
+  }
   setActive(route);
   try {
     await carregarView(route);
@@ -574,15 +634,27 @@ async function carregarView(viewName) {
   }
 }
 
-/** Atualiza identidade da empresa no sidebar (nome ou logo) e título da página (co-marca). */
+/** Atualiza identidade da empresa no sidebar (nome ou logo) e título da página (co-marca). Mostra banner se API falhar. */
 async function updateAppIdentity() {
   const el = document.getElementById("sidebarLogo");
   const fallback = el?.dataset.fallback || "SkinClinic";
+  const banner = document.getElementById("apiErrorBanner");
   try {
     const { getOrganizationProfile } = await import("../services/organization-profile.service.js");
     const profile = await getOrganizationProfile();
+    if (banner) banner.classList.add("hidden");
+    if (!profile) {
+      if (banner) {
+        banner.classList.remove("hidden");
+        banner.querySelector(".api-error-banner-text").textContent = "Dados da organização não carregaram (conexão ou configuração). Acesse Configurações ou tente novamente.";
+      }
+      if (el) { el.innerHTML = ""; el.textContent = fallback; el.classList.remove("sidebar-logo--img"); }
+      const headerTitle = document.getElementById("mainHeaderTitle");
+      if (headerTitle) headerTitle.textContent = "SkinClinic";
+      document.title = "SkinClinic";
+      return;
+    }
     const name = (profile.name || "").trim() || fallback;
-
     if (el) {
       el.innerHTML = "";
       if (profile.logo_url && /^https?:\/\//i.test(profile.logo_url)) {
@@ -597,12 +669,11 @@ async function updateAppIdentity() {
         el.classList.remove("sidebar-logo--img");
       }
     }
-
     const headerTitle = document.getElementById("mainHeaderTitle");
     if (headerTitle) headerTitle.textContent = name;
-
     document.title = name && name !== fallback ? `${name} – SkinClinic` : "SkinClinic";
   } catch (_) {
+    if (banner) banner.classList.remove("hidden");
     if (el) {
       el.innerHTML = "";
       el.textContent = fallback;
@@ -646,7 +717,11 @@ function setActive(view) {
     .querySelectorAll("[data-view]")
     .forEach((btn) => {
       btn.classList.remove("active");
-      if (btn.dataset.view === view) {
+      if (btn.closest("#financeiroSubmenu")) {
+        const viewEl = document.getElementById("view-financeiro");
+        const currentTab = viewEl?.dataset?.currentTab || "visao-geral";
+        if (view === "financeiro" && btn.dataset.financeiroTab === currentTab) btn.classList.add("active");
+      } else if (btn.dataset.view === view) {
         btn.classList.add("active");
       }
     });
@@ -680,20 +755,55 @@ function setActive(view) {
       btnMarketing.classList.remove("parent-active");
     }
   }
+
+  /* Financeiro: expandir submenu e marcar parent quando em financeiro */
+  const financeiroSubmenu = document.getElementById("financeiroSubmenu");
+  const btnFinanceiro = document.getElementById("btnFinanceiro");
+  if (financeiroSubmenu && btnFinanceiro) {
+    if (view === "financeiro") {
+      financeiroSubmenu.classList.remove("sidebar-submenu--collapsed");
+      btnFinanceiro.setAttribute("aria-expanded", "true");
+      btnFinanceiro.classList.add("parent-active");
+    } else {
+      financeiroSubmenu.classList.add("sidebar-submenu--collapsed");
+      btnFinanceiro.setAttribute("aria-expanded", "false");
+      btnFinanceiro.classList.remove("parent-active");
+    }
+  }
 }
 
 /* =========================
-   MENU
+   MENU — delegação + preventDefault para clicar sempre ir à view certa
 ========================= */
 
 function bindMenu() {
-  document
-    .querySelectorAll("[data-view]")
-    .forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        await navigate(btn.dataset.view);
-      });
-    });
+  document.addEventListener("click", async (e) => {
+    const el = e.target.closest("[data-view]");
+    if (!el || !el.dataset.view) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (el.dataset.financeiroTab && typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("financeiro_open_tab", el.dataset.financeiroTab);
+    }
+    await navigate(el.dataset.view);
+  });
+}
+
+/** Banner de erro de API: Fechar esconde; Tentar novamente chama updateAppIdentity. */
+function bindApiErrorBanner() {
+  const banner = document.getElementById("apiErrorBanner");
+  const dismiss = banner?.querySelector(".api-error-banner-dismiss");
+  const retry = document.getElementById("apiErrorBannerRetry");
+  if (dismiss) dismiss.addEventListener("click", () => banner?.classList.add("hidden"));
+  if (retry) retry.addEventListener("click", (e) => { e.preventDefault(); updateAppIdentity(); });
+}
+
+/** Registra o Service Worker para PWA (instalável no celular/desktop). Só no dashboard. */
+function registerPwaServiceWorker() {
+  if (typeof navigator?.serviceWorker === "undefined") return;
+  if (!window.location.pathname.includes("dashboard")) return;
+  const base = getBase();
+  navigator.serviceWorker.register(base + "/sw.js", { scope: base + "/" }).catch(() => {});
 }
 
 /* Skip link: ao clicar, foca o conteúdo principal (acessibilidade). */
@@ -770,7 +880,7 @@ function bindLogout() {
   btn.addEventListener("click", () => {
     openConfirmModal("Sair?", "Deseja realmente sair da sua conta?", async () => {
       await logout();
-      window.location.href = "/index.html";
+      redirect("/index.html");
     });
   });
 }

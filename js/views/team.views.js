@@ -1,34 +1,88 @@
-import { inviteUser, getTeam } from "../services/user.service.js"
+import { getTeam } from "../services/user.service.js"
+import { createInvite } from "../services/invite.service.js"
+import { getOrganizationProfile } from "../services/organization-profile.service.js"
+import { getApiBase } from "../core/api-base.js"
 import { toast } from "../ui/toast.js"
 import { openModal, closeModal, openConfirmModal } from "../ui/modal.js"
 import { audit } from "../services/audit.service.js"
-import { removeUserFromOrg } from "../core/org.js"
+import { removeUserFromOrg, getActiveOrg } from "../core/org.js"
 import { getOrgMembers } from "../core/org.js"
+import { supabase } from "../core/supabase.js"
 import { getRole } from "../services/permissions.service.js"
 import { listTeamPaymentModels, upsertTeamPaymentModel } from "../services/team-payment.service.js"
-import { listAfazeres, createAfazer, updateAfazer, deleteAfazer, TIPOS_AFAZERES } from "../services/afazeres.service.js"
+import { listAfazeres, createAfazer, updateAfazer, deleteAfazer, TIPOS_AFAZERES, getAfazeresResumoPorUsuario } from "../services/afazeres.service.js"
 import { getProcedureIdsByProfessional, setProceduresForProfessional } from "../services/professional-procedures.service.js"
 import { listProcedures } from "../services/procedimentos.service.js"
 import { getIndiceCuidado } from "../services/produto-avaliacoes.service.js"
+import { getFaturamentoPorUsuario } from "../services/financeiro.service.js"
 import {
   getConnectUrl,
   getCalendarConnectionsStatus,
   syncCalendar,
   disconnectCalendar,
 } from "../services/google-calendar.service.js"
+import { navigate } from "../core/spa.js"
+
+function openProfissionalPerfil(userId) {
+  if (!userId) return
+  sessionStorage.setItem("profissionalPerfilId", userId)
+  navigate("profissional-perfil")
+}
+
+/** Rótulos de função (papel) para exibição na Equipe */
+const ROLE_LABEL = {
+  staff: "Funcionário",
+  gestor: "Gestor",
+  master: "Administrador",
+  viewer: "Visualização",
+}
 
 
 /* =====================
    SPA INIT
 ===================== */
 
-export function init() {
+/** Modo "gerenciar" (Convidar, Remover, Procedimentos) só para master/gestor e quando vem de Configurações */
+let showManageMode = false
+
+export async function init() {
+  const fromMaster = !!sessionStorage.getItem("teamShowManage")
+  if (fromMaster) sessionStorage.removeItem("teamShowManage")
+  try {
+    const role = await getRole()
+    showManageMode = fromMaster && (role === "master" || role === "gestor")
+  } catch (_) {
+    showManageMode = false
+  }
+
   bindUI()
+  toggleTeamManageUI()
   checkGoogleCalendarCallback()
-  renderTeam()
+  await renderTeam()
   renderAfazeres()
   renderTeamPaymentIfMaster()
   renderIndiceCuidado()
+}
+
+function toggleTeamManageUI() {
+  const btnInviteEl = document.getElementById("btnInvite")
+  const linkGerenciarWrap = document.getElementById("teamLinkGerenciarWrap")
+  const teamPaymentWrap = document.getElementById("teamPaymentWrap")
+  const teamAfazeresWrap = document.getElementById("teamAfazeresWrap")
+  const teamIndiceCuidadoWrap = document.getElementById("teamIndiceCuidadoWrap")
+  if (showManageMode) {
+    if (btnInviteEl) btnInviteEl.style.display = ""
+    if (linkGerenciarWrap) linkGerenciarWrap.classList.add("hidden")
+    if (teamPaymentWrap) teamPaymentWrap.classList.remove("hidden")
+    if (teamAfazeresWrap) teamAfazeresWrap.classList.remove("hidden")
+    if (teamIndiceCuidadoWrap) teamIndiceCuidadoWrap.classList.remove("hidden")
+  } else {
+    if (btnInviteEl) btnInviteEl.style.display = "none"
+    if (linkGerenciarWrap) linkGerenciarWrap.classList.remove("hidden")
+    if (teamPaymentWrap) teamPaymentWrap.classList.add("hidden")
+    if (teamAfazeresWrap) teamAfazeresWrap.classList.add("hidden")
+    if (teamIndiceCuidadoWrap) teamIndiceCuidadoWrap.classList.add("hidden")
+  }
 }
 
 function checkGoogleCalendarCallback() {
@@ -77,6 +131,13 @@ function bindUI(){
   if (btnInvite) btnInvite.onclick = () => openInvite()
   const btnAfazer = document.getElementById("btnNovoAfazer")
   if (btnAfazer) btnAfazer.onclick = () => openNovoAfazerModal()
+  const teamLinkGerenciar = document.getElementById("teamLinkGerenciar")
+  if (teamLinkGerenciar) {
+    teamLinkGerenciar.addEventListener("click", (e) => {
+      e.preventDefault()
+      navigate("master")
+    })
+  }
 }
 
 /* =====================
@@ -105,40 +166,70 @@ export async function renderTeam(){
     lastSyncByUser[c.user_id] = c.last_sync_at
   }
 
+ const showManage = showManageMode
+ const nameFromEmail = (email) => {
+   if (!email) return "Profissional"
+   const part = (email.split("@")[0] || "").replace(/[._]/g, " ")
+   return part.charAt(0).toUpperCase() + part.slice(1) || email
+ }
+ const initialsFromEmail = (email) => {
+   if (!email) return "?"
+   const part = (email.split("@")[0] || "").replace(/[^a-z0-9]/gi, "")
+   return (part.slice(0, 2) || "?").toUpperCase()
+ }
  listaTeam.innerHTML =
  data.map(u=>{
    const connected = connectedUserIds.has(u.id)
    const lastSync = lastSyncByUser[u.id]
    const lastSyncStr = lastSync ? new Date(lastSync).toLocaleString("pt-BR") : ""
    const connectUrl = getConnectUrl(u.id)
+   const rl = ROLE_LABEL[u.role] || u.role
+   const nome = (u.display_name || u.nome || nameFromEmail(u.email)).replace(/</g, "&lt;")
+   const iniciais = (u.avatar_url ? "" : initialsFromEmail(u.email)).replace(/</g, "&lt;")
+   const emailSafe = (u.email || "").replace(/</g, "&lt;")
    return `
-  <div class="item-card">
-   <span class="team-card-email" title="E-mail de login deste usuário na clínica">${u.email}</span><br>
-   <small class="team-card-role">${u.role} – ${u.status}</small><br>
-   <div class="team-card-actions">
-     <button type="button" class="btn-secondary btnProcedimentosProf" data-user="${u.id}" data-email="${u.email}" title="Quais procedimentos este profissional realiza (para agendamento)">Procedimentos que realiza</button>
-     ${connected
-       ? `<button type="button" class="btn-secondary btnGoogleSync" data-user="${u.id}" title="Atualizar blocos de indisponibilidade a partir do Google Agenda">Sincronizar agora</button>
-          <button type="button" class="btn-small btnGoogleDisconnect" data-user="${u.id}" title="Desconectar Google Agenda">Desconectar Google</button>
-          ${lastSyncStr ? `<small class="team-google-last-sync">Última sync: ${lastSyncStr}</small>` : ""}`
-       : connectUrl
-         ? `<a href="${connectUrl}" class="btn-secondary btnGoogleConnect" data-user="${u.id}" title="Conectar agenda Google para considerar compromissos externos na disponibilidade">Conectar Google Agenda</a>`
-         : ""}
+  <div class="item-card team-member-card">
+   <div class="team-member-card-row">
+     <div class="team-member-card-main" role="button" tabindex="0" data-user-id="${u.user_id || u.id}" title="Abrir perfil do profissional">
+       <span class="team-member-avatar-wrap">
+         ${u.avatar_url ? `<img class="team-member-avatar" src="${(u.avatar_url || "").replace(/"/g, "&quot;")}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling?.classList.remove('hidden')">` : ""}
+         <span class="team-member-avatar-initials ${u.avatar_url ? "hidden" : ""}">${iniciais}</span>
+       </span>
+       <div class="team-member-info">
+         <span class="team-member-nome">${nome}</span>
+         <span class="team-member-cargo">${rl}</span>
+         <span class="team-member-email" title="E-mail de login">${emailSafe}</span>
+       </div>
+       <span class="team-member-chevron" aria-hidden="true">›</span>
+     </div>
+     ${showManage ? `<div class="team-member-card-menu-wrap">
+       <button type="button" class="team-member-card-menu-btn" aria-label="Abrir menu do profissional" title="Editar ou remover">⋮</button>
+       <div class="team-member-card-dropdown hidden">
+         <button type="button" class="team-member-card-dropdown-item btnProcedimentosProf" data-user="${u.id}" data-email="${emailSafe}">Procedimentos</button>
+         <button type="button" class="team-member-card-dropdown-item team-member-card-dropdown-item--danger btnRemoveUser" data-user="${u.id}" data-email="${emailSafe}" data-role="${u.role}">Remover</button>
+       </div>
+     </div>` : ""}
    </div>
-   <button
-    data-user="${u.id}"
-    data-email="${u.email}"
-    data-role="${u.role}"
-    class="btnRemoveUser">
-    Remover
-   </button>
+   <div class="team-card-actions">
+     ${connected
+       ? `<button type="button" class="btn-secondary btnGoogleSync" data-user="${u.id}" title="Sincronizar Google Agenda">Sincronizar</button>
+          <button type="button" class="btn-small btnGoogleDisconnect" data-user="${u.id}" title="Desconectar Google Agenda">Desconectar</button>
+          ${lastSyncStr ? `<small class="team-google-last-sync">Sync: ${lastSyncStr}</small>` : ""}`
+       : connectUrl
+         ? `<a href="${connectUrl}" class="btn-secondary btnGoogleConnect" data-user="${u.id}" title="Conectar Google Agenda">Conectar Google Agenda</a>`
+         : `<span class="team-card-actions-hint" title="Clique no card acima para abrir o perfil">Clique no card para abrir o perfil do profissional</span>`}
+   </div>
   </div>
  `
  }).join("")
 
-bindRemoveUser()
-bindProcedimentosProf()
-bindGoogleCalendarButtons()
+ bindTeamCardClicks()
+  bindTeamCardMenus()
+  bindRemoveUser()
+  bindProcedimentosProf()
+  bindGoogleCalendarButtons()
+
+  await renderTeamDesempenho()
 
  }catch(err){
 
@@ -149,6 +240,43 @@ bindGoogleCalendarButtons()
 
   toast("Erro ao carregar equipe")
  }
+}
+
+/** Bloco "Desempenho por profissional": faturamento (últimos 30 dias) e tarefas concluídas */
+async function renderTeamDesempenho() {
+  const wrap = document.getElementById("teamDesempenhoWrap")
+  const listEl = document.getElementById("listaTeamDesempenho")
+  if (!wrap || !listEl) return
+  try {
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - 30)
+    const startStr = start.toISOString().slice(0, 10)
+    const endStr = end.toISOString().slice(0, 10)
+
+    const [faturamentoPorUser, afazeresResumo, teamData] = await Promise.all([
+      getFaturamentoPorUsuario(startStr, endStr),
+      getAfazeresResumoPorUsuario(),
+      getTeam().then((r) => (r.error ? [] : r.data || [])),
+    ])
+    const faturamentoMap = Object.fromEntries((faturamentoPorUser || []).map((x) => [x.user_id, x.total]))
+    const afazeresMap = Object.fromEntries((afazeresResumo || []).map((x) => [x.user_id, { total: x.total, concluidos: x.concluidos }]))
+
+    const rows = (teamData || []).map((u) => {
+      const fat = faturamentoMap[u.id] ?? 0
+      const af = afazeresMap[u.id] || { total: 0, concluidos: 0 }
+      const fatStr = typeof fat === "number" ? fat.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—"
+      const afStr = af.total > 0 ? `${af.concluidos} de ${af.total} tarefas` : "—"
+      return `<tr><td class="team-desempenho-email">${(u.email || "").replace(/</g, "&lt;")}</td><td>${fatStr}</td><td>${afStr}</td></tr>`
+    })
+    listEl.innerHTML =
+      rows.length === 0
+        ? "<p class=\"view-hint\">Nenhum membro na equipe.</p>"
+        : `<table class="table-team-desempenho"><thead><tr><th>Profissional</th><th>Faturamento (30 dias)</th><th>Tarefas concluídas</th></tr></thead><tbody>${rows.join("")}</tbody></table>`
+  } catch (e) {
+    console.error("[TEAM] desempenho", e)
+    listEl.innerHTML = "<p class=\"view-hint\">Erro ao carregar desempenho.</p>"
+  }
 }
 
 function bindGoogleCalendarButtons() {
@@ -198,6 +326,65 @@ function bindGoogleCalendarButtons() {
   })
 }
 
+
+function bindTeamCardClicks() {
+  document.querySelectorAll(".team-member-card-main").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("button") || e.target.closest("a")) return
+      const userId = el.dataset.userId
+      if (userId) {
+        toast("Abrindo perfil…")
+        openProfissionalPerfil(userId)
+      }
+    })
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return
+      e.preventDefault()
+      const userId = el.dataset.userId
+      if (userId) {
+        toast("Abrindo perfil…")
+        openProfissionalPerfil(userId)
+      }
+    })
+  })
+  document.querySelectorAll(".team-card-actions-hint").forEach((hint) => {
+    hint.addEventListener("click", (e) => {
+      e.preventDefault()
+      const card = hint.closest(".team-member-card")
+      const main = card?.querySelector(".team-member-card-main")
+      const userId = main?.dataset?.userId
+      if (userId) {
+        toast("Abrindo perfil…")
+        openProfissionalPerfil(userId)
+      }
+    })
+  })
+}
+
+/** Menu ⋮ no canto do card: abre/fecha dropdown; fecha ao clicar fora */
+function bindTeamCardMenus() {
+  const lista = document.getElementById("listaTeam")
+  if (!lista) return
+  lista.querySelectorAll(".team-member-card").forEach((card) => {
+    const menuBtn = card.querySelector(".team-member-card-menu-btn")
+    const dropdown = card.querySelector(".team-member-card-dropdown")
+    if (!menuBtn || !dropdown) return
+    menuBtn.addEventListener("click", (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const isOpen = !dropdown.classList.contains("hidden")
+      lista.querySelectorAll(".team-member-card-dropdown").forEach((d) => d.classList.add("hidden"))
+      if (!isOpen) dropdown.classList.remove("hidden")
+    })
+    dropdown.addEventListener("click", (e) => e.stopPropagation())
+    dropdown.querySelectorAll(".team-member-card-dropdown-item").forEach((btn) => {
+      btn.addEventListener("click", () => dropdown.classList.add("hidden"))
+    })
+  })
+  document.addEventListener("click", () => {
+    lista.querySelectorAll(".team-member-card-dropdown").forEach((d) => d.classList.add("hidden"))
+  })
+}
 
 function bindRemoveUser(){
 
@@ -286,10 +473,10 @@ function openInvite(){
  openModal(
   "Convidar usuário",
   `
-   <label>E-mail do convidado</label>
+   <label for="inviteEmail">E-mail do convidado</label>
    <input id="inviteEmail" type="email" placeholder="email@exemplo.com">
    <p class="form-hint">O convite será enviado para este e-mail; a pessoa usará esse mesmo e-mail para entrar na clínica.</p>
-   <label>Função</label>
+   <label for="inviteRole">Função</label>
    <select id="inviteRole">
     <option value="staff">Funcionário</option>
     <option value="viewer">Visualização</option>
@@ -304,48 +491,61 @@ function openInvite(){
    ACTION
 ===================== */
 
-async function sendInvite(){
-
- const emailInput =
-  document.getElementById(
-   "inviteEmailModal"
-  )
-
- const roleInput =
-  document.getElementById(
-   "inviteRoleModal"
-  )
-
- if(!emailInput.value){
-  toast("Informe o email")
-  return
- }
-
- try{
-
-  await inviteUser(
-   emailInput.value,
-   roleInput.value
-  )
-
-  closeModal()
-  renderTeam()
-  toast("Convite enviado!")
-
- }catch(err){
-
-  console.error(
-   "[TEAM] erro invite",
-   err
-  )
-
-  toast("Erro ao enviar convite")
+async function sendInvite() {
+  const emailInput = document.getElementById("inviteEmail");
+  const roleInput = document.getElementById("inviteRole");
+  if (!emailInput?.value?.trim()) {
+    toast("Informe o e-mail");
+    return;
+  }
+  const email = emailInput.value.trim();
+  const role = roleInput?.value || "staff";
+  const orgId = getActiveOrg();
+  if (!orgId) {
+    toast("Organização não selecionada");
+    return;
+  }
+  try {
+    await createInvite({ orgId, email, role });
+    const profile = await getOrganizationProfile().catch(() => ({}));
+    const orgName = profile?.name || "";
+    const base = getApiBase();
+    const res = await fetch(base + "/api/send-invite-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role, orgName }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn("[TEAM] E-mail não enviado:", json?.error || res.status);
+      toast("Convite registrado. E-mail de confirmação não foi enviado (verifique RESEND_API_KEY no servidor).");
+    } else if (json.sent) {
+      toast("Convite enviado! O funcionário receberá um e-mail com o link para aceitar.");
+    } else {
+      toast("Convite registrado. Configure RESEND_API_KEY no servidor para enviar o e-mail ao funcionário.");
+    }
+    closeModal();
+    renderTeam();
+  } catch (err) {
+    console.error("[TEAM] erro invite", err);
+    toast(err?.message || "Erro ao enviar convite");
   }
 }
 
 /* =====================
    MODELO DE PAGAMENTO (só master)
 ===================== */
+
+/** Busca nomes em profiles para os user_ids (para exibir na forma de pagamento). */
+async function getDisplayNamesByUserIds(userIds) {
+  if (!userIds || userIds.length === 0) return {}
+  const { data } = await supabase.from("profiles").select("id, nome").in("id", userIds)
+  const map = {}
+  for (const row of data || []) {
+    if (row.id && (row.nome || "").trim()) map[row.id] = (row.nome || "").trim()
+  }
+  return map
+}
 
 async function renderTeamPaymentIfMaster() {
   const wrap = document.getElementById("teamPaymentWrap")
@@ -362,26 +562,32 @@ async function renderTeamPaymentIfMaster() {
       getOrgMembers(),
       listTeamPaymentModels().catch(() => []),
     ])
+    const userIds = (members || []).map((m) => m.user_id).filter(Boolean)
+    const nomesByUser = await getDisplayNamesByUserIds(userIds)
     const modelByUser = (models || []).reduce((acc, m) => { acc[m.user_id] = m; return acc }, {})
-    const labels = { fixo: "Salário fixo", percentual: "Porcentagem por procedimento", diaria: "Diária", combinado: "Combinado" }
+    const labels = { fixo: "Salário fixo", percentual: "Comissão por procedimento", diaria: "Diária", combinado: "Fixo + comissão" }
+    const roleLabels = { master: "Administrador", gestor: "Gestor", staff: "Colaborador", viewer: "Visualização" }
     if (!members || members.length === 0) {
       listEl.innerHTML = "<p class=\"team-payment-empty\">Nenhum membro na organização.</p>"
     } else {
       listEl.innerHTML = members.map((m) => {
         const pm = modelByUser[m.user_id]
-        const resumo = pm ? (labels[pm.payment_type] || pm.payment_type) + (pm.valor_fixo != null ? ` · R$ ${Number(pm.valor_fixo).toFixed(2)}` : "") + (pm.percentual_procedimento != null ? ` · ${pm.percentual_procedimento}%` : "") : "Não definido"
+        const resumo = pm ? (labels[pm.payment_type] || pm.payment_type) + (pm.valor_fixo != null ? ` · R$ ${Number(pm.valor_fixo).toFixed(2)}` : "") + (pm.percentual_procedimento != null ? ` · ${pm.percentual_procedimento}%` : "") + (pm.valor_diaria != null ? ` · R$ ${Number(pm.valor_diaria).toFixed(2)}/dia` : "") : "Não definido"
+        const roleLabel = roleLabels[m.role] || "Colaborador"
+        const displayName = nomesByUser[m.user_id] || roleLabel
         return `
-          <div class="team-payment-card" data-user-id="${m.user_id}">
+          <div class="team-payment-card" data-user-id="${m.user_id}" data-display-name="${(displayName || "").replace(/"/g, "&quot;")}">
             <div>
-              <strong>${(m.role || "Membro")}</strong> <span class="team-payment-user-id">${(m.user_id || "").slice(0, 8)}…</span>
+              <strong class="team-payment-card-name">${(displayName || "").replace(/</g, "&lt;")}</strong>
+              <span class="team-payment-card-role">${nomesByUser[m.user_id] ? ` · ${roleLabel}` : ""}</span>
               <br><span class="team-payment-resumo">${resumo}</span>
             </div>
-            <button type="button" class="btn-secondary btn-edit-payment" data-user-id="${m.user_id}">${pm ? "Editar" : "Definir"}</button>
+            <button type="button" class="btn-secondary btn-edit-payment" data-user-id="${m.user_id}" data-display-name="${(displayName || "").replace(/"/g, "&quot;")}">${pm ? "Editar" : "Definir"}</button>
           </div>
         `
       }).join("")
       listEl.querySelectorAll(".btn-edit-payment").forEach((btn) => {
-        btn.onclick = () => openPaymentModal(btn.dataset.userId)
+        btn.onclick = () => openPaymentModal(btn.dataset.userId, btn.dataset.displayName || "Membro")
       })
     }
   } catch (e) {
@@ -389,60 +595,83 @@ async function renderTeamPaymentIfMaster() {
   }
 }
 
-function openPaymentModal(userId) {
+function openPaymentModal(userId, displayName) {
+  const titleName = (displayName || "este profissional").replace(/</g, "&lt;")
   listTeamPaymentModels().then((models) => {
     const m = (models || []).find((x) => x.user_id === userId)
+    const currentType = m?.payment_type || "fixo"
     const tipos = [
-      { value: "fixo", label: "Salário fixo" },
-      { value: "percentual", label: "Porcentagem por procedimento" },
-      { value: "diaria", label: "Diária" },
-      { value: "combinado", label: "Combinado" },
+      { value: "fixo", label: "Salário fixo", hint: "Valor mensal fixo combinado." },
+      { value: "percentual", label: "Comissão por procedimento", hint: "Percentual sobre o valor de cada procedimento realizado." },
+      { value: "diaria", label: "Diária", hint: "Valor pago por dia de trabalho." },
+      { value: "combinado", label: "Fixo + comissão", hint: "Salário base + percentual sobre procedimentos." },
     ]
-    const opts = tipos.map((t) => `<option value="${t.value}" ${m && m.payment_type === t.value ? "selected" : ""}>${t.label}</option>`).join("")
+    const typeRadios = tipos.map((t) => `
+      <label class="team-payment-type-option ${currentType === t.value ? "is-selected" : ""}" data-type="${t.value}">
+        <input type="radio" name="paymentType" value="${t.value}" ${currentType === t.value ? "checked" : ""}>
+        <span class="team-payment-type-label">${t.label}</span>
+        <span class="team-payment-type-hint">${t.hint}</span>
+      </label>
+    `).join("")
     openModal(
-      "Modelo de pagamento (só registro; não executa pagamento)",
+      "Como " + titleName + " é pago?",
       `
-      <label>Tipo</label>
-      <select id="paymentType">${opts}</select>
-      <div class="team-payment-field" data-types="fixo,combinado">
-        <label>Valor fixo (R$)</label>
-        <input type="number" id="paymentValorFixo" step="0.01" value="${m && m.valor_fixo != null ? m.valor_fixo : ""}" placeholder="Ex.: 3000,00">
+      <p class="team-payment-modal-intro">Escolha o tipo e preencha os valores. Esses dados são só para sua análise; o sistema não processa pagamentos.</p>
+      <div class="team-payment-type-group" id="paymentTypeGroup">
+        ${typeRadios}
       </div>
-      <div class="team-payment-field" data-types="percentual,combinado">
-        <label>Percentual por procedimento (%)</label>
-        <input type="number" id="paymentPercentual" step="0.01" value="${m && m.percentual_procedimento != null ? m.percentual_procedimento : ""}" placeholder="Ex.: 30">
-      </div>
-      <div class="team-payment-field" data-types="diaria,combinado">
-        <label>Valor diária (R$)</label>
-        <input type="number" id="paymentDiaria" step="0.01" value="${m && m.valor_diaria != null ? m.valor_diaria : ""}" placeholder="Ex.: 500,00">
-      </div>
-      <div class="team-payment-field" data-types="fixo,percentual,diaria,combinado">
-        <label>Observação</label>
-        <input type="text" id="paymentObs" value="${m && m.observacao ? m.observacao.replace(/"/g, "&quot;") : ""}" placeholder="Ex.: mínimo de procedimentos, metas, combinações.">
+      <div class="team-payment-fields-wrap" id="paymentFieldsWrap">
+        <div class="team-payment-field" data-types="fixo,combinado">
+          <label for="paymentValorFixo">Valor fixo (R$/mês)</label>
+          <input type="number" id="paymentValorFixo" step="0.01" min="0" value="${m && m.valor_fixo != null ? m.valor_fixo : ""}" placeholder="Ex.: 3500">
+          <span class="team-payment-field-hint">Valor bruto mensal combinado.</span>
+        </div>
+        <div class="team-payment-field" data-types="percentual,combinado">
+          <label for="paymentPercentual">Percentual por procedimento (%)</label>
+          <input type="number" id="paymentPercentual" step="0.01" min="0" max="100" value="${m && m.percentual_procedimento != null ? m.percentual_procedimento : ""}" placeholder="Ex.: 30">
+          <span class="team-payment-field-hint">Sobre o valor cobrado do cliente no procedimento.</span>
+        </div>
+        <div class="team-payment-field" data-types="diaria,combinado">
+          <label for="paymentDiaria">Valor da diária (R$)</label>
+          <input type="number" id="paymentDiaria" step="0.01" min="0" value="${m && m.valor_diaria != null ? m.valor_diaria : ""}" placeholder="Ex.: 400">
+          <span class="team-payment-field-hint">Valor pago por dia trabalhado.</span>
+        </div>
+        <div class="team-payment-field team-payment-field-obs" data-types="fixo,percentual,diaria,combinado">
+          <label for="paymentObs">Observação (opcional)</label>
+          <input type="text" id="paymentObs" value="${m && m.observacao ? m.observacao.replace(/"/g, "&quot;") : ""}" placeholder="Ex.: mínimo 10 procedimentos/mês, meta de faturamento">
+        </div>
       </div>
       <input type="hidden" id="paymentUserId" value="${userId}">
       `,
       () => submitPaymentModel(userId)
     )
-    // Ajusta campos visíveis conforme o tipo escolhido (UX mais guiada)
-    const select = document.getElementById("paymentType")
+    const typeGroup = document.getElementById("paymentTypeGroup")
+    const fieldsWrap = document.getElementById("paymentFieldsWrap")
     const fields = Array.from(document.querySelectorAll(".team-payment-field"))
     const updateVisibility = () => {
-      const tipo = select?.value || ""
+      const tipo = document.querySelector("input[name=paymentType]:checked")?.value || "fixo"
       fields.forEach((f) => {
         const allowed = (f.dataset.types || "").split(",").map((s) => s.trim())
         f.style.display = allowed.includes(tipo) ? "" : "none"
       })
+      typeGroup.querySelectorAll(".team-payment-type-option").forEach((el) => {
+        el.classList.toggle("is-selected", el.dataset.type === tipo)
+      })
     }
-    if (select) {
-      select.addEventListener("change", updateVisibility)
-      updateVisibility()
-    }
+    typeGroup?.querySelectorAll(".team-payment-type-option").forEach((label) => {
+      label.addEventListener("click", () => {
+        const radio = label.querySelector('input[type="radio"]')
+        if (radio) radio.checked = true
+        updateVisibility()
+      })
+    })
+    document.querySelectorAll('input[name=paymentType]').forEach((r) => r.addEventListener("change", updateVisibility))
+    updateVisibility()
   }).catch(() => toast("Erro ao carregar"))
 }
 
 async function submitPaymentModel(userId) {
-  const tipo = document.getElementById("paymentType")?.value
+  const tipo = document.querySelector('input[name=paymentType]:checked')?.value || document.getElementById("paymentType")?.value || "fixo"
   const valorFixo = document.getElementById("paymentValorFixo")?.value
   const percentual = document.getElementById("paymentPercentual")?.value
   const diaria = document.getElementById("paymentDiaria")?.value
@@ -521,16 +750,16 @@ function openNovoAfazerModal() {
     openModal(
       "Novo afazer",
       `
-      <label>Tipo de tarefa</label>
+      <label for="afazerTipo">Tipo de tarefa</label>
       <select id="afazerTipo">${tipoOpts}</select>
       <p class="form-hint">Tarefas como "Atendimento remoto" e "Conferência de estoque" não ocupam sala na agenda.</p>
-      <label>Título</label>
+      <label for="afazerTitulo">Título</label>
       <input type="text" id="afazerTitulo" placeholder="Ex: Análise de skincare remoto" required>
-      <label>Descrição (opcional)</label>
+      <label for="afazerDesc">Descrição (opcional)</label>
       <textarea id="afazerDesc" rows="2" placeholder="Detalhes"></textarea>
-      <label>Responsável</label>
+      <label for="afazerResponsavel">Responsável</label>
       <select id="afazerResponsavel">${memOpts}</select>
-      <label>Prazo (opcional)</label>
+      <label for="afazerPrazo">Prazo (opcional)</label>
       <input type="date" id="afazerPrazo">
       `,
       submitNovoAfazer

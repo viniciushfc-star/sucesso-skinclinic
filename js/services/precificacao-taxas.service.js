@@ -21,6 +21,15 @@ export async function getTaxas() {
     const key = `taxa_parcelado_${i}_pct`;
     out[key] = profile[key] != null ? Number(profile[key]) : null;
   }
+  if (profile.taxas_bandeiras != null && typeof profile.taxas_bandeiras === "object") {
+    out.taxas_bandeiras = profile.taxas_bandeiras;
+  } else {
+    out.taxas_bandeiras = null;
+  }
+  out.parcelamento_margem_minima_pct = profile.parcelamento_margem_minima_pct != null ? Number(profile.parcelamento_margem_minima_pct) : 80;
+  out.parcelamento_max_parcelas = profile.parcelamento_max_parcelas != null ? profile.parcelamento_max_parcelas : null;
+  out.margem_alvo_padrao_pct = profile.margem_alvo_padrao_pct != null ? Number(profile.margem_alvo_padrao_pct) : 40;
+  out.comissao_profissional_padrao_pct = profile.comissao_profissional_padrao_pct != null ? Number(profile.comissao_profissional_padrao_pct) : null;
   return out;
 }
 
@@ -115,6 +124,21 @@ export async function saveTaxas(payload) {
   for (let i = 2; i <= 12; i++) {
     update[`taxa_parcelado_${i}_pct`] = toNum(payload[`taxa_parcelado_${i}_pct`]);
   }
+  if (payload.taxas_bandeiras !== undefined) {
+    update.taxas_bandeiras = payload.taxas_bandeiras && typeof payload.taxas_bandeiras === "object" ? payload.taxas_bandeiras : null;
+  }
+  if (payload.parcelamento_margem_minima_pct !== undefined) {
+    update.parcelamento_margem_minima_pct = toNum(payload.parcelamento_margem_minima_pct) ?? 80;
+  }
+  if (payload.parcelamento_max_parcelas !== undefined) {
+    update.parcelamento_max_parcelas = (payload.parcelamento_max_parcelas === "" || payload.parcelamento_max_parcelas == null) ? null : Math.min(12, Math.max(1, parseInt(payload.parcelamento_max_parcelas, 10) || 1));
+  }
+  if (payload.margem_alvo_padrao_pct !== undefined) {
+    update.margem_alvo_padrao_pct = toNum(payload.margem_alvo_padrao_pct) ?? 40;
+  }
+  if (payload.comissao_profissional_padrao_pct !== undefined) {
+    update.comissao_profissional_padrao_pct = (payload.comissao_profissional_padrao_pct === "" || payload.comissao_profissional_padrao_pct == null) ? null : toNum(payload.comissao_profissional_padrao_pct);
+  }
   await updateOrganizationProfile(update);
 }
 
@@ -129,6 +153,31 @@ export async function updateTaxasOrganizacao(payload) {
 
 /** Alias para a view. */
 export const getTaxaParaParcelas = getTaxaForParcelas;
+
+/**
+ * Máximo de parcelas que ainda mantém a margem mínima da empresa para um dado valor.
+ * Usado na cobrança para mostrar "parcelar em até Nx no cartão".
+ * @param {number} valor - Valor cobrado (ex.: soma de procedimentos)
+ * @returns {Promise<{ maxParcelas: number, margemPct: number }>} maxParcelas (1–12) e margem usada
+ */
+export async function getMaxParcelasParaValor(valor) {
+  const v = Number(valor) || 0;
+  if (v <= 0) return { maxParcelas: 1, margemPct: 80 };
+  const profile = await getOrganizationProfile();
+  const margemPct = Math.min(100, Math.max(0, Number(profile.parcelamento_margem_minima_pct) || 80));
+  const maxFixo = profile.parcelamento_max_parcelas != null ? Math.min(12, Math.max(1, parseInt(profile.parcelamento_max_parcelas, 10))) : null;
+  const taxas = await getTaxas();
+  const valorMinimo = v * (margemPct / 100);
+  let maxParcelas = 0;
+  for (let n = 1; n <= 12; n++) {
+    const taxaPct = getTaxaForParcelas(taxas, n, "credito");
+    const liquido = calcularLiquido(v, taxaPct);
+    if (liquido >= valorMinimo) maxParcelas = n;
+  }
+  const N = maxParcelas || 1;
+  const final = maxFixo != null ? Math.min(N, maxFixo) : N;
+  return { maxParcelas: final, margemPct };
+}
 
 /* ========== Precificação com margem (cruzamento com Procedimentos) ========== */
 

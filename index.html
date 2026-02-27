@@ -1,7 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#16213e">
+  <link rel="manifest" href="manifest.json">
   <title>SkinClinic</title>
   <link rel="stylesheet" href="./js/css/style.css">
 </head>
@@ -27,12 +30,16 @@
     required
   >
 
-  <input 
-    type="password" 
-    id="password" 
-    placeholder="Digite sua senha" 
-    required
-  >
+  <div class="input-password-wrap">
+    <input 
+      type="password" 
+      id="password" 
+      placeholder="Digite sua senha" 
+      required
+      autocomplete="current-password"
+    >
+    <button type="button" class="input-password-toggle" id="togglePasswordLogin" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+  </div>
 
   <button type="submit">
     Entrar
@@ -78,19 +85,27 @@
     required
   >
 
-  <input 
-    type="password" 
-    id="registerPassword"
-    placeholder="Senha"
-    required
-  >
+  <div class="input-password-wrap">
+    <input 
+      type="password" 
+      id="registerPassword"
+      placeholder="Senha"
+      required
+      autocomplete="new-password"
+    >
+    <button type="button" class="input-password-toggle" id="togglePasswordRegister" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+  </div>
 
-  <input 
-    type="password" 
-    id="confirmPassword"
-    placeholder="Confirmar senha"
-    required
-  >
+  <div class="input-password-wrap">
+    <input 
+      type="password" 
+      id="confirmPassword"
+      placeholder="Confirmar senha"
+      required
+      autocomplete="new-password"
+    >
+    <button type="button" class="input-password-toggle" id="togglePasswordConfirm" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+  </div>
 
   <button type="submit">
     Criar conta
@@ -109,9 +124,7 @@
   </div>
 </div>
 
-<a href="./reset.html">
-  Esqueci minha senha
-</a>
+<a href="reset.html" id="linkEsqueciSenha">Esqueci minha senha</a>
 
 <div id="view-master" class="view hidden">
 

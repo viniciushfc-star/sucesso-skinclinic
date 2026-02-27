@@ -14,8 +14,14 @@ import {
   listRegistrosByClientAndFuncao,
   createRegistro,
   uploadFotoAnamnese,
-  updateResultadoResumo
+  updateResultadoResumo,
+  listCamposPersonalizados,
+  createCampoPersonalizado,
+  deleteCampoPersonalizado
 } from "../services/anamnesis.service.js";
+import { getRole } from "../services/permissions.service.js";
+import { startCameraCapture } from "../utils/camera.js";
+import { openModal, closeModal } from "../ui/modal.js";
 
 const STORAGE_AGENDA = "anamnese_agenda_id";
 const STORAGE_CLIENT = "anamnese_client_id";
@@ -42,6 +48,9 @@ function renderFichaField(c, escapeHtml) {
   if (c.type === "textarea") {
     return `<label for="${id}">${escapeHtml(c.label)}</label><textarea id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}" rows="2"></textarea>`;
   }
+  if (c.type === "number") {
+    return `<label for="${id}">${escapeHtml(c.label)}</label><input type="number" id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}" step="any">`;
+  }
   return `<label for="${id}">${escapeHtml(c.label)}</label><input type="text" id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}">`;
 }
 
@@ -58,6 +67,44 @@ const FACE_ZONAS = [
   { id: "queixo", label: "Queixo" },
   { id: "outras", label: "Outras (descreva na observação)" }
 ];
+
+/** Produtos aplicáveis e unidade de medida (por ponto) */
+const PRODUTOS_APLICACAO = [
+  { id: "botox", label: "Toxina botulínica (Botox)", unidade: "UI" },
+  { id: "bioestimulador", label: "Bioestimulador", unidade: "UI" },
+  { id: "preenchimento", label: "Preenchimento (AH)", unidade: "ml" },
+  { id: "outro", label: "Outro", unidade: "un" }
+];
+
+/** SVG rosto (vista frontal) — clique na imagem para marcar pontos */
+const FACE_SVG = `
+<svg viewBox="0 0 200 260" class="anamnese-mapa-svg" aria-label="Rosto: clique para marcar ponto de aplicação">
+  <ellipse cx="100" cy="100" rx="75" ry="95" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
+  <ellipse cx="70" cy="85" rx="12" ry="14" fill="none" stroke="#94a3b8" stroke-width="1"/>
+  <ellipse cx="130" cy="85" rx="12" ry="14" fill="none" stroke="#94a3b8" stroke-width="1"/>
+  <path d="M 65 130 Q 100 150 135 130" fill="none" stroke="#94a3b8" stroke-width="1"/>
+  <ellipse cx="100" cy="165" rx="15" ry="18" fill="none" stroke="#94a3b8" stroke-width="1"/>
+  <text x="100" y="235" text-anchor="middle" font-size="9" fill="#64748b">Clique no rosto para adicionar ponto</text>
+</svg>
+`;
+
+/** SVG barriga (contorno simplificado) */
+const BARRIGA_SVG = `
+<svg viewBox="0 0 180 220" class="anamnese-mapa-svg" aria-label="Barriga: clique para marcar ponto">
+  <ellipse cx="90" cy="70" rx="55" ry="25" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
+  <path d="M 35 70 Q 90 180 145 70" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="90" y="200" text-anchor="middle" font-size="9" fill="#64748b">Clique para adicionar ponto</text>
+</svg>
+`;
+
+/** SVG glúteos (dois contornos) */
+const GLUTEOS_SVG = `
+<svg viewBox="0 0 200 180" class="anamnese-mapa-svg" aria-label="Glúteos: clique para marcar ponto">
+  <ellipse cx="65" cy="75" rx="45" ry="55" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
+  <ellipse cx="135" cy="75" rx="45" ry="55" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="100" y="165" text-anchor="middle" font-size="9" fill="#64748b">Clique para adicionar ponto</text>
+</svg>
+`;
 
 /** Campos da ficha por área/queixa — questionários profissionalizados (corporal, facial, injetáveis) */
 const FICHA_CAMPOS = {
@@ -196,13 +243,15 @@ export async function init() {
   } else {
     semClienteEl?.classList.add("hidden");
     formWrap.classList.remove("hidden");
-    contextEl?.classList.remove("hidden");
+    if (contextEl) contextEl.classList.remove("hidden");
     contextEl.innerHTML = `
     <p><strong>Cliente:</strong> <span id="anamneseClientName">—</span></p>
+    ${agendaId || sessionStorage.getItem(STORAGE_CLIENT) ? "<p class=\"anamnese-context-hint\">Cliente já selecionado. Escolha a <strong>área</strong> (Capilar, Pele, Injetáveis, Corporal) e preencha a ficha.</p>" : ""}
     ${procedimento ? `<p><strong>Atendimento:</strong> ${escapeHtml(procedimento)}</p>` : ""}
     ${agendaId ? "<p class=\"anamnese-context-from-agenda\">Contexto deste atendimento (agenda).</p>" : ""}
   `;
     loadClientName(currentClientId, document.getElementById("anamneseClientName"));
+    loadRegistros();
   }
 
   let funcoes = [];
@@ -222,32 +271,326 @@ export async function init() {
     return `<option value="${f.id}" data-slug="${escapeHtml(f.slug)}"${selected}>${escapeHtml(f.nome)}</option>`;
   }).join("");
 
+  /** Campos personalizados da clínica (por função); usado em getFichaFromForm/setFichaInForm. */
+  let currentCustomCampos = [];
+
   function getSlugSelected() {
     const opt = funcaoSelect.options[funcaoSelect.selectedIndex];
     return opt?.dataset?.slug || "";
   }
 
-  function renderFichaCampos(slug) {
+  async function renderFichaCampos(slug) {
+    const funcaoId = funcaoSelect.value || "";
+    let customCampos = [];
+    try {
+      if (funcaoId) customCampos = await listCamposPersonalizados(funcaoId);
+    } catch (e) {
+      console.warn("[ANAMNESE] listCamposPersonalizados", e);
+    }
+    currentCustomCampos = customCampos.map((c) => ({ key: c.key, label: c.label, type: c.type, placeholder: c.placeholder, options: c.options || [] }));
+
     const campos = FICHA_CAMPOS[slug] || [];
-    fichaCamposEl.innerHTML = campos.map((c) => renderFichaField(c, escapeHtml)).join("");
+    const allCampos = [...campos, ...customCampos.map((c) => ({ key: c.key, label: c.label, type: c.type, placeholder: c.placeholder, options: c.options || [], _id: c.id }))];
+    fichaCamposEl.innerHTML = allCampos.map((c) => renderFichaField(c, escapeHtml)).join("");
 
     if (slug === "rosto_injetaveis") {
       const faceWrap = document.createElement("div");
       faceWrap.id = "anamneseFaceMapWrap";
-      faceWrap.className = "anamnese-face-map-wrap";
+      faceWrap.className = "anamnese-face-map-wrap anamnese-face-map-wrap--large";
+      const mapas = [
+        { id: "rosto", label: "Rosto", svg: FACE_SVG },
+        { id: "barriga", label: "Barriga", svg: BARRIGA_SVG },
+        { id: "gluteos", label: "Glúteos", svg: GLUTEOS_SVG }
+      ];
       faceWrap.innerHTML = `
-        <p class="anamnese-face-map-title">Marque as áreas de aplicação (respaldo documental)</p>
-        <div class="anamnese-face-map" id="anamneseFaceMap" role="group" aria-label="Áreas do rosto aplicadas">
-          ${FACE_ZONAS.map((z) => `<button type="button" class="anamnese-face-zone" data-zone-id="${escapeHtml(z.id)}" title="${escapeHtml(z.label)}">${escapeHtml(z.label)}</button>`).join("")}
+        <p class="anamnese-face-map-title">Clique na imagem onde foi aplicado; em cada ponto escolha o produto e a quantidade. A unidade (UI, ml) muda conforme o produto.</p>
+        <div class="anamnese-mapa-tabs">
+          ${mapas.map((m) => `<button type="button" class="anamnese-mapa-tab" data-mapa="${escapeHtml(m.id)}">${escapeHtml(m.label)}</button>`).join("")}
         </div>
+        ${mapas.map((m) => `
+        <div class="anamnese-mapa-panel" id="anamneseMapaPanel_${escapeHtml(m.id)}" data-mapa="${escapeHtml(m.id)}">
+          <div class="anamnese-mapa-clicavel" data-mapa="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="Clique para adicionar ponto em ${escapeHtml(m.label)}">
+            <div class="anamnese-mapa-svg-wrap">${m.svg}</div>
+            <div class="anamnese-mapa-pontos" id="anamneseMapaPontos_${escapeHtml(m.id)}"></div>
+          </div>
+          <div class="anamnese-mapa-lista">
+            <p class="anamnese-mapa-lista-title">Pontos em ${escapeHtml(m.label)}</p>
+            <div class="anamnese-mapa-lista-itens" id="anamneseMapaLista_${escapeHtml(m.id)}"></div>
+            <div id="anamneseMapaDetalhes_${escapeHtml(m.id)}" class="anamnese-ponto-detalhes hidden">
+              <p class="anamnese-ponto-detalhes-title">Detalhes do ponto</p>
+              <label for="anamnese-ponto-produto-${escapeHtml(m.id)}">O que foi aplicado?</label>
+              <select id="anamnese-ponto-produto-${escapeHtml(m.id)}" class="anamnese-ponto-produto">
+                <option value="">— Selecione —</option>
+                ${PRODUTOS_APLICACAO.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`).join("")}
+              </select>
+              <label class="anamnese-ponto-quantidade-label" for="anamnese-ponto-quantidade-${escapeHtml(m.id)}">Quantidade <span class="anamnese-ponto-unidade">(UI)</span></label>
+              <input type="number" id="anamnese-ponto-quantidade-${escapeHtml(m.id)}" class="anamnese-ponto-quantidade" min="0" step="0.01" placeholder="0">
+              <label for="anamnese-ponto-obs-${escapeHtml(m.id)}">Observação (opcional)</label>
+              <input type="text" id="anamnese-ponto-obs-${escapeHtml(m.id)}" class="anamnese-ponto-obs" placeholder="Ex.: técnica, profundidade">
+              <button type="button" class="btn-small anamnese-ponto-remover">Remover ponto</button>
+            </div>
+          </div>
+        </div>
+        `).join("")}
       `;
       fichaCamposEl.appendChild(faceWrap);
-      faceWrap.querySelectorAll(".anamnese-face-zone").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          btn.classList.toggle("selected");
+
+      let pontos = []; // { id, mapa, x_pct, y_pct, produto, quantidade, unidade, observacao }
+      let selectedPontoId = null;
+      let nextId = 1;
+
+      function getPontosByMapa(mapa) {
+        return pontos.filter((p) => p.mapa === mapa);
+      }
+
+      function renderPontosOnMap(panel) {
+        const mapa = panel.dataset.mapa;
+        const container = panel.querySelector(".anamnese-mapa-pontos");
+        if (!container) return;
+        container.innerHTML = "";
+        getPontosByMapa(mapa).forEach((pt) => {
+          const dot = document.createElement("div");
+          dot.className = "anamnese-mapa-dot" + (selectedPontoId === pt.id ? " selected" : "");
+          dot.style.left = pt.x_pct + "%";
+          dot.style.top = pt.y_pct + "%";
+          dot.dataset.pontoId = pt.id;
+          dot.title = (PRODUTOS_APLICACAO.find((p) => p.id === pt.produto)?.label || pt.produto || "Ponto") + (pt.quantidade != null ? " — " + pt.quantidade + " " + (pt.unidade || "") : "");
+          dot.addEventListener("click", (e) => {
+            e.stopPropagation();
+            selectedPontoId = pt.id;
+            renderAllPontos();
+            showPontoDetalhes(panel, pt);
+          });
+          container.appendChild(dot);
+        });
+      }
+
+      function renderLista(panel) {
+        const mapa = panel.dataset.mapa;
+        const listEl = panel.querySelector(".anamnese-mapa-lista-itens");
+        if (!listEl) return;
+        const itens = getPontosByMapa(mapa);
+        if (itens.length === 0) {
+          listEl.innerHTML = "<p class=\"anamnese-mapa-lista-vazio\">Nenhum ponto. Clique na imagem ao lado.</p>";
+          return;
+        }
+        listEl.innerHTML = itens.map((pt) => {
+          const prod = PRODUTOS_APLICACAO.find((p) => p.id === pt.produto);
+          const label = prod ? prod.label : (pt.produto || "—");
+          const qty = pt.quantidade != null ? pt.quantidade + " " + (pt.unidade || "") : "—";
+          return `<button type="button" class="anamnese-mapa-lista-item ${selectedPontoId === pt.id ? "selected" : ""}" data-ponto-id="${pt.id}">${escapeHtml(label)} · ${escapeHtml(String(qty))}</button>`;
+        }).join("");
+        listEl.querySelectorAll(".anamnese-mapa-lista-item").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const pt = pontos.find((p) => p.id === btn.dataset.pontoId);
+            if (pt) {
+              selectedPontoId = pt.id;
+              renderAllPontos();
+              const panel = faceWrap.querySelector(`#anamneseMapaPanel_${pt.mapa}`);
+              if (panel) showPontoDetalhes(panel, pt);
+            }
+          });
+        });
+      }
+
+      function showPontoDetalhes(panel, pt) {
+        const mapa = panel.dataset.mapa;
+        const detEl = panel.querySelector(".anamnese-ponto-detalhes");
+        const prodSelect = panel.querySelector(".anamnese-ponto-produto");
+        const qtyInput = panel.querySelector(".anamnese-ponto-quantidade");
+        const unidadeSpan = panel.querySelector(".anamnese-ponto-unidade");
+        const obsInput = panel.querySelector(".anamnese-ponto-obs");
+        const btnRemover = panel.querySelector(".anamnese-ponto-remover");
+        if (!detEl) return;
+        detEl.classList.remove("hidden");
+        if (prodSelect) prodSelect.value = pt.produto || "";
+        if (qtyInput) qtyInput.value = pt.quantidade != null ? pt.quantidade : "";
+        const prod = PRODUTOS_APLICACAO.find((p) => p.id === pt.produto);
+        if (unidadeSpan) unidadeSpan.textContent = "(" + (prod?.unidade || pt.unidade || "un") + ")";
+        if (obsInput) obsInput.value = pt.observacao || "";
+        function syncPonto() {
+          const p = pontos.find((x) => x.id === pt.id);
+          if (!p) return;
+          p.produto = prodSelect?.value || null;
+          p.quantidade = qtyInput?.value !== "" ? (Number(qtyInput.value) || null) : null;
+          const pr = PRODUTOS_APLICACAO.find((x) => x.id === p.produto);
+          p.unidade = pr?.unidade || null;
+          p.observacao = obsInput?.value?.trim() || null;
+          renderPontosOnMap(panel);
+          renderLista(panel);
+        }
+        prodSelect?.removeEventListener("change", syncPonto);
+        qtyInput?.removeEventListener("input", syncPonto);
+        obsInput?.removeEventListener("input", syncPonto);
+        prodSelect?.addEventListener("change", () => {
+          const pr = PRODUTOS_APLICACAO.find((x) => x.id === prodSelect.value);
+          if (unidadeSpan) unidadeSpan.textContent = "(" + (pr?.unidade || "un") + ")";
+          syncPonto();
+        });
+        qtyInput?.addEventListener("input", syncPonto);
+        obsInput?.addEventListener("input", syncPonto);
+        const removeBtn = panel.querySelector(".anamnese-ponto-remover");
+        if (removeBtn) {
+          removeBtn.onclick = () => {
+            pontos = pontos.filter((p) => p.id !== pt.id);
+            selectedPontoId = null;
+            detEl.classList.add("hidden");
+            renderAllPontos();
+          };
+        }
+      }
+
+      function renderAllPontos() {
+        faceWrap.querySelectorAll(".anamnese-mapa-panel").forEach((panel) => {
+          renderPontosOnMap(panel);
+          renderLista(panel);
+        });
+      }
+
+      faceWrap.querySelectorAll(".anamnese-mapa-clicavel").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          if (e.target.closest(".anamnese-mapa-dot")) return;
+          const rect = el.getBoundingClientRect();
+          const x_pct = ((e.clientX - rect.left) / rect.width) * 100;
+          const y_pct = ((e.clientY - rect.top) / rect.height) * 100;
+          const mapa = el.dataset.mapa;
+          const pt = { id: "p" + nextId++, mapa, x_pct, y_pct, produto: null, quantidade: null, unidade: null, observacao: null };
+          pontos.push(pt);
+          selectedPontoId = pt.id;
+          const panel = el.closest(".anamnese-mapa-panel");
+          renderAllPontos();
+          if (panel) showPontoDetalhes(panel, pt);
         });
       });
+
+      faceWrap.querySelectorAll(".anamnese-mapa-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          faceWrap.querySelectorAll(".anamnese-mapa-tab").forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          faceWrap.querySelectorAll(".anamnese-mapa-panel").forEach((p) => p.classList.add("hidden"));
+          const panel = faceWrap.querySelector("#anamneseMapaPanel_" + tab.dataset.mapa);
+          if (panel) panel.classList.remove("hidden");
+        });
+      });
+      faceWrap.querySelector(".anamnese-mapa-tab")?.classList.add("active");
+      faceWrap.querySelectorAll(".anamnese-mapa-panel").forEach((p, i) => {
+        if (i > 0) p.classList.add("hidden");
+      });
+
+      faceWrap._getPontos = () => pontos.slice();
+      faceWrap._setPontos = (arr) => {
+        pontos = Array.isArray(arr) ? arr.map((p) => ({ ...p, id: p.id != null ? p.id : "p" + nextId++ })) : [];
+        selectedPontoId = null;
+        renderAllPontos();
+      };
+      renderAllPontos();
     }
+
+    let canManageCampos = false;
+    try {
+      const role = await getRole();
+      canManageCampos = role === "master" || role === "gestor";
+    } catch (_) {}
+    const clinicaWrap = document.createElement("div");
+    clinicaWrap.className = "anamnese-campos-clinica-wrap";
+    clinicaWrap.innerHTML = `
+      <h4 class="anamnese-ficha-section anamnese-campos-clinica-title">Incluir mais (conforme sua clínica)</h4>
+      <p class="anamnese-campos-clinica-hint">Adicione campos extras para esta área. Eles ficam salvos na ficha e adaptam o formulário à sua clínica.</p>
+      ${customCampos.length ? `<div class="anamnese-campos-clinica-lista">${customCampos.map((c) => `
+        <div class="anamnese-campo-personalizado-row" data-campo-id="${c.id}">
+          <span class="anamnese-campo-personalizado-label">${escapeHtml(c.label)}</span>
+          ${canManageCampos ? `<button type="button" class="btn-icon anamnese-campo-remover" title="Remover campo" data-id="${c.id}" aria-label="Remover">×</button>` : ""}
+        </div>
+      `).join("")}</div>` : ""}
+      ${canManageCampos ? `<button type="button" class="btn-secondary anamnese-campo-adicionar" id="btnAnamneseAdicionarCampo"><span aria-hidden="true">+</span> Adicionar campo</button>` : ""}
+    `;
+    fichaCamposEl.appendChild(clinicaWrap);
+    if (canManageCampos) {
+      clinicaWrap.querySelectorAll(".anamnese-campo-remover").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          if (!confirm("Remover este campo da ficha? Os dados já preenchidos em outros registros não são apagados.")) return;
+          try {
+            await deleteCampoPersonalizado(btn.dataset.id);
+            toast("Campo removido.");
+            await renderFichaCampos(slug);
+          } catch (e) {
+            toast(e.message || "Erro ao remover.");
+          }
+        });
+      });
+      const btnAdd = document.getElementById("btnAnamneseAdicionarCampo");
+      if (btnAdd) btnAdd.addEventListener("click", () => openModalAdicionarCampo(funcaoId, slug));
+    }
+  }
+
+  function openModalAdicionarCampo(funcaoId, slug) {
+    const modalContent = `
+      <div class="anamnese-modal-campo">
+        <p class="form-hint">O campo será incluído nesta área e aparecerá para todos os atendimentos. Use uma chave única (ex.: medicacao_rotina).</p>
+        <label for="anamneseCampoLabel">Nome do campo (ex.: Medicação de rotina)</label>
+        <input type="text" id="anamneseCampoLabel" placeholder="Ex.: Medicação de rotina" required>
+        <label for="anamneseCampoKey">Chave (identificador único, sem espaços)</label>
+        <input type="text" id="anamneseCampoKey" placeholder="Ex.: medicacao_rotina">
+        <label for="anamneseCampoTipo">Tipo</label>
+        <select id="anamneseCampoTipo">
+          <option value="text">Texto curto</option>
+          <option value="textarea">Texto longo</option>
+          <option value="sim_nao">Sim/Não</option>
+          <option value="number">Número</option>
+          <option value="select">Lista (opções abaixo)</option>
+        </select>
+        <label for="anamneseCampoPlaceholder">Placeholder (opcional)</label>
+        <input type="text" id="anamneseCampoPlaceholder" placeholder="Ex.: Descreva aqui">
+        <div id="anamneseCampoOptionsWrap" class="hidden">
+          <label>Opções (uma por linha, formato: valor|texto)</label>
+          <textarea id="anamneseCampoOptions" rows="3" placeholder="sim|Sim\nnao|Não"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="btnAnamneseCampoCancel">Cancelar</button>
+          <button type="button" class="btn-primary" id="btnAnamneseCampoSalvar">Adicionar</button>
+        </div>
+      </div>
+    `;
+    openModal("Adicionar campo à ficha", modalContent);
+    const labelEl = document.getElementById("anamneseCampoLabel");
+    const keyEl = document.getElementById("anamneseCampoKey");
+    const tipoEl = document.getElementById("anamneseCampoTipo");
+    const placeholderEl = document.getElementById("anamneseCampoPlaceholder");
+    const optionsWrap = document.getElementById("anamneseCampoOptionsWrap");
+    const optionsEl = document.getElementById("anamneseCampoOptions");
+    const slugFromLabel = (s) => (s || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") || "custom_" + Date.now();
+    labelEl?.addEventListener("input", () => {
+      if (keyEl && !keyEl.value) keyEl.value = slugFromLabel(labelEl.value);
+    });
+    tipoEl?.addEventListener("change", () => {
+      if (optionsWrap) optionsWrap.classList.toggle("hidden", tipoEl.value !== "select");
+    });
+    document.getElementById("btnAnamneseCampoCancel")?.addEventListener("click", () => closeModal());
+    document.getElementById("btnAnamneseCampoSalvar")?.addEventListener("click", async () => {
+      const label = labelEl?.value?.trim();
+      const key = (keyEl?.value?.trim() || slugFromLabel(label)).replace(/[^a-z0-9_]/gi, "_").toLowerCase() || "custom_" + Date.now();
+      const type = tipoEl?.value || "text";
+      const placeholder = placeholderEl?.value?.trim() || null;
+      let options = [];
+      if (type === "select" && optionsEl?.value?.trim()) {
+        options = optionsEl.value.trim().split("\n").map((line) => {
+          const parts = line.split("|").map((p) => p.trim());
+          return { value: parts[0] || "", label: parts[1] || parts[0] || "" };
+        }).filter((o) => o.value || o.label);
+      }
+      if (!label) {
+        toast("Informe o nome do campo.");
+        return;
+      }
+      try {
+        await createCampoPersonalizado({ funcaoId, key, label, type, placeholder, options });
+        closeModal();
+        toast("Campo adicionado. Ele já aparece na ficha.");
+        await renderFichaCampos(slug);
+      } catch (e) {
+        toast(e.message || "Erro ao adicionar campo.");
+      }
+    });
   }
 
   function getFichaFromForm(slug) {
@@ -262,11 +605,57 @@ export async function init() {
         if (compEl && compEl.value && compEl.value.trim()) ficha[c.key + "_complement"] = compEl.value.trim();
       }
     }
+    for (const c of currentCustomCampos) {
+      const el = document.getElementById("ficha_" + c.key);
+      if (el && el.value != null && String(el.value).trim()) ficha[c.key] = String(el.value).trim();
+    }
     if (slug === "rosto_injetaveis") {
-      const selected = Array.from(document.querySelectorAll("#anamneseFaceMapWrap .anamnese-face-zone.selected")).map((b) => b.dataset.zoneId).filter(Boolean);
-      if (selected.length) ficha.areas_aplicacao = selected;
+      const wrap = document.getElementById("anamneseFaceMapWrap");
+      const pts = wrap?._getPontos?.() || [];
+      if (pts.length) {
+        ficha.pontos_aplicacao = pts.map((p) => {
+          const num = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+          return {
+            id: p.id != null ? p.id : null,
+            mapa: p.mapa && String(p.mapa) || null,
+            x_pct: num(p.x_pct),
+            y_pct: num(p.y_pct),
+            produto: p.produto && String(p.produto) || null,
+            quantidade: num(p.quantidade),
+            unidade: p.unidade && String(p.unidade) || null,
+            observacao: p.observacao && String(p.observacao).trim() || null
+          };
+        }).filter((p) => p.x_pct != null && p.y_pct != null);
+      }
     }
     return ficha;
+  }
+
+  /** Garante objeto ficha serializável para o Supabase (sem undefined/NaN). */
+  function sanitizeFicha(ficha) {
+    if (!ficha || typeof ficha !== "object") return {};
+    const out = {};
+    for (const [k, v] of Object.entries(ficha)) {
+      if (v === undefined) continue;
+      if (typeof v === "number" && !Number.isFinite(v)) continue;
+      if (Array.isArray(v)) {
+        out[k] = v.map((item) => {
+          if (item && typeof item === "object") {
+            const obj = {};
+            for (const [kk, vv] of Object.entries(item)) {
+              if (vv === undefined) continue;
+              if (typeof vv === "number" && !Number.isFinite(vv)) continue;
+              obj[kk] = vv;
+            }
+            return obj;
+          }
+          return item;
+        });
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
   }
 
   function setFichaInForm(slug, ficha) {
@@ -275,10 +664,16 @@ export async function init() {
       const el = document.getElementById("ficha_" + key);
       if (el) el.value = ficha[key] != null ? String(ficha[key]) : "";
     }
-    if (slug === "rosto_injetaveis" && Array.isArray(ficha.areas_aplicacao)) {
-      document.querySelectorAll("#anamneseFaceMapWrap .anamnese-face-zone").forEach((btn) => {
-        btn.classList.toggle("selected", ficha.areas_aplicacao.includes(btn.dataset.zoneId));
-      });
+    for (const c of currentCustomCampos) {
+      const el = document.getElementById("ficha_" + c.key);
+      if (el && ficha[c.key] != null) el.value = String(ficha[c.key]);
+    }
+    if (slug === "rosto_injetaveis") {
+      const pts = ficha.pontos_aplicacao;
+      if (Array.isArray(pts) && pts.length > 0) {
+        const wrap = document.getElementById("anamneseFaceMapWrap");
+        wrap?._setPontos?.(pts);
+      }
     }
   }
 
@@ -291,8 +686,8 @@ export async function init() {
     if (btnSalvar) btnSalvar.textContent = isModoEvolucao() ? "Registrar evolução" : "Salvar ficha";
   }
 
-  function onFuncaoChange() {
-    renderFichaCampos(getSlugSelected());
+  async function onFuncaoChange() {
+    await renderFichaCampos(getSlugSelected());
   }
 
   if (tipoRegistroSelect) tipoRegistroSelect.addEventListener("change", toggleFichaVisivel);
@@ -300,21 +695,82 @@ export async function init() {
   onFuncaoChange();
   toggleFichaVisivel();
 
-  fotosInput.addEventListener("change", () => {
+  /** Lista de fotos pendentes: { id, file, data (YYYY-MM-DD), observacao } */
+  let pendingFotos = [];
+
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function renderFotosPreview() {
     fotosPreviewEl.innerHTML = "";
+    pendingFotos.forEach((item) => {
+      const src = typeof item.file !== "undefined" && item.file ? URL.createObjectURL(item.file) : "";
+      const card = document.createElement("div");
+      card.className = "anamnese-foto-pendente";
+      card.dataset.id = item.id;
+      card.innerHTML = `
+        <img src="${src}" alt="" class="anamnese-foto-thumb">
+        <div class="anamnese-foto-meta">
+          <label class="anamnese-foto-meta-label">Data</label>
+          <input type="date" class="anamnese-foto-data" value="${escapeHtml(item.data || todayISO())}" aria-label="Data da foto">
+          <label class="anamnese-foto-meta-label">Observação</label>
+          <input type="text" class="anamnese-foto-obs" value="${escapeHtml(item.observacao || "")}" placeholder="Ex.: antes do procedimento" aria-label="Observação da foto">
+          <button type="button" class="anamnese-foto-remove" aria-label="Remover foto">Remover</button>
+        </div>
+      `;
+      const dataInput = card.querySelector(".anamnese-foto-data");
+      const obsInput = card.querySelector(".anamnese-foto-obs");
+      const btnRemove = card.querySelector(".anamnese-foto-remove");
+      dataInput.addEventListener("change", () => { item.data = dataInput.value || todayISO(); });
+      obsInput.addEventListener("input", () => { item.observacao = obsInput.value.trim(); });
+      btnRemove.addEventListener("click", () => {
+        pendingFotos = pendingFotos.filter((p) => p.id !== item.id);
+        if (src) URL.revokeObjectURL(src);
+        renderFotosPreview();
+      });
+      fotosPreviewEl.appendChild(card);
+    });
+  }
+
+  fotosInput.addEventListener("change", () => {
     const files = fotosInput.files;
     if (!files?.length) return;
-    for (let i = 0; i < Math.min(files.length, 6); i++) {
-      const fr = new FileReader();
-      fr.onload = () => {
-        const img = document.createElement("img");
-        img.src = fr.result;
-        img.className = "anamnese-foto-thumb";
-        fotosPreviewEl.appendChild(img);
-      };
-      fr.readAsDataURL(files[i]);
+    const today = todayISO();
+    for (let i = 0; i < files.length; i++) {
+      pendingFotos.push({ id: Date.now() + i, file: files[i], data: today, observacao: "" });
     }
+    fotosInput.value = "";
+    renderFotosPreview();
   });
+
+  const btnTirarFoto = document.getElementById("btnAnamneseTirarFoto");
+  if (btnTirarFoto) {
+    btnTirarFoto.addEventListener("click", () => {
+      const cameraRef = { stop: () => {} };
+      openModal(
+        "Tirar foto",
+        `<div id="anamneseCameraPreview" class="anamnese-camera-preview"></div>
+         <p class="anamnese-camera-hint">Posicione e clique em Capturar. A foto será adicionada à lista com data de hoje.</p>`,
+        () => {},
+        () => {
+          cameraRef.stop();
+          closeModal();
+        }
+      );
+      const previewEl = document.getElementById("anamneseCameraPreview");
+      if (previewEl) {
+        cameraRef.stop = startCameraCapture(previewEl, (blob) => {
+          const file = new File([blob], `captura_${Date.now()}.jpg`, { type: "image/jpeg" });
+          pendingFotos.push({ id: Date.now(), file, data: todayISO(), observacao: "" });
+          cameraRef.stop();
+          closeModal();
+          renderFotosPreview();
+          toast("Foto adicionada. Ajuste data e observação se quiser e salve a ficha.");
+        }, toast);
+      }
+    });
+  }
 
   async function loadRegistros() {
     const funcaoId = funcaoSelect.value;
@@ -332,6 +788,44 @@ export async function init() {
   }
 
   function fichaEntryToHtml(k, v) {
+    if (k === "pontos_aplicacao" && Array.isArray(v) && v.length > 0) {
+      const byMapa = {};
+      v.forEach((p) => {
+        const m = p.mapa || "outro";
+        if (!byMapa[m]) byMapa[m] = [];
+        byMapa[m].push(p);
+      });
+      const mapaLabel = { rosto: "Rosto", barriga: "Barriga", gluteos: "Glúteos" };
+      let html = "<p><strong>Pontos de aplicação:</strong></p><ul class=\"anamnese-registro-pontos\">";
+      ["rosto", "barriga", "gluteos"].forEach((mapa) => {
+        const list = byMapa[mapa];
+        if (!list?.length) return;
+        html += "<li><strong>" + escapeHtml(mapaLabel[mapa] || mapa) + ":</strong> ";
+        html += list.map((p) => {
+          const prod = PRODUTOS_APLICACAO.find((x) => x.id === p.produto);
+          const nome = prod ? prod.label : (p.produto || "—");
+          const qty = p.quantidade != null ? p.quantidade + " " + (p.unidade || "") : "";
+          return nome + (qty ? " · " + qty : "") + (p.observacao ? " (" + p.observacao + ")" : "");
+        }).map((s) => escapeHtml(s)).join("; ");
+        html += "</li>";
+      });
+      html += "</ul>";
+      return html;
+    }
+    if (k === "areas_aplicacao_detalhes" && Array.isArray(v) && v.length > 0) {
+      let html = "<p><strong>Detalhes por área:</strong></p><ul class=\"anamnese-registro-detalhes-zonas\">";
+      v.forEach((d) => {
+        const zoneLabel = FACE_ZONAS.find((z) => z.id === d.zone_id)?.label || d.zone_id;
+        const parts = [];
+        if (d.ui != null) parts.push(d.ui + " UI");
+        if (d.produto) parts.push("O quê: " + d.produto);
+        if (d.como) parts.push("Como: " + d.como);
+        if (d.por_que) parts.push("Por quê: " + d.por_que);
+        html += "<li><strong>" + escapeHtml(zoneLabel) + "</strong>: " + escapeHtml(parts.join(" · ")) + "</li>";
+      });
+      html += "</ul>";
+      return html;
+    }
     const label = k === "areas_aplicacao" ? "Áreas aplicação" : k.replace(/_/g, " ");
     let val = v;
     if (k === "areas_aplicacao" && Array.isArray(v)) {
@@ -352,7 +846,12 @@ export async function init() {
     if (r.conduta_tratamento && r.conduta_tratamento.trim()) body += "<div class=\"anamnese-registro-conduta\"><strong>Conduta:</strong> " + escapeHtml(r.conduta_tratamento) + "</div>";
     if (r.resultado_resumo && r.resultado_resumo.trim()) body += "<div class=\"anamnese-registro-resultado\"><strong>Resumo do resultado:</strong> " + escapeHtml(r.resultado_resumo) + "</div>";
     if (r.fotos && r.fotos.length > 0) {
-      body += "<div class=\"anamnese-registro-fotos\">" + r.fotos.map((url) => `<img src="${escapeHtml(url)}" alt="" class="anamnese-foto-thumb">`).join("") + "</div>";
+      const fotosNorm = r.fotos.map((f) => typeof f === "string" ? { url: f, data: null, observacao: null } : f);
+      body += "<div class=\"anamnese-registro-fotos\">" + fotosNorm.map((f) => {
+        const dataStr = f.data ? new Date(f.data + "T12:00:00").toLocaleDateString("pt-BR") : "";
+        const obsStr = f.observacao ? escapeHtml(f.observacao) : "";
+        return `<div class="anamnese-registro-foto-item"><img src="${escapeHtml(f.url)}" alt="" class="anamnese-foto-thumb">${dataStr || obsStr ? `<div class="anamnese-registro-foto-meta">${dataStr ? `<span class="anamnese-registro-foto-data">${escapeHtml(dataStr)}</span>` : ""}${obsStr ? `<span class="anamnese-registro-foto-obs">${obsStr}</span>` : ""}</div>` : ""}</div>`;
+      }).join("") + "</div>";
     }
     if (!body) body = "<span class=\"anamnese-empty-line\">—</span>";
     return `<div class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span><label class="anamnese-compare-label"><input type="checkbox" class="anamnese-compare-checkbox" data-id="${escapeHtml(r.id)}"> Comparar</label></div>${body}</div>`;
@@ -434,8 +933,8 @@ export async function init() {
           const clienteNome = clienteNomeEl ? clienteNomeEl.textContent || "" : "";
           const funcaoOpt = funcaoSelect.options[funcaoSelect.selectedIndex];
           const areaNome = funcaoOpt ? funcaoOpt.textContent || "" : "";
-          const fotosAntes = (before.fotos || []).slice(0, 4);
-          const fotosDepois = (after.fotos || []).slice(0, 4);
+          const fotosAntes = (before.fotos || []).slice(0, 4).map((f) => (typeof f === "string" ? f : f.url)).filter(Boolean);
+          const fotosDepois = (after.fotos || []).slice(0, 4).map((f) => (typeof f === "string" ? f : f.url)).filter(Boolean);
 
           const win = window.open("", "_blank");
           if (!win) return;
@@ -534,12 +1033,10 @@ export async function init() {
         escapeHtml(r.conduta_tratamento) +
         "</div>";
     if (r.fotos && r.fotos.length > 0) {
+      const urls = r.fotos.slice(0, 4).map((f) => (typeof f === "string" ? f : f.url)).filter(Boolean);
       body +=
         "<div class=\"anamnese-registro-fotos anamnese-registro-fotos--compare\">" +
-        r.fotos
-          .slice(0, 4)
-          .map((url) => `<img src="${escapeHtml(url)}" alt="" class="anamnese-foto-thumb">`)
-          .join("") +
+        urls.map((url) => `<img src="${escapeHtml(url)}" alt="" class="anamnese-foto-thumb">`).join("") +
         "</div>";
     }
     if (!body) body = "<span class=\"anamnese-empty-line\">—</span>";
@@ -565,57 +1062,70 @@ export async function init() {
     const ficha = modoEvolucao ? {} : getFichaFromForm(slug);
     const conteudo = (conteudoEl?.value || "").trim();
     const conduta = (condutaEl?.value || "").trim();
-    const files = fotosInput?.files ? Array.from(fotosInput.files) : [];
 
     if (!funcaoId) {
       toast("Selecione a área/queixa.");
       return;
     }
+    const hasPendingFotos = pendingFotos.length > 0;
     if (modoEvolucao) {
-      if (!conteudo && !conduta && files.length === 0) {
+      if (!conteudo && !conduta && !hasPendingFotos) {
         toast("Em evolução: preencha observação, conduta ou envie fotos.");
         return;
       }
     } else {
-      if (Object.keys(ficha).length === 0 && !conteudo && !conduta && files.length === 0) {
+      if (Object.keys(ficha).length === 0 && !conteudo && !conduta && !hasPendingFotos) {
         toast("Preencha ao menos a ficha, observações, conduta ou fotos.");
         return;
       }
     }
 
-    let fotosUrls = [];
-    for (const file of files) {
-      try {
-        const url = await uploadFotoAnamnese(file, currentClientId);
-        fotosUrls.push(url);
-      } catch (e) {
-        console.warn("[ANAMNESE] upload foto", e);
-        toast("Uma ou mais fotos não puderam ser enviadas. Salve o resto.");
-      }
+    const fotosPayload = [];
+    const BATCH = 5;
+    for (let i = 0; i < pendingFotos.length; i += BATCH) {
+      const batch = pendingFotos.slice(i, i + BATCH);
+      const results = await Promise.all(
+        batch.map(async (item) => {
+          try {
+            const url = await uploadFotoAnamnese(item.file, currentClientId, String(item.id));
+            return { url, data: item.data || todayISO(), observacao: item.observacao || null };
+          } catch (e) {
+            console.warn("[ANAMNESE] upload foto", item.id, e);
+            return null;
+          }
+        })
+      );
+      results.filter(Boolean).forEach((r) => fotosPayload.push(r));
+    }
+    if (pendingFotos.length > 0 && fotosPayload.length < pendingFotos.length) {
+      toast(`${fotosPayload.length} de ${pendingFotos.length} fotos enviadas. Verifique conexão e tente novamente.`, "warn");
     }
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const fichaLimpa = sanitizeFicha(ficha);
       await createRegistro({
         clientId: currentClientId,
         funcaoId,
         conteudo: conteudo || "",
-        ficha,
-        fotos: fotosUrls,
+        ficha: fichaLimpa,
+        fotos: fotosPayload,
         conduta_tratamento: conduta || null,
         agendaId: agendaId || null,
         authorId: user?.id || null
       });
       conteudoEl.value = "";
       condutaEl.value = "";
-      fotosInput.value = "";
-      fotosPreviewEl.innerHTML = "";
-      setFichaInForm(slug, {}); // opcional: limpar ficha após salvar
-      toast("Ficha salva. Histórico evolutivo atualizado.");
+      pendingFotos = [];
+      renderFotosPreview();
+      setFichaInForm(slug, {});
+      const dataStr = new Date().toLocaleDateString("pt-BR");
+      toast("Documento salvo no prontuário do paciente (" + dataStr + "). Ele ficará disponível ao abrir o cliente.");
       await loadRegistros();
     } catch (e) {
       console.error("[ANAMNESE] createRegistro", e);
-      toast(e.message || "Erro ao salvar.");
+      const msg = e?.message || e?.error_description || "Erro ao salvar.";
+      toast(msg.length > 80 ? msg.slice(0, 80) + "…" : msg, "error");
     }
   });
 }

@@ -4,11 +4,11 @@
  */
 
 import { getOrganizationProfile, updateOrganizationProfile, uploadOrgLogo } from "../services/organization-profile.service.js";
-import { listSalas, createSala, updateSala } from "../services/salas.service.js";
+import { listSalas, createSala, updateSala, desativarSala } from "../services/salas.service.js";
 import { buscarCep, maskCepInput, fillAddressFields } from "../utils/cep.service.js";
 import { toast } from "../ui/toast.js";
 import { getActiveOrg } from "../core/org.js";
-import { openModal, closeModal } from "../ui/modal.js";
+import { openModal, closeModal, openConfirmModal } from "../ui/modal.js";
 import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
 
 export async function init() {
@@ -218,17 +218,55 @@ export async function init() {
               const tipos = Array.isArray(s.procedimento_tipos) ? s.procedimento_tipos : [];
               const labelTipo = (t) => TIPOS_PROCEDIMENTO.find((x) => x.value === t)?.label || t;
               const chips = tipos.length ? tipos.map((t) => `<span class="empresa-sala-chip">${escapeHtml(labelTipo(t))}</span>`).join("") : "<span class=\"empresa-sala-chip empresa-sala-chip-empty\">Nenhum tipo</span>";
-              return `<div class="empresa-sala-card" data-id="${escapeHtml(s.id)}">
+              const ativa = s.ativa !== false;
+              const cardClass = ativa ? "empresa-sala-card" : "empresa-sala-card empresa-sala-card-inativa";
+              const botoes = ativa
+                ? `<button type="button" class="empresa-sala-btn-editar btn-edit-sala" data-id="${escapeHtml(s.id)}" title="Editar esta sala">Editar</button>
+                   <button type="button" class="empresa-sala-btn-excluir btn-excluir-sala" data-id="${escapeHtml(s.id)}" data-nome="${escapeHtml(s.nome || "Sala")}" title="Excluir esta sala">Excluir</button>`
+                : `<span class="empresa-sala-badge-inativa">Excluída</span>
+                   <button type="button" class="empresa-sala-btn-reativar btn-reativar-sala" data-id="${escapeHtml(s.id)}" title="Reativar esta sala">Reativar</button>`;
+              return `<div class="${cardClass}" data-id="${escapeHtml(s.id)}">
                 <div class="empresa-sala-card-body">
                   <h4 class="empresa-sala-card-nome">${escapeHtml(s.nome || "Sala")}</h4>
                   <p class="empresa-sala-card-tipos-label">Procedimentos:</p>
                   <div class="empresa-sala-chips">${chips}</div>
                 </div>
-                <button type="button" class="empresa-sala-btn-editar btn-edit-sala" data-id="${escapeHtml(s.id)}" title="Editar esta sala">Editar</button>
+                <div class="empresa-sala-card-actions">${botoes}</div>
               </div>`;
             }).join("");
         empresaSalasLista.querySelectorAll(".btn-edit-sala").forEach((btn) => {
           btn.addEventListener("click", () => openSalaModal(btn.dataset.id));
+        });
+        empresaSalasLista.querySelectorAll(".btn-excluir-sala").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = btn.dataset.id;
+            const nome = btn.dataset.nome || "esta sala";
+            openConfirmModal(
+              "Excluir sala?",
+              `A sala "${nome}" deixará de aparecer na agenda. Você pode reativá-la depois. Deseja excluir?`,
+              async () => {
+                try {
+                  await desativarSala(id);
+                  toast("Sala excluída. Ela não aparecerá mais na agenda.");
+                  await refreshSalasCount();
+                } catch (e) {
+                  toast(e?.message || "Erro ao excluir sala");
+                }
+              }
+            );
+          });
+        });
+        empresaSalasLista.querySelectorAll(".btn-reativar-sala").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            try {
+              await updateSala(id, { ativa: true });
+              toast("Sala reativada.");
+              await refreshSalasCount();
+            } catch (e) {
+              toast(e?.message || "Erro ao reativar sala");
+            }
+          });
         });
       }
       return true;

@@ -23,6 +23,7 @@ import { gerarPreco } from "../services/preco.service.js";
 import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
 import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js";
 import { getMargemEmRisco } from "../services/audit.service.js";
+import { getCustoRealProcedimento } from "../services/estoque-entradas.service.js";
 import { navigate } from "../core/spa.js";
 import { getOrgMembers } from "../core/org.js";
 import { getProcedimentosRealizadosPorPeriodo } from "../services/metrics.service.js";
@@ -44,6 +45,11 @@ export function init() {
   renderPlanosTerapeuticos();
   esconderAvisoTaxasPlanosSeConfigurado();
   initRelatorioProcedimentosRealizados();
+  const editId = sessionStorage.getItem("procedimentoEditId");
+  if (editId) {
+    sessionStorage.removeItem("procedimentoEditId");
+    setTimeout(() => openEditModal(editId), 200);
+  }
 }
 
 /** Se as taxas já estiverem configuradas, esconde o aviso da seção de planos. */
@@ -440,6 +446,8 @@ async function openCreateModal() {
     <input type="number" id="procCusto" step="0.01" min="0" placeholder="Para precificação e comparativo">
     <label>Margem mínima desejada (%)</label>
     <input type="number" id="procMargem" min="0" max="100" step="0.5" placeholder="Base para sugestão de preço">
+    <label>Comissão do profissional (%)</label>
+    <input type="number" id="procComissao" min="0" max="100" step="0.5" placeholder="Vazio = usa o padrão da empresa">
     <label>Cláusula de consentimento (opcional)</label>
     <textarea id="procTermoEspecifico" rows="3" placeholder="Texto jurídico específico deste procedimento (riscos, cuidados). Será exibido no termo de consentimento quando aplicável. Consulte o advogado."></textarea>
     <p class="procedimento-modal-hint">Use para o termo se adaptar ao procedimento: o advogado pode redigir uma cláusula por tipo de serviço.</p>
@@ -492,6 +500,9 @@ async function openEditModal(id) {
       <input type="number" id="procCusto" step="0.01" min="0" value="${p.custo_material_estimado != null ? p.custo_material_estimado : ""}" placeholder="Para precificação">
       <label>Margem mínima desejada (%)</label>
       <input type="number" id="procMargem" min="0" max="100" step="0.5" value="${p.margem_minima_desejada != null ? p.margem_minima_desejada : ""}" placeholder="Base para sugestão de preço">
+      <label>Comissão do profissional (%)</label>
+      <input type="number" id="procComissao" min="0" max="100" step="0.5" value="${p.comissao_profissional_pct != null ? p.comissao_profissional_pct : ""}" placeholder="Vazio = usa o padrão da empresa">
+      <span class="procedimento-modal-hint">Sobre o valor cobrado. Custo total = material + este %. No Financeiro você vê quais procedimentos ficam abaixo da margem alvo.</span>
       <label>Cláusula de consentimento (opcional)</label>
       <textarea id="procTermoEspecifico" rows="3" placeholder="Texto jurídico específico deste procedimento (riscos, cuidados). Será exibido no termo de consentimento quando aplicável.">${escapeHtml(p.termo_especifico || "")}</textarea>
       <p class="procedimento-modal-hint">Use para o termo se adaptar ao procedimento: o advogado pode redigir uma cláusula por tipo de serviço.</p>
@@ -506,6 +517,7 @@ async function openEditModal(id) {
         <p class="procedimento-modal-hint procedimento-aviso-taxas" style="margin:0 0 6px;">Com as <strong>taxas reais da maquininha</strong> em Configurações → Taxas da maquininha, a precificação fica mais assertiva: você vê a margem real deste procedimento por forma de pagamento e, ao montar o plano, já define como cobrar (parcelas, desconto à vista).</p>
         <div id="procPrecificacaoComTaxas" class="proc-precificacao-taxas-content" aria-live="polite"></div>
       </div>
+      <div id="procCustoRealBlock" class="procedimento-custo-real-block" aria-live="polite"></div>
       <input type="hidden" id="procId" value="${p.id}">
       <p class="procedimento-modal-hint">O procedimento entra em finanças: lucro real, custo operacional, pagamento funcionário; depois ajuda em metas plausíveis.</p>
       `,
@@ -513,6 +525,24 @@ async function openEditModal(id) {
     );
     bindPricingSuggestion();
     bindPrecificacaoComTaxas();
+    const block = document.getElementById("procCustoRealBlock");
+    if (block) {
+      try {
+        const { custoReal, itens } = await getCustoRealProcedimento(id);
+        if (itens.length === 0) {
+          block.innerHTML = `<h4>📦 Materiais usados e custo real</h4><p class="procedimento-custo-real-empty">Nenhum material vinculado a este procedimento (tabela <code>procedure_stock_usage</code>). Quando houver, o custo real será calculado com base no custo médio do estoque.</p>`;
+        } else {
+          block.innerHTML = `
+            <h4>📦 Materiais usados e custo real (calculado)</h4>
+            <p class="procedimento-modal-hint">Custo real = soma (quantidade × custo médio do estoque por produto). Compare com o custo estimado acima.</p>
+            <ul class="proc-custo-real-list">${itens.map((i) => `<li><strong>${escapeHtml(i.item_ref)}</strong>: ${i.quantity_used} × ${i.custo_unitario != null ? "R$ " + i.custo_unitario.toFixed(2).replace(".", ",") : "—"} = R$ ${i.subtotal.toFixed(2).replace(".", ",")}</li>`).join("")}</ul>
+            <p class="proc-custo-real-total"><strong>Custo real total: R$ ${custoReal.toFixed(2).replace(".", ",")}</strong></p>
+          `;
+        }
+      } catch (e) {
+        block.innerHTML = `<h4>📦 Materiais usados e custo real</h4><p class="procedimento-custo-real-empty">Erro ao carregar custo real.</p>`;
+      }
+    }
   } catch (err) {
     console.error("[PROCEDIMENTO] erro openEdit", err);
     toast("Erro ao abrir edição");
@@ -528,6 +558,7 @@ async function submitCreate() {
   const categoryEl = document.getElementById("procCategory");
   const custoEl = document.getElementById("procCusto");
   const margemEl = document.getElementById("procMargem");
+  const comissaoEl = document.getElementById("procComissao");
   if (!nameEl || !durationEl) return;
   const name = (nameEl.value || "").trim();
   if (!name) {
@@ -540,12 +571,13 @@ async function submitCreate() {
   const categoryId = categoryEl && categoryEl.value ? categoryEl.value : null;
   const custoMaterialEstimado = custoEl && custoEl.value !== "" ? custoEl.value : undefined;
   const margemMinimaDesejada = margemEl && margemEl.value !== "" ? margemEl.value : undefined;
+  const comissaoProfissionalPct = comissaoEl && comissaoEl.value !== "" ? comissaoEl.value : undefined;
   const tipoEl = document.getElementById("procTipo");
   const tipoProcedimento = tipoEl ? (tipoEl.value || null) : null;
   const termoEl = document.getElementById("procTermoEspecifico");
   const termoEspecifico = termoEl ? (termoEl.value || "").trim() || null : null;
   try {
-    await createProcedure({ name, description, durationMinutes: Number(durationEl.value) || 60, valorCobrado, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, tipoProcedimento, termoEspecifico });
+    await createProcedure({ name, description, durationMinutes: Number(durationEl.value) || 60, valorCobrado, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, comissaoProfissionalPct, tipoProcedimento, termoEspecifico });
     closeModal();
     renderProcedimentos();
     toast("Procedimento criado!");
@@ -564,6 +596,7 @@ async function submitEdit(id) {
   const categoryEl = document.getElementById("procCategory");
   const custoEl = document.getElementById("procCusto");
   const margemEl = document.getElementById("procMargem");
+  const comissaoEl = document.getElementById("procComissao");
   if (!nameEl || !durationEl) return;
   const name = (nameEl.value || "").trim();
   if (!name) {
@@ -576,6 +609,7 @@ async function submitEdit(id) {
   const categoryId = categoryEl ? (categoryEl.value || null) : null;
   const custoMaterialEstimado = custoEl ? (custoEl.value === "" ? null : custoEl.value) : undefined;
   const margemMinimaDesejada = margemEl ? (margemEl.value === "" ? null : margemEl.value) : undefined;
+  const comissaoProfissionalPct = comissaoEl ? (comissaoEl.value === "" ? null : comissaoEl.value) : undefined;
   const tipoEl = document.getElementById("procTipo");
   const tipoProcedimento = tipoEl ? (tipoEl.value || null) : null;
   const termoEl = document.getElementById("procTermoEspecifico");
@@ -591,6 +625,7 @@ async function submitEdit(id) {
       custoMaterialEstimado,
       tipoProcedimento,
       margemMinimaDesejada,
+      comissaoProfissionalPct,
       termoEspecifico,
     });
     closeModal();

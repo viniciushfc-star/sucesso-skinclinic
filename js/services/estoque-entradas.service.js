@@ -4,7 +4,7 @@
  */
 
 import { supabase } from "../core/supabase.js";
-import { getActiveOrg } from "../core/org.js";
+import { getActiveOrg, withOrg } from "../core/org.js";
 import { audit } from "./audit.service.js";
 import { createAfazer, TIPOS_AFAZERES } from "./afazeres.service.js";
 
@@ -39,6 +39,7 @@ export async function createEntrada(payload) {
     valor_total,
     fornecedor,
     data_entrada,
+    data_validade,
     lote,
     origem = "manual",
     ocr_nota_id
@@ -63,6 +64,7 @@ export async function createEntrada(payload) {
       valor_total: total,
       fornecedor: (fornecedor || "").trim() || null,
       data_entrada: dataEntrada,
+      data_validade: data_validade ? new Date(data_validade).toISOString().slice(0, 10) : null,
       lote: (lote || "").trim() || null,
       origem: origem === "ocr" || origem === "xml" ? origem : "manual",
       ocr_nota_id: ocr_nota_id || null,
@@ -118,28 +120,31 @@ export async function getResumoPorProduto() {
   }));
 }
 
-/** Registra consumo estimado (quando procedimento ocorre). */
+/** Registra consumo estimado (quando procedimento ocorre ou registro de protocolo com produtos). */
 export async function registrarConsumoEstimado(payload) {
   const orgId = getOrgOrThrow();
   const { data: { user } } = await supabase.auth.getUser();
-  const { produto_nome, quantidade, procedure_id, agenda_id, tipo = "estimado" } = payload;
+  const { produto_nome, quantidade, procedure_id, agenda_id, protocolo_aplicado_id, tipo = "estimado" } = payload;
 
   if (!(produto_nome && produto_nome.trim())) throw new Error("Informe o produto.");
   const qty = Number(quantidade);
   if (isNaN(qty) || qty < 0) throw new Error("Quantidade inválida.");
 
   const tipoVal = tipo === "ajuste" ? "ajuste" : tipo === "real" ? "real" : "estimado";
+  const insertPayload = {
+    org_id: orgId,
+    produto_nome: (produto_nome || "").trim(),
+    quantidade: qty,
+    procedure_id: procedure_id || null,
+    agenda_id: agenda_id || null,
+    tipo: tipoVal,
+    created_by: user?.id ?? null
+  };
+  if (protocolo_aplicado_id) insertPayload.protocolo_aplicado_id = protocolo_aplicado_id;
+
   const { data, error } = await supabase
     .from("estoque_consumo")
-    .insert({
-      org_id: orgId,
-      produto_nome: (produto_nome || "").trim(),
-      quantidade: qty,
-      procedure_id: procedure_id || null,
-      agenda_id: agenda_id || null,
-      tipo: tipoVal,
-      created_by: user?.id ?? null
-    })
+    .insert(insertPayload)
     .select()
     .single();
   if (error) throw error;
@@ -275,4 +280,98 @@ function getUnitCost(row) {
   const qty = Number(row.quantidade ?? 0);
   if (total > 0 && qty > 0) return total / qty;
   return 0;
+}
+
+/**
+ * Produtos com data de validade nos próximos N dias (para alertas e campanhas).
+ * @param {number} dias - ex.: 60
+ * @returns {Promise<Array<{ produto_nome: string, data_validade: string, quantidade: number, lote: string | null, id: string }>>}
+ */
+export async function getProdutosProximosVencer(dias = 60) {
+  const orgId = getActiveOrg();
+  if (!orgId) return [];
+  const hoje = new Date().toISOString().slice(0, 10);
+  const fim = new Date();
+  fim.setDate(fim.getDate() + Number(dias));
+  const fimStr = fim.toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("estoque_entradas")
+    .select("id, produto_nome, data_validade, quantidade, lote")
+    .eq("org_id", orgId)
+    .not("data_validade", "is", null)
+    .gte("data_validade", hoje)
+    .lte("data_validade", fimStr)
+    .order("data_validade", { ascending: true });
+
+  if (error) return [];
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    produto_nome: r.produto_nome || "",
+    data_validade: r.data_validade,
+    quantidade: Number(r.quantidade) || 0,
+    lote: r.lote || null,
+  }));
+}
+
+/**
+ * Custo real calculado do procedimento: soma (quantity_used × custo_medio) por item.
+ * Usa procedure_stock_usage e custo_medio do resumo de estoque (getResumoPorProduto).
+ * @param {string} procedureId
+ * @returns {Promise<{ custoReal: number, itens: Array<{ item_ref: string, quantity_used: number, custo_unitario: number | null, subtotal: number }> }>}
+ */
+export async function getCustoRealProcedimento(procedureId) {
+  const { getProcedureStockUsage } = await import("./procedimentos.service.js");
+  const usage = await getProcedureStockUsage(procedureId);
+  if (usage.length === 0) return { custoReal: 0, itens: [] };
+
+  const resumo = await getResumoPorProduto();
+  const custoPorNome = {};
+  for (const r of resumo) {
+    const nome = (r.produto_nome || "").trim();
+    if (nome) custoPorNome[nome.toLowerCase()] = r.custo_medio != null ? Number(r.custo_medio) : null;
+  }
+
+  let custoReal = 0;
+  const itens = usage.map((u) => {
+    const key = u.item_ref.toLowerCase();
+    let custo_unitario = custoPorNome[key] ?? null;
+    if (custo_unitario == null) {
+      const partial = Object.keys(custoPorNome).find((k) => k.includes(key) || key.includes(k));
+      if (partial) custo_unitario = custoPorNome[partial];
+    }
+    const subtotal = (custo_unitario != null ? custo_unitario : 0) * u.quantity_used;
+    custoReal += subtotal;
+    return { item_ref: u.item_ref, quantity_used: u.quantity_used, custo_unitario, subtotal };
+  });
+
+  return { custoReal, itens };
+}
+
+/**
+ * Procedimentos que usam determinado produto (procedure_stock_usage.item_ref).
+ * Útil para campanhas: "produto X vence em 30 dias → promova procedimentos que usam X".
+ * @param {string} produtoNome - nome do produto (match por item_ref ilike)
+ * @returns {Promise<Array<{ procedure_id: string, procedure_name: string }>>}
+ */
+export async function getProcedimentosQueUsamProduto(produtoNome) {
+  if (!(produtoNome && String(produtoNome).trim())) return [];
+  const { data: usages, error: errU } = await withOrg(
+    supabase
+      .from("procedure_stock_usage")
+      .select("procedure_id, item_ref")
+      .ilike("item_ref", "%" + String(produtoNome).trim() + "%")
+  );
+  if (errU || !usages?.length) return [];
+  const procedureIds = [...new Set(usages.map((u) => u.procedure_id).filter(Boolean))];
+  if (procedureIds.length === 0) return [];
+  const { data: procedures, error: errP } = await withOrg(
+    supabase.from("procedures").select("id, name").in("id", procedureIds)
+  );
+  if (errP) return [];
+  const byId = (procedures ?? []).reduce((acc, p) => {
+    acc[p.id] = p.name || "—";
+    return acc;
+  }, {});
+  return procedureIds.map((id) => ({ procedure_id: id, procedure_name: byId[id] || "—" }));
 }

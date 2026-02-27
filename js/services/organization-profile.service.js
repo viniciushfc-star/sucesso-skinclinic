@@ -17,38 +17,52 @@ const PROFILE_STEP2 = "cidade, estado, logo_url, endereco, cnpj, telefone";
 const PROFILE_STEP3 = "cep, complemento, menu_anamnese_visible, brinde_aniversario_habilitado, nota_fiscal_emitir_url";
 const PROFILE_STEP4 = "taxa_avista_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct";
 const PROFILE_TAXAS = "taxa_transacao_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, " + PARCELADO_COLS;
+const PROFILE_TAXAS_BANDEIRAS = "taxas_bandeiras";
+const PROFILE_PARCELAMENTO = "parcelamento_margem_minima_pct, parcelamento_max_parcelas";
+const PROFILE_MARGEM_COMISSAO = "margem_alvo_padrao_pct, comissao_profissional_padrao_pct";
 
 const PARCELADO_NULLS = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`taxa_parcelado_${i + 2}_pct`, null]));
 const TAXAS_EXTRA_NULLS = { taxa_transacao_pct: null, taxa_avista_debito_pct: null, taxa_avista_credito_pct: null };
-const ALL_DEFAULTS = { cidade: null, estado: null, logo_url: null, endereco: null, cnpj: null, telefone: null, cep: null, complemento: null, menu_anamnese_visible: false, brinde_aniversario_habilitado: false, nota_fiscal_emitir_url: null, taxa_avista_pct: null, taxa_parcelado_2_6_pct: null, taxa_parcelado_7_12_pct: null, ...TAXAS_EXTRA_NULLS, ...PARCELADO_NULLS };
+const ALL_DEFAULTS = { cidade: null, estado: null, logo_url: null, endereco: null, cnpj: null, telefone: null, cep: null, complemento: null, menu_anamnese_visible: false, brinde_aniversario_habilitado: false, nota_fiscal_emitir_url: null, taxa_avista_pct: null, taxa_parcelado_2_6_pct: null, taxa_parcelado_7_12_pct: null, taxas_bandeiras: null, parcelamento_margem_minima_pct: 80, parcelamento_max_parcelas: null, margem_alvo_padrao_pct: 40, comissao_profissional_padrao_pct: null, ...TAXAS_EXTRA_NULLS, ...PARCELADO_NULLS };
 
 /**
  * Retorna o perfil da organização ativa. Usa selects progressivos (mínimo primeiro) para evitar 400 quando colunas não existem.
+ * Em caso de erro (400/404/conexão), retorna null para o app exibir banner e não quebrar.
  */
 export async function getOrganizationProfile() {
-  const orgId = getOrgOrThrow();
-  const baseSelect = () => supabase.from("organizations").select("id, name").eq("id", orgId).single();
+  try {
+    const orgId = getOrgOrThrow();
+    const baseSelect = () => supabase.from("organizations").select("id, name").eq("id", orgId).single();
 
-  const { data: d1, error: e1 } = await baseSelect();
-  if (e1) throw e1;
+    const { data: d1, error: e1 } = await baseSelect();
+    if (e1) return null;
 
-  let result = { ...(d1 ?? {}), ...ALL_DEFAULTS };
+    let result = { ...(d1 ?? {}), ...ALL_DEFAULTS };
 
-  const trySelect = async (cols) => {
-    const { data } = await supabase.from("organizations").select(cols).eq("id", orgId).single();
-    return data;
-  };
+    const trySelect = async (cols) => {
+      const { data } = await supabase.from("organizations").select(cols).eq("id", orgId).single();
+      return data;
+    };
 
-  const d2 = await trySelect(PROFILE_STEP2);
-  if (d2) result = { ...result, ...d2 };
-  const d3 = await trySelect(PROFILE_STEP3);
-  if (d3) result = { ...result, ...d3 };
-  const d4 = await trySelect(PROFILE_STEP4);
-  if (d4) result = { ...result, ...d4 };
-  const d5 = await trySelect(PROFILE_TAXAS);
-  if (d5) result = { ...result, ...d5 };
+    const d2 = await trySelect(PROFILE_STEP2);
+    if (d2) result = { ...result, ...d2 };
+    const d3 = await trySelect(PROFILE_STEP3);
+    if (d3) result = { ...result, ...d3 };
+    const d4 = await trySelect(PROFILE_STEP4);
+    if (d4) result = { ...result, ...d4 };
+    const d5 = await trySelect(PROFILE_TAXAS);
+    if (d5) result = { ...result, ...d5 };
+    const d6 = await trySelect(PROFILE_TAXAS_BANDEIRAS);
+    if (d6) result = { ...result, ...d6 };
+    const d7 = await trySelect(PROFILE_PARCELAMENTO);
+    if (d7) result = { ...result, ...d7 };
+    const d8 = await trySelect(PROFILE_MARGEM_COMISSAO);
+    if (d8) result = { ...result, ...d8 };
 
-  return result;
+    return result;
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -56,7 +70,7 @@ export async function getOrganizationProfile() {
  */
 export async function updateOrganizationProfile(payload) {
   const orgId = getOrgOrThrow();
-  const { name, cidade, estado, logo_url, endereco, cep, complemento, cnpj, telefone, menu_anamnese_visible, taxa_transacao_pct, taxa_avista_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct, brinde_aniversario_habilitado, nota_fiscal_emitir_url } = payload;
+  const { name, cidade, estado, logo_url, endereco, cep, complemento, cnpj, telefone, menu_anamnese_visible, taxa_transacao_pct, taxa_avista_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct, brinde_aniversario_habilitado, nota_fiscal_emitir_url, taxas_bandeiras, parcelamento_margem_minima_pct, parcelamento_max_parcelas, margem_alvo_padrao_pct, comissao_profissional_padrao_pct } = payload;
   const update = {};
   if (name !== undefined) update.name = (name || "").trim();
   if (cidade !== undefined) update.cidade = (cidade || "").trim() || null;
@@ -81,6 +95,11 @@ export async function updateOrganizationProfile(payload) {
   }
   if (brinde_aniversario_habilitado !== undefined) update.brinde_aniversario_habilitado = !!brinde_aniversario_habilitado;
   if (nota_fiscal_emitir_url !== undefined) update.nota_fiscal_emitir_url = (nota_fiscal_emitir_url || "").trim() || null;
+  if (taxas_bandeiras !== undefined) update.taxas_bandeiras = taxas_bandeiras && typeof taxas_bandeiras === "object" ? taxas_bandeiras : null;
+  if (parcelamento_margem_minima_pct !== undefined && parcelamento_margem_minima_pct !== "") update.parcelamento_margem_minima_pct = Number(parcelamento_margem_minima_pct) || null;
+  if (parcelamento_max_parcelas !== undefined) update.parcelamento_max_parcelas = (parcelamento_max_parcelas === "" || parcelamento_max_parcelas == null) ? null : (Math.min(12, Math.max(1, parseInt(parcelamento_max_parcelas, 10))) || null);
+  if (margem_alvo_padrao_pct !== undefined && margem_alvo_padrao_pct !== "") update.margem_alvo_padrao_pct = Number(margem_alvo_padrao_pct) || null;
+  if (comissao_profissional_padrao_pct !== undefined && comissao_profissional_padrao_pct !== "") update.comissao_profissional_padrao_pct = Number(comissao_profissional_padrao_pct) || null;
 
   const { data, error } = await supabase
     .from("organizations")

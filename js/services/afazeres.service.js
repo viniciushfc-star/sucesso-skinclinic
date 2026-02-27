@@ -35,6 +35,23 @@ export async function listAfazeres(filters = {}) {
   return data ?? [];
 }
 
+/**
+ * Afazeres com prazo em uma data (para mostrar na agenda do dia; não ocupam horário).
+ * @param {string} prazoDate - YYYY-MM-DD
+ * @param {{ responsavelUserId?: string }} options - opcional: filtrar por responsável
+ * @returns {Promise<Array>}
+ */
+export async function listAfazeresByPrazo(prazoDate, options = {}) {
+  if (!prazoDate) return [];
+  let q = withOrg(
+    supabase.from("afazeres").select("*").eq("prazo", prazoDate).neq("status", "cancelado").order("created_at", { ascending: false })
+  );
+  if (options.responsavelUserId) q = q.eq("responsavel_user_id", options.responsavelUserId);
+  const { data, error } = await q;
+  if (error) return [];
+  return data ?? [];
+}
+
 export async function createAfazer({ responsavelUserId, titulo, descricao, prazo, tipo }) {
   const orgId = getOrgOrThrow();
   const { data, error } = await supabase
@@ -72,4 +89,25 @@ export async function updateAfazer(id, { responsavelUserId, titulo, descricao, p
 export async function deleteAfazer(id) {
   const { error } = await withOrg(supabase.from("afazeres").delete().eq("id", id));
   if (error) throw error;
+}
+
+/**
+ * Resumo de tarefas por responsável: total e concluídas.
+ * @returns {Promise<Array<{ user_id: string, total: number, concluidos: number }>>}
+ */
+export async function getAfazeresResumoPorUsuario() {
+  const { data, error } = await withOrg(
+    supabase.from("afazeres").select("responsavel_user_id, status")
+  );
+  if (error) return [];
+  const byUser = {};
+  for (const row of data || []) {
+    const uid = row.responsavel_user_id || "_sem_responsavel_";
+    if (!byUser[uid]) byUser[uid] = { total: 0, concluidos: 0 };
+    byUser[uid].total += 1;
+    if (row.status === "concluido") byUser[uid].concluidos += 1;
+  }
+  return Object.entries(byUser)
+    .filter(([uid]) => uid !== "_sem_responsavel_")
+    .map(([user_id, o]) => ({ user_id, total: o.total, concluidos: o.concluidos }));
 }

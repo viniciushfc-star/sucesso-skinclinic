@@ -16,12 +16,40 @@ let state = {
   respostas: {},
 };
 
+/** Perguntas objetivas para ação palpável: além da imagem, a clínica tem dados estruturados (gestante, alergias, medicação) para maior acertividade. */
 const PERGUNTAS = [
-  { id: "queixa_principal", label: "Qual é a principal queixa em relação à sua pele?", placeholder: "Ex.: manchas, acne, ressecamento" },
-  { id: "quando_comecou", label: "Quando começou ou quando percebeu?", placeholder: "Ex.: há alguns meses, após o verão" },
-  { id: "o_que_incomoda", label: "O que mais incomoda no dia a dia?", placeholder: "Ex.: aparência, coceira, sensibilidade" },
-  { id: "o_que_ja_tentou", label: "O que você já tentou (produtos ou cuidados)?", placeholder: "Ex.: hidratante X, limpeza" },
-  { id: "como_se_sente", label: "Como você se sente em relação à sua pele?", placeholder: "Ex.: incomodado, quer melhorar" },
+  { id: "queixa_principal", label: "Qual é a principal queixa em relação à sua pele?", type: "text", placeholder: "Ex.: manchas, acne, ressecamento" },
+  { id: "quando_comecou", label: "Quando começou ou quando percebeu?", type: "text", placeholder: "Ex.: há alguns meses, após o verão" },
+  { id: "o_que_incomoda", label: "O que mais incomoda no dia a dia?", type: "text", placeholder: "Ex.: aparência, coceira, sensibilidade" },
+  { id: "tipo_pele_autopercepcao", label: "Como você percebe sua pele?", type: "select", options: [
+    { value: "", label: "—" },
+    { value: "seca", label: "Seca" },
+    { value: "oleosa", label: "Oleosa" },
+    { value: "mista", label: "Mista" },
+    { value: "sensivel", label: "Sensível" },
+    { value: "nao_sei", label: "Não sei" }
+  ] },
+  { id: "o_que_ja_tentou", label: "O que você já tentou (produtos ou cuidados)?", type: "text", placeholder: "Ex.: hidratante X, limpeza" },
+  { id: "filtro_solar", label: "Usa filtro solar diariamente?", type: "select", options: [
+    { value: "", label: "—" },
+    { value: "sim", label: "Sim" },
+    { value: "nao", label: "Não" },
+    { value: "as_vezes", label: "Às vezes" }
+  ] },
+  { id: "gestante", label: "Está grávida ou suspeita de gestação?", type: "select", options: [
+    { value: "", label: "—" },
+    { value: "nao", label: "Não" },
+    { value: "sim", label: "Sim" },
+    { value: "suspeita", label: "Suspeita" }
+  ] },
+  { id: "alergias", label: "Tem alergia a algum produto ou substância (cremes, ácidos, anestésico)?", type: "text", placeholder: "Ex.: nenhuma; ácido; látex" },
+  { id: "medicacao_habitual", label: "Usa algum medicamento de uso contínuo?", type: "text", placeholder: "Ex.: anticoncepcional, anti-hipertensivo; nenhum" },
+  { id: "uso_acidos", label: "Usa ácidos ou fez peeling recentemente?", type: "select", options: [
+    { value: "", label: "—" },
+    { value: "nao", label: "Não" },
+    { value: "sim", label: "Sim" }
+  ] },
+  { id: "como_se_sente", label: "Como você se sente em relação à sua pele?", type: "text", placeholder: "Ex.: incomodado, quer melhorar" },
 ];
 
 export async function init() {
@@ -131,16 +159,24 @@ function renderFotos() {
 }
 
 function renderPerguntas() {
-  const fields = PERGUNTAS.map(
-    (p) => `
+  const fields = PERGUNTAS.map((p) => {
+    const value = state.respostas[p.id] || "";
+    if (p.type === "select" && Array.isArray(p.options)) {
+      const opts = p.options.map((o) => `<option value="${escapeHtml(o.value)}"${o.value === value ? " selected" : ""}>${escapeHtml(o.label)}</option>`).join("");
+      return `
     <label class="analise-pele-label">${p.label}</label>
-    <input type="text" id="resposta_${p.id}" placeholder="${p.placeholder}" class="analise-pele-input" value="${escapeHtml(state.respostas[p.id] || "")}">
-  `
-  ).join("");
+    <select id="resposta_${p.id}" class="analise-pele-input analise-pele-select">${opts}</select>
+  `;
+    }
+    return `
+    <label class="analise-pele-label">${p.label}</label>
+    <input type="text" id="resposta_${p.id}" placeholder="${escapeHtml(p.placeholder || "")}" class="analise-pele-input" value="${escapeHtml(value)}">
+  `;
+  }).join("");
   app.innerHTML = `
     <section class="client-header">
       <h2>Algumas perguntas</h2>
-      <p class="client-hint">Suas respostas ajudam a organizar a pré-anamnese e a relacionar com o que a análise visual observa.</p>
+      <p class="client-hint">Suas respostas (incluindo gestação, alergias e medicamentos) ajudam a clínica a dar um retorno mais seguro e preciso, além da análise das fotos.</p>
     </section>
     <section class="analise-pele-perguntas">
       ${fields}
@@ -149,7 +185,11 @@ function renderPerguntas() {
   `;
   PERGUNTAS.forEach((p) => {
     const el = document.getElementById(`resposta_${p.id}`);
-    if (el) el.oninput = () => (state.respostas[p.id] = el.value.trim());
+    if (!el) return;
+    const update = () => (state.respostas[p.id] = (el.value || "").trim());
+    el.oninput = update;
+    el.onchange = update;
+    update();
   });
   document.getElementById("btnEnviarAnalise").onclick = () => {
     step = 3;

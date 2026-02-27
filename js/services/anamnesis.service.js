@@ -78,16 +78,33 @@ export function suggestFuncaoFromProcedimento(procedimentoNome) {
 export async function listRegistrosByClientAndFuncao(clientId, funcaoId) {
   if (!clientId || !funcaoId) return [];
   const orgId = getOrgOrThrow();
+  const cols = "id, conteudo, ficha, fotos, conduta_tratamento, agenda_id, author_id, created_at";
   const { data, error } = await withOrg(
     supabase
       .from("anamnesis_registros")
-      .select("id, conteudo, ficha, fotos, conduta_tratamento, resultado_resumo, agenda_id, author_id, created_at")
+      .select(cols + ", resultado_resumo")
       .eq("org_id", orgId)
       .eq("client_id", clientId)
       .eq("funcao_id", funcaoId)
       .order("created_at", { ascending: false })
   );
-  if (error) throw error;
+  if (error) {
+    const colMissing = (error.code === "42703" || error.message?.includes("does not exist")) && String(error.message || "").includes("resultado_resumo");
+    if (colMissing) {
+      const { data: fallback, error: err2 } = await withOrg(
+        supabase
+          .from("anamnesis_registros")
+          .select(cols)
+          .eq("org_id", orgId)
+          .eq("client_id", clientId)
+          .eq("funcao_id", funcaoId)
+          .order("created_at", { ascending: false })
+      );
+      if (err2) throw err2;
+      return (fallback ?? []).map((r) => ({ ...r, resultado_resumo: r.ficha?.resultado_resumo ?? null }));
+    }
+    throw error;
+  }
   return data ?? [];
 }
 
@@ -129,8 +146,21 @@ export async function listRegistrosByAgenda(agendaId) {
 }
 
 /**
+ * Normaliza fotos para array de { url, data?, observacao? }.
+ * Aceita: string[] (legado) ou { url, data?, observacao? }[].
+ */
+function normalizeFotos(fotos) {
+  if (!Array.isArray(fotos)) return [];
+  return fotos.map((item) => {
+    if (typeof item === "string") return { url: item, data: null, observacao: null };
+    if (item && typeof item.url === "string") return { url: item.url, data: item.data || null, observacao: item.observacao || null };
+    return null;
+  }).filter(Boolean);
+}
+
+/**
  * Cria um novo registro evolutivo na anamnese.
- * @param {Object} p - clientId, funcaoId, conteudo (opcional), ficha (objeto), fotos (array URLs), conduta_tratamento, agendaId, authorId
+ * @param {Object} p - clientId, funcaoId, conteudo (opcional), ficha (objeto), fotos (array de { url, data?, observacao? } ou URLs), conduta_tratamento, agendaId, authorId
  */
 export async function createRegistro({
   clientId,
@@ -144,14 +174,16 @@ export async function createRegistro({
   resultado_resumo = null
 }) {
   if (!clientId || !funcaoId) throw new Error("Cliente e função são obrigatórios.");
+  const fotosNorm = normalizeFotos(fotos);
   const hasContent =
     (conteudo && conteudo.trim()) ||
     (ficha && Object.keys(ficha).length > 0) ||
     (conduta_tratamento && conduta_tratamento.trim()) ||
-    (fotos && fotos.length > 0) ||
+    fotosNorm.length > 0 ||
     (resultado_resumo && resultado_resumo.trim());
   if (!hasContent) throw new Error("Preencha ao menos a ficha, observações, conduta ou envie fotos.");
   const orgId = getOrgOrThrow();
+  const fichaSafe = ficha && typeof ficha === "object" ? JSON.parse(JSON.stringify(ficha)) : {};
   const { data, error } = await supabase
     .from("anamnesis_registros")
     .insert({
@@ -160,8 +192,8 @@ export async function createRegistro({
       funcao_id: funcaoId,
       agenda_id: agendaId || null,
       conteudo: (conteudo || "").trim(),
-      ficha: ficha && typeof ficha === "object" ? ficha : {},
-      fotos: Array.isArray(fotos) ? fotos : [],
+      ficha: fichaSafe,
+      fotos: fotosNorm,
       conduta_tratamento: conduta_tratamento && conduta_tratamento.trim() ? conduta_tratamento.trim() : null,
       resultado_resumo: resultado_resumo && resultado_resumo.trim() ? resultado_resumo.trim() : null,
       author_id: authorId || null
@@ -198,13 +230,15 @@ const BUCKET_ANAMNESE = "anamnese-fotos";
 
 /**
  * Faz upload de uma foto da anamnese e retorna a URL pública (ou signed).
- * Caminho: org_id/cliente_id/nome_arquivo
+ * Caminho: org_id/cliente_id/nome_arquivo. Use suffix (ex.: índice) para vários arquivos no mesmo segundo.
  */
-export async function uploadFotoAnamnese(file, clientId) {
+export async function uploadFotoAnamnese(file, clientId, suffix = "") {
   if (!file || !clientId) throw new Error("Arquivo e clientId são obrigatórios.");
   const orgId = getOrgOrThrow();
-  const ext = (file.name || "").split(".").pop() || "jpg";
-  const path = `${orgId}/${clientId}/${Date.now()}.${ext}`;
+  const ext = (file.name || "").split(".").pop()?.toLowerCase() || "jpg";
+  const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : "jpg";
+  const uniq = suffix !== "" ? `${Date.now()}_${suffix}` : String(Date.now());
+  const path = `${orgId}/${clientId}/${uniq}.${safeExt}`;
   const { data, error } = await supabase.storage.from(BUCKET_ANAMNESE).upload(path, file, {
     cacheControl: "3600",
     upsert: false
@@ -212,4 +246,86 @@ export async function uploadFotoAnamnese(file, clientId) {
   if (error) throw error;
   const { data: urlData } = supabase.storage.from(BUCKET_ANAMNESE).getPublicUrl(data.path);
   return urlData?.publicUrl || data.path;
+}
+
+/* =====================
+   CAMPOS PERSONALIZADOS (conforme demanda da clínica)
+===================== */
+
+/**
+ * Lista campos personalizados de uma função (área) para a org ativa.
+ */
+export async function listCamposPersonalizados(funcaoId) {
+  if (!funcaoId) return [];
+  const orgId = getOrgOrThrow();
+  const { data, error } = await withOrg(
+    supabase
+      .from("anamnesis_campos_personalizados")
+      .select("id, key, label, type, placeholder, options, ordem")
+      .eq("org_id", orgId)
+      .eq("funcao_id", funcaoId)
+      .eq("active", true)
+      .order("ordem")
+  );
+  if (error) {
+    if (error.code === "PGRST205" || error.message?.includes("Could not find the table")) return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/**
+ * Cria um campo personalizado. key: identificador único na ficha (ex.: medicacao_rotina).
+ */
+export async function createCampoPersonalizado({ funcaoId, key, label, type = "text", placeholder = null, options = [] }) {
+  if (!funcaoId || !key || !label) throw new Error("Função, chave e label são obrigatórios.");
+  const slug = key.replace(/[^a-z0-9_]/gi, "_").toLowerCase() || "custom_" + Date.now();
+  const orgId = getOrgOrThrow();
+  const { data, error } = await supabase
+    .from("anamnesis_campos_personalizados")
+    .insert({
+      org_id: orgId,
+      funcao_id: funcaoId,
+      key: slug,
+      label: label.trim(),
+      type: type || "text",
+      placeholder: placeholder && placeholder.trim() ? placeholder.trim() : null,
+      options: Array.isArray(options) ? options : [],
+      ordem: 999
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Atualiza um campo personalizado.
+ */
+export async function updateCampoPersonalizado(id, { label, type, placeholder, options, ordem }) {
+  if (!id) throw new Error("ID do campo é obrigatório.");
+  const orgId = getOrgOrThrow();
+  const payload = {};
+  if (label != null) payload.label = label.trim();
+  if (type != null) payload.type = type;
+  if (placeholder != null) payload.placeholder = placeholder && placeholder.trim() ? placeholder.trim() : null;
+  if (options != null) payload.options = Array.isArray(options) ? options : [];
+  if (ordem != null) payload.ordem = Number(ordem);
+  const { data, error } = await withOrg(
+    supabase.from("anamnesis_campos_personalizados").update(payload).eq("id", id).eq("org_id", orgId).select().single()
+  );
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Desativa (soft delete) um campo personalizado.
+ */
+export async function deleteCampoPersonalizado(id) {
+  if (!id) throw new Error("ID do campo é obrigatório.");
+  const orgId = getOrgOrThrow();
+  const { error } = await withOrg(
+    supabase.from("anamnesis_campos_personalizados").update({ active: false }).eq("id", id).eq("org_id", orgId)
+  );
+  if (error) throw error;
 }

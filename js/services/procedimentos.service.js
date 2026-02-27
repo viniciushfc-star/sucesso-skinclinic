@@ -41,7 +41,7 @@ export async function listProcedureCategories() {
  */
 export async function listProcedures(activeOnly = false) {
   const orgId = getOrgOrThrow();
-  const fullSelect = "id, name, description, duration_minutes, valor_cobrado, active, codigo, category_id, custo_material_estimado, margem_minima_desejada, tipo_procedimento, termo_especifico, created_at";
+  const fullSelect = "id, name, description, duration_minutes, valor_cobrado, active, codigo, category_id, custo_material_estimado, margem_minima_desejada, comissao_profissional_pct, tipo_procedimento, termo_especifico, created_at";
   let q = withOrg(supabase.from("procedures").select(fullSelect).order("name"));
   if (activeOnly) q = q.eq("active", true);
   let { data, error } = await q;
@@ -70,7 +70,7 @@ export async function createProcedureCategory(name) {
 /**
  * Cria um procedimento.
  */
-export async function createProcedure({ name, description, durationMinutes = 60, valorCobrado, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, tipoProcedimento, termoEspecifico }) {
+export async function createProcedure({ name, description, durationMinutes = 60, valorCobrado, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, comissaoProfissionalPct, tipoProcedimento, termoEspecifico }) {
   const orgId = getOrgOrThrow();
   const payload = {
     org_id: orgId,
@@ -84,6 +84,7 @@ export async function createProcedure({ name, description, durationMinutes = 60,
   if (categoryId !== undefined && categoryId !== "") payload.category_id = categoryId || null;
   if (custoMaterialEstimado !== undefined && custoMaterialEstimado !== "") payload.custo_material_estimado = custoMaterialEstimado == null ? null : Number(custoMaterialEstimado);
   if (margemMinimaDesejada !== undefined && margemMinimaDesejada !== "") payload.margem_minima_desejada = margemMinimaDesejada == null ? null : Number(margemMinimaDesejada);
+  if (comissaoProfissionalPct !== undefined && comissaoProfissionalPct !== "") payload.comissao_profissional_pct = comissaoProfissionalPct == null ? null : Number(comissaoProfissionalPct);
   if (tipoProcedimento !== undefined && tipoProcedimento !== "") payload.tipo_procedimento = (tipoProcedimento || "").trim() || null;
   if (termoEspecifico !== undefined) payload.termo_especifico = (termoEspecifico || "").trim() || null;
   const { data, error } = await supabase.from("procedures").insert(payload).select().single();
@@ -94,7 +95,7 @@ export async function createProcedure({ name, description, durationMinutes = 60,
 /**
  * Atualiza um procedimento.
  */
-export async function updateProcedure(id, { name, description, durationMinutes, valorCobrado, active, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, tipoProcedimento, termoEspecifico }) {
+export async function updateProcedure(id, { name, description, durationMinutes, valorCobrado, active, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, comissaoProfissionalPct, tipoProcedimento, termoEspecifico }) {
   const orgId = getOrgOrThrow();
   const payload = {};
   if (name !== undefined) payload.name = (name || "").trim();
@@ -106,6 +107,7 @@ export async function updateProcedure(id, { name, description, durationMinutes, 
   if (categoryId !== undefined) payload.category_id = categoryId || null;
   if (custoMaterialEstimado !== undefined) payload.custo_material_estimado = custoMaterialEstimado === "" || custoMaterialEstimado === null ? null : Number(custoMaterialEstimado);
   if (margemMinimaDesejada !== undefined) payload.margem_minima_desejada = margemMinimaDesejada === "" || margemMinimaDesejada === null ? null : Number(margemMinimaDesejada);
+  if (comissaoProfissionalPct !== undefined) payload.comissao_profissional_pct = comissaoProfissionalPct === "" || comissaoProfissionalPct === null ? null : Number(comissaoProfissionalPct);
   if (tipoProcedimento !== undefined) payload.tipo_procedimento = (tipoProcedimento || "").trim() || null;
   if (termoEspecifico !== undefined) payload.termo_especifico = (termoEspecifico || "").trim() || null;
   const { data, error } = await supabase
@@ -130,4 +132,24 @@ export async function deleteProcedure(id) {
     .eq("id", id)
     .eq("org_id", orgId);
   if (error) throw error;
+}
+
+/**
+ * Materiais/produtos vinculados ao procedimento (procedure_stock_usage).
+ * @param {string} procedureId
+ * @returns {Promise<Array<{ item_ref: string, quantity_used: number }>>}
+ */
+export async function getProcedureStockUsage(procedureId) {
+  if (!procedureId) return [];
+  const { data, error } = await withOrg(
+    supabase
+      .from("procedure_stock_usage")
+      .select("item_ref, quantity_used")
+      .eq("procedure_id", procedureId)
+  );
+  if (error) return [];
+  return (data ?? []).map((r) => ({
+    item_ref: (r.item_ref || "").trim(),
+    quantity_used: Number(r.quantity_used) || 0
+  }));
 }

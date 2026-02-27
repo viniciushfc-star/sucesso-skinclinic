@@ -18,7 +18,8 @@ export const DOC_KEYS = {
 };
 
 /**
- * Modelos profissionais. Use os placeholders entre colchetes; o sistema substitui [NOME_DA_CLINICA], [CNPJ], etc. pelo cadastro da empresa.
+ * Modelos profissionais. As marcações [NOME_DA_CLINICA], [CNPJ], [ENDERECO], [CEP], [TELEFONE]
+ * são preenchidas automaticamente pelo cadastro da empresa; o restante (dados do cliente, assinaturas) é preenchido por documento.
  * Revisar com advogado especializado em direito da saúde/estética antes de uso em produção.
  */
 export const DOC_DEFAULTS = {

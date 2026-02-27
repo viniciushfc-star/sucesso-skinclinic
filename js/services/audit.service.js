@@ -57,13 +57,15 @@ export async function getMargemEmRisco(dias = 30) {
 
     const since = new Date();
     since.setDate(since.getDate() - dias);
+    // ISO sem milissegundos para evitar 400 no PostgREST (ponto em .559Z é reservado na URL)
+    const sinceStr = since.toISOString().replace(/\.\d{3}Z$/, "Z");
 
     const { data, error } = await supabase
       .from("audit_logs")
       .select("id, action, metadata, created_at")
       .eq("org_id", orgId)
       .eq("action", "estoque.custo_aumentou")
-      .gte("created_at", since.toISOString())
+      .gte("created_at", sinceStr)
       .order("created_at", { ascending: false })
       .limit(50);
 

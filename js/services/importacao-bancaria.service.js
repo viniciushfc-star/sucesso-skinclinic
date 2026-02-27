@@ -144,11 +144,12 @@ export async function contarImportadosParaRevisao() {
     .select("id, data, importado, tipo, categoria_saida")
     .eq("org_id", getActiveOrg())
     .eq("importado", true)
-    .gte("data", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+    .gte("data", (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })());
 
   if (error) throw error;
   const list = data ?? [];
-  const hoje = new Date().toISOString().slice(0, 10);
+  const { getTodayLocal } = await import("./metrics.service.js");
+  const hoje = getTodayLocal();
   const deHoje = list.filter((t) => t.data === hoje);
   return { totalUltimos7: list.length, deHoje: deHoje.length, lista: list };
 }

@@ -7,7 +7,7 @@ export async function createInvite({ orgId, email, role }) {
   const { error } = await supabase
     .from("organization_invites")
     .insert({
-      organization_id: orgId,
+      org_id: orgId,
       email,
       role,
       status: "pending"
@@ -25,7 +25,7 @@ export async function createInvite({ orgId, email, role }) {
 export async function getInviteByEmail(email) {
   const { data, error } = await supabase
     .from("organization_invites")
-    .select("*")
+    .select("*, organizations(name)")
     .eq("email", email)
     .eq("status", "pending")
     .maybeSingle();
@@ -34,6 +34,10 @@ export async function getInviteByEmail(email) {
     console.error("[INVITE-SERVICE] Erro ao buscar convite", error);
     throw error;
   }
-
-  return data;
+  if (!data) return null;
+  return {
+    ...data,
+    org_id: data.org_id ?? data.organization_id,
+    organization_name: data.organizations?.name ?? data.organization_name ?? "Clínica",
+  };
 }

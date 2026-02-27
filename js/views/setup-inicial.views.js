@@ -6,10 +6,13 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { toast } from "../ui/toast.js";
-import { navigate } from "../core/spa.js";
 import { CUSTOS_FIXOS_COMUNS } from "../utils/categoria-financeiro.js";
 
 const BTN_CRIAR_ID = "btnSetupCriarLancamentos";
+const BTN_ADD_CUSTO_ID = "btnSetupAddCusto";
+const CUSTO_NOME_ID = "setupCustoNome";
+const CUSTO_VALOR_ID = "setupCustoValor";
+const CUSTOS_CUSTOM_LIST = "setupCustosCustomList";
 
 /** Chamado quando a view Setup inicial era uma rota própria; mantido para compat. */
 export function init() {}
@@ -22,13 +25,16 @@ export function renderCustoFixo(container) {
   if (!container) return;
 
   container.innerHTML = `
-    <h3 class="custo-fixo-title">Custo fixo</h3>
-    <p class="setup-inicial-intro">
-      Marque os custos fixos que você tem e informe o valor (mensal ou último pago).
-      O sistema já classifica como <strong>Custo fixo</strong> — aluguel, luz, internet etc.
-      Você pode editar ou adicionar mais na aba «Visão geral».
-    </p>
     <div class="setup-inicial-custos"></div>
+    <div class="setup-inicial-custos-custom">
+      <h4 class="setup-inicial-custos-custom-title">Outros custos (segurança, manutenção, seguro, etc.)</h4>
+      <div class="setup-inicial-custos-custom-add">
+        <input type="text" id="${CUSTO_NOME_ID}" class="setup-inicial-custo-nome" placeholder="Ex.: Segurança, Manutenção elevador" aria-label="Nome do custo">
+        <span class="setup-inicial-custo-valor-wrap">R$ <input type="number" id="${CUSTO_VALOR_ID}" class="setup-inicial-custo-valor" step="0.01" min="0" placeholder="0,00" aria-label="Valor mensal"></span>
+        <button type="button" id="${BTN_ADD_CUSTO_ID}" class="btn-secondary">+ Adicionar</button>
+      </div>
+      <ul id="${CUSTOS_CUSTOM_LIST}" class="setup-inicial-custos-custom-list" aria-label="Custos adicionados"></ul>
+    </div>
     <div class="setup-inicial-actions">
       <button type="button" id="${BTN_CRIAR_ID}" class="btn-primary">Criar lançamentos no Financeiro</button>
     </div>
@@ -52,6 +58,13 @@ export function renderCustoFixo(container) {
   `).join("");
 }
 
+function escapeHtml(s) {
+  if (s == null) return "";
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
 /**
  * Associa eventos do bloco Custo fixo (botão criar, links de navegação).
  * @param {HTMLElement} container - Mesmo elemento usado em renderCustoFixo.
@@ -62,13 +75,36 @@ export function bindCustoFixoEvents(container) {
   const btn = container.querySelector(`#${BTN_CRIAR_ID}`);
   if (btn) btn.onclick = () => criarLancamentos(container);
 
-  container.querySelectorAll("a[data-view]").forEach((a) => {
-    a.onclick = (e) => {
-      e.preventDefault();
-      const view = a.getAttribute("data-view");
-      if (view) navigate(view);
+  const btnAdd = container.querySelector(`#${BTN_ADD_CUSTO_ID}`);
+  const inputNome = container.querySelector(`#${CUSTO_NOME_ID}`);
+  const inputValor = container.querySelector(`#${CUSTO_VALOR_ID}`);
+  const listCustom = container.querySelector(`#${CUSTOS_CUSTOM_LIST}`);
+  if (btnAdd && inputNome && inputValor && listCustom) {
+    btnAdd.onclick = () => {
+      const nome = (inputNome.value || "").trim();
+      const valor = parseFloat(String(inputValor.value || "").replace(",", "."));
+      if (!nome) {
+        toast("Digite o nome do custo.");
+        return;
+      }
+      if (!Number.isFinite(valor) || valor <= 0) {
+        toast("Digite um valor maior que zero.");
+        return;
+      }
+      const li = document.createElement("li");
+      li.className = "setup-inicial-row-custom";
+      li.dataset.descricao = nome;
+      li.dataset.valor = String(valor);
+      li.innerHTML = `<span class="setup-inicial-row-custom-label">${escapeHtml(nome)}</span> <span class="setup-inicial-row-custom-valor">R$ ${valor.toFixed(2).replace(".", ",")}</span> <button type="button" class="btn-small setup-inicial-row-custom-remove" aria-label="Remover">Remover</button>`;
+      li.querySelector(".setup-inicial-row-custom-remove").onclick = () => li.remove();
+      listCustom.appendChild(li);
+      inputNome.value = "";
+      inputValor.value = "";
+      inputNome.focus();
     };
-  });
+  }
+
+  /* Links data-view são tratados pelo SPA (bindMenu com delegação) */
 }
 
 async function criarLancamentos(container) {
@@ -95,9 +131,14 @@ async function criarLancamentos(container) {
     const descricao = check.getAttribute("data-descricao") || "Custo fixo";
     rows.push({ descricao, valor });
   });
+  scope.querySelectorAll(".setup-inicial-row-custom").forEach((li) => {
+    const descricao = (li.dataset.descricao || "").trim();
+    const valor = parseFloat(String(li.dataset.valor || "").replace(",", "."));
+    if (descricao && Number.isFinite(valor) && valor > 0) rows.push({ descricao, valor });
+  });
 
   if (rows.length === 0) {
-    toast("Marque pelo menos um custo e informe o valor.");
+    toast("Marque pelo menos um custo (ou adicione outro) e informe o valor.");
     return;
   }
 

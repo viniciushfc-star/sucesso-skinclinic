@@ -3,6 +3,7 @@ import { withOrg, getActiveOrg } from "../core/org.js";
 import { toast } from "../ui/toast.js";
 import { checkPermission } from "../core/permissions.js";
 import { getSession } from "../core/auth.js";
+import { redirect } from "../core/base-path.js";
 
 const PAGE_SIZE = 30;
 const auditLogsState = { allRows: [], offset: 0, hasMore: false };
@@ -38,7 +39,7 @@ export async function renderLogs() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       toast("Sessão expirada");
-      window.location.href = "/index.html";
+      redirect("/index.html");
       return;
     }
 
@@ -92,11 +93,13 @@ export async function renderLogs() {
     if (filterPeriod === "7") {
       const since = new Date();
       since.setDate(since.getDate() - 7);
-      q = q.gte("created_at", since.toISOString());
+      const sinceStr = since.toISOString().replace(/\.\d{3}Z$/, "Z");
+      q = q.gte("created_at", sinceStr);
     } else if (filterPeriod === "30") {
       const since = new Date();
       since.setDate(since.getDate() - 30);
-      q = q.gte("created_at", since.toISOString());
+      const sinceStr = since.toISOString().replace(/\.\d{3}Z$/, "Z");
+      q = q.gte("created_at", sinceStr);
     }
 
     const { data, error } = await q;

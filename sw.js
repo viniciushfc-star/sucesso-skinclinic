@@ -1,57 +1,50 @@
-const CACHE = "skinclinic-v3"
+/**
+ * Service Worker mínimo para PWA SkinClinic.
+ * Cache de primeiras cargas para uso offline leve; atualização em segundo plano.
+ */
+const CACHE_NAME = "skinclinic-v1";
+const ASSETS = [
+  "/",
+  "/index.html",
+  "/dashboard.html",
+  "/js/css/style.css",
+  "/js/core/supabase.js",
+  "/js/core/auth.js",
+  "/js/core/org.js",
+  "/js/core/spa.js",
+  "/js/core/bootstrap.js",
+  "/js/ui/toast.js",
+  "/js/ui/modal.js",
+  "/manifest.json"
+];
 
-self.addEventListener("install", (e) => {
-  self.skipWaiting()
-  e.waitUntil(
-    caches.open(CACHE).then((c) =>
-      c.addAll([
-        "/",
-        "/index.html",
-        "/onboarding.html",
-        "/dashboard.html",
-        "/js/css/style.css",
-      ])
-    )
-  )
-})
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+  );
+});
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))
-      )
-    )
-  )
-  self.clients.claim()
-})
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
 
-self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url)
-
-  // Nunca cachear Supabase nem APIs externas – sempre rede
-  if (
-    url.hostname.includes("supabase.co") ||
-    url.hostname !== self.location.hostname
-  ) {
-    e.respondWith(fetch(e.request))
-    return
-  }
-
-  // Para HTML e JS do app: rede primeiro, cache só se falhar (offline)
-  if (
-    e.request.mode === "navigate" ||
-    e.request.destination === "script" ||
-    e.request.destination === "document"
-  ) {
-    e.respondWith(
-      fetch(e.request).catch(() => caches.match(e.request))
-    )
-    return
-  }
-
-  // CSS e outros: cache primeiro, depois rede
-  e.respondWith(
-    caches.match(e.request).then((res) => res || fetch(e.request))
-  )
-})
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      const fetchPromise = fetch(event.request).then((res) => {
+        const clone = res.clone();
+        if (res.ok && (url.pathname.endsWith(".html") || url.pathname.endsWith(".css") || url.pathname.endsWith(".js")))
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return res;
+      });
+      return cached || fetchPromise;
+    })
+  );
+});

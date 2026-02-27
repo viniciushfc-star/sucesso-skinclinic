@@ -1,13 +1,16 @@
 import { supabase } from "../core/supabase.js"
 import { toast } from "../ui/toast.js"
+import { redirect } from "../core/base-path.js"
 
 export async function loadProfile() {
 
   const { data:{ user }} =
     await supabase.auth.getUser()
 
-  if (!user)
-    location.href = "index.html"
+  if (!user) {
+    redirect("/index.html");
+    return;
+  }
 
   const { data } =
     await supabase

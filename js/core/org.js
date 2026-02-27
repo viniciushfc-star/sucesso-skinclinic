@@ -1,8 +1,7 @@
 import { supabase }
  from "./supabase.js";
 
-import { createOrganization, linkUserAsMaster } 
-from "../services/org.service.js";
+import { createOrganization, linkUserAsMaster, linkUserToOrganization, markInviteAsAccepted } from "../services/org.service.js";
 
 import { createInvite} 
 from "../services/invite.service.js";

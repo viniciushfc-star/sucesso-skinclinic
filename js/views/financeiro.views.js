@@ -10,10 +10,11 @@ from "../ui/toast.js"
 import { gerarPdf }
 from "../utils/pdf.js"
 
-import { getFinanceiro }
-from "../services/financeiro.service.js"
+import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo } from "../services/financeiro.service.js"
+import { getTodayLocal } from "../services/metrics.service.js"
 
 import { withOrg, getActiveOrg } from "../core/org.js"
+import { redirect } from "../core/base-path.js"
 
 import { listProcedures } from "../services/procedimentos.service.js"
 import { inferirCategoriaSaida } from "../utils/categoria-financeiro.js"
@@ -52,6 +53,12 @@ import {
   desvincularConta,
   getWebhookTransacoesUrl,
 } from "../services/contas-vinculadas.service.js"
+import {
+  getTaxasOrganizacao,
+  getTaxaParaParcelas,
+  calcularLiquido,
+  getMaxParcelasParaValor,
+} from "../services/precificacao-taxas.service.js"
 
 
 /* =====================
@@ -63,9 +70,12 @@ export function init(){
  bindUI()
  bindFinanceiroMainTabs()
  const openTab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null
- if (openTab === "custo-fixo") {
-   sessionStorage.removeItem("financeiro_open_tab")
-   switchFinanceiroMainTab("custo-fixo")
+ if (openTab) {
+   if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("financeiro_open_tab")
+   switchFinanceiroMainTab(openTab === "custo-fixo" ? "custo-fixo" : openTab === "dre" ? "dre" : "visao-geral")
+ } else {
+   const viewEl = document.getElementById("view-financeiro")
+   if (viewEl) viewEl.dataset.currentTab = "visao-geral"
  }
  renderFinanceiro()
 }
@@ -117,6 +127,15 @@ function bindUI(){
  const btnVincular = document.getElementById("btnVincularConta")
  if (btnVincular) btnVincular.onclick = () => openVincularContaModal()
 
+ const importExportDropdown = document.querySelector(".financeiro-import-export-dropdown")
+ if (importExportDropdown) {
+   importExportDropdown.addEventListener("click", (e) => {
+     const menu = e.target.closest(".financeiro-import-export-menu")
+     if (menu && (e.target.tagName === "BUTTON" || e.target.tagName === "A")) {
+       setTimeout(() => importExportDropdown.removeAttribute("open"), 0)
+     }
+   })
+ }
  const btnModelo = document.getElementById("btnModeloFinanceiro")
  if (btnModelo) {
    btnModelo.onclick = (e) => {
@@ -131,6 +150,93 @@ function bindUI(){
      toast("Modelo baixado!")
    }
  }
+
+ const simuladorValor = document.getElementById("financeiroSimuladorValor")
+ const simuladorTabela = document.getElementById("financeiroSimuladorTabela")
+ const simuladorResultado = document.getElementById("financeiroSimuladorResultado")
+ const simuladorParcelas = document.getElementById("financeiroSimuladorParcelas")
+ const simuladorMargem = document.getElementById("financeiroSimuladorMargem")
+ const simuladorCusto = document.getElementById("financeiroSimuladorCusto")
+ const simuladorComissao = document.getElementById("financeiroSimuladorComissao")
+ const btnSimular = document.getElementById("btnFinanceiroSimular")
+ if (simuladorValor && simuladorTabela) {
+   const fmtNum = (v) => (v == null || Number.isNaN(v) ? "—" : Number(v).toFixed(2).replace(".", ","))
+   const fmtPct = (v) => (v == null || Number.isNaN(v) ? "—" : Number(v).toFixed(2).replace(".", ",") + "%")
+   const runSimulador = async () => {
+     const valor = parseFloat(String(simuladorValor.value || "").replace(",", "."), 10)
+     if (valor == null || Number.isNaN(valor) || valor <= 0) {
+       if (simuladorResultado) { simuladorResultado.classList.add("hidden"); simuladorResultado.innerHTML = "" }
+       simuladorTabela.innerHTML = "<p class=\"financeiro-simulador-empty\">Digite o valor cobrado do cliente (R$) e clique em Simular.</p>"
+       return
+     }
+     const custo = parseFloat(String(simuladorCusto?.value || "").replace(",", "."), 10)
+     const custoNum = (custo != null && !Number.isNaN(custo) && custo >= 0) ? custo : null
+     const comissaoPct = parseFloat(String(simuladorComissao?.value || "").replace(",", "."), 10)
+     const comissaoNum = (comissaoPct != null && !Number.isNaN(comissaoPct) && comissaoPct >= 0 && comissaoPct <= 100) ? (valor * comissaoPct / 100) : null
+     const usaCustoComissao = custoNum != null || comissaoNum != null
+     const tipo = (document.querySelector("input[name=\"financeiroSimuladorTipo\"]:checked") || {}).value || "credito"
+     const parcelas = Math.min(12, Math.max(1, parseInt(simuladorParcelas?.value || "1", 10) || 1))
+     const margemPct = Math.min(100, Math.max(0, parseFloat(simuladorMargem?.value || "80") || 80))
+     const valorMinimo = valor * (margemPct / 100)
+     try {
+       const taxas = await getTaxasOrganizacao()
+       const taxaDeb = getTaxaParaParcelas(taxas, 1, "debito")
+       const taxaCred = getTaxaParaParcelas(taxas, 1, "credito")
+       const liqDeb = calcularLiquido(valor, taxaDeb)
+       const liqCred = calcularLiquido(valor, taxaCred)
+       const lucro = (liq, custoVal, comissaoVal) => {
+         if (custoVal == null && comissaoVal == null) return null
+         return liq - (custoVal ?? 0) - (comissaoVal ?? 0)
+       }
+       let maxParcelasMargem = (liqDeb >= valorMinimo || liqCred >= valorMinimo) ? 1 : 0
+       const buildRow = (label, taxa, liquido) => {
+         const lucroClinica = lucro(liquido, custoNum, comissaoNum)
+         return `<tr><td>${label}</td><td>${fmtPct(taxa)}</td><td>R$ ${fmtNum(liquido)}</td>${usaCustoComissao ? `<td class="financeiro-simulador-lucro-cell">R$ ${fmtNum(lucroClinica)}</td>` : ""}</tr>`
+       }
+       const todasLinhas = [
+         buildRow("À vista (débito)", taxaDeb, liqDeb),
+         buildRow("À vista (crédito)", taxaCred, liqCred),
+       ]
+       for (let p = 2; p <= 12; p++) {
+         const taxa = getTaxaParaParcelas(taxas, p)
+         const liquido = calcularLiquido(valor, taxa)
+         if (liquido >= valorMinimo) maxParcelasMargem = p
+         todasLinhas.push(buildRow(`${p}x no cartão`, taxa, liquido))
+       }
+       const taxaSel = getTaxaParaParcelas(taxas, parcelas, parcelas === 1 ? tipo : "credito")
+       const liquidoSel = calcularLiquido(valor, taxaSel)
+       const lucroSel = lucro(liquidoSel, custoNum, comissaoNum)
+       const labelSel = parcelas === 1 ? (tipo === "debito" ? "À vista (débito)" : "À vista (crédito)") : `${parcelas}x no cartão`
+       if (simuladorResultado) {
+         simuladorResultado.classList.remove("hidden")
+         const margemDica = maxParcelasMargem === 0
+           ? `Nenhuma parcela mantém ${margemPct}% do valor. Prefira à vista ou ajuste o preço.`
+           : `Para manter pelo menos ${margemPct}% do valor (R$ ${fmtNum(valorMinimo)}): <strong>até ${maxParcelasMargem}x</strong> no cartão.`
+         let blocoLucro = ""
+         if (usaCustoComissao && lucroSel != null) {
+           const classeLucro = lucroSel < 0 ? "financeiro-simulador-lucro-negativo" : (lucroSel < 200 ? "financeiro-simulador-lucro-baixo" : "")
+           blocoLucro = `<p class="financeiro-simulador-resultado-lucro ${classeLucro}">Lucro da clínica (após custo e comissão): <strong>R$ ${fmtNum(lucroSel)}</strong></p>`
+           if (lucroSel < 0) blocoLucro += `<p class="financeiro-simulador-aviso">Com essa forma de pagamento o lucro fica negativo. Prefira à vista ou menos parcelas.</p>`
+           else if (lucroSel < 200) blocoLucro += `<p class="financeiro-simulador-aviso">Lucro baixo para cobrir estrutura. Avalie aceitar essa forma ou ajustar preço/custo.</p>`
+         }
+         simuladorResultado.innerHTML = `
+           <div class="financeiro-simulador-resultado-card">
+             <p class="financeiro-simulador-resultado-titulo">Resultado: ${labelSel}</p>
+             <p class="financeiro-simulador-resultado-valor">Taxa ${fmtPct(taxaSel)} → você recebe <strong>R$ ${fmtNum(liquidoSel)}</strong></p>
+             ${blocoLucro}
+             <p class="financeiro-simulador-margem-dica">${margemDica}</p>
+           </div>`
+       }
+       const thLucro = usaCustoComissao ? "<th>Lucro clínica</th>" : ""
+       simuladorTabela.innerHTML = "<p class=\"financeiro-simulador-tabela-titulo\">Todas as formas de pagamento</p><table class=\"precificacao-tabela financeiro-simulador-tabela\" aria-label=\"Valor líquido por forma de pagamento\"><thead><tr><th>Forma</th><th>Taxa</th><th>Você recebe</th>" + thLucro + "</tr></thead><tbody>" + todasLinhas.join("") + "</tbody></table>"
+     } catch (e) {
+       if (simuladorResultado) { simuladorResultado.classList.add("hidden"); simuladorResultado.innerHTML = "" }
+       simuladorTabela.innerHTML = "<p class=\"financeiro-simulador-error\">Erro ao carregar taxas. Configure em Configurações → Taxas da maquininha.</p>"
+     }
+   }
+   if (btnSimular) btnSimular.addEventListener("click", runSimulador)
+   simuladorValor.addEventListener("keydown", (e) => { if (e.key === "Enter") runSimulador() })
+ }
 }
 
 function bindFinanceiroMainTabs() {
@@ -143,21 +249,130 @@ function bindFinanceiroMainTabs() {
 }
 
 function switchFinanceiroMainTab(tabId) {
+  const viewEl = document.getElementById("view-financeiro")
+  if (viewEl) viewEl.dataset.currentTab = tabId
   const tabs = document.querySelectorAll(".financeiro-main-tab")
   const panels = document.querySelectorAll(".financeiro-main-panel")
   tabs.forEach((t) => t.classList.toggle("is-active", t.dataset.tab === tabId))
   panels.forEach((p) => p.classList.toggle("hidden", p.dataset.tab !== tabId))
   if (tabId === "custo-fixo") {
-    const panel = document.getElementById("financeiroCustoFixoPanel")
-    if (panel && !panel.querySelector(".setup-inicial-custos")) {
+    const contentEl = document.getElementById("financeiroCustoFixoContent")
+    if (contentEl && !contentEl.querySelector(".setup-inicial-custos")) {
       import("../views/setup-inicial.views.js").then((m) => {
         if (m.renderCustoFixo && m.bindCustoFixoEvents) {
-          m.renderCustoFixo(panel)
-          m.bindCustoFixoEvents(panel)
+          m.renderCustoFixo(contentEl)
+          m.bindCustoFixoEvents(contentEl)
         }
-      }).catch(() => {})
+      }).catch((err) => {
+        console.warn("[Financeiro] Custo fixo:", err)
+        if (contentEl) contentEl.innerHTML = "<p class=\"view-hint\">Não foi possível carregar. Tente trocar de aba e voltar.</p>"
+      })
     }
   }
+  if (tabId === "dre") {
+    bindDreEvents()
+    renderDrePanel()
+  }
+}
+
+/** Último DRE carregado (para export CSV). */
+let lastDreData = null
+
+function getDreDateRange() {
+  const inicio = document.getElementById("financeiroDreInicio")
+  const fim = document.getElementById("financeiroDreFim")
+  const now = new Date()
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+  const start = inicio?.value || firstDay.toISOString().slice(0, 10)
+  const end = fim?.value || now.toISOString().slice(0, 10)
+  return { start, end }
+}
+
+function bindDreEvents() {
+  const btnAtualizar = document.getElementById("btnFinanceiroDreAtualizar")
+  const btnCsv = document.getElementById("btnFinanceiroDreExportCsv")
+  const inicio = document.getElementById("financeiroDreInicio")
+  const fim = document.getElementById("financeiroDreFim")
+  if (!inicio || !fim) return
+  const now = new Date()
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+  if (!inicio.value) inicio.value = firstDay.toISOString().slice(0, 10)
+  if (!fim.value) fim.value = now.toISOString().slice(0, 10)
+  if (btnAtualizar && !btnAtualizar.dataset.bound) {
+    btnAtualizar.dataset.bound = "1"
+    btnAtualizar.onclick = () => renderDrePanel()
+  }
+  if (btnCsv && !btnCsv.dataset.bound) {
+    btnCsv.dataset.bound = "1"
+    btnCsv.onclick = () => exportDreCsv()
+  }
+}
+
+async function renderDrePanel() {
+  const resumoEl = document.getElementById("financeiroDreResumo")
+  const detalheEl = document.getElementById("financeiroDreDetalhe")
+  if (!resumoEl) return
+  const { start, end } = getDreDateRange()
+  try {
+    const dre = await getDrePeriodo(start, end)
+    lastDreData = dre
+    const fmt = (n) => "R$ " + (n ?? 0).toFixed(2).replace(".", ",")
+    resumoEl.innerHTML = `
+      <div class="financeiro-dre-cards">
+        <div class="financeiro-dre-card financeiro-dre-card--receitas">
+          <span class="financeiro-dre-card__label">Receitas (entradas)</span>
+          <span class="financeiro-dre-card__valor">${fmt(dre.receitas)}</span>
+        </div>
+        <div class="financeiro-dre-card financeiro-dre-card--despesas">
+          <span class="financeiro-dre-card__label">Despesas (saídas)</span>
+          <span class="financeiro-dre-card__valor">${fmt(dre.despesas)}</span>
+        </div>
+        <div class="financeiro-dre-card financeiro-dre-card--resultado">
+          <span class="financeiro-dre-card__label">Resultado</span>
+          <span class="financeiro-dre-card__valor">${fmt(dre.resultado)}</span>
+        </div>
+      </div>
+      <p class="financeiro-dre-periodo">Período: ${start} a ${end}. ${(dre.transacoes || []).length} lançamento(s).</p>
+    `
+    if (detalheEl) {
+      const rows = (dre.transacoes || []).slice(-50).reverse().map((t) => {
+        const v = t.tipo === "entrada" ? (t.valor_recebido != null && t.valor_recebido !== "" ? Number(t.valor_recebido) : Number(t.valor) || 0) : Number(t.valor) || 0
+        const valorStr = (t.tipo === "saida" ? "-" : "") + fmt(v).replace("R$ ", "")
+        return `<tr><td>${t.data}</td><td>${(t.descricao || "").slice(0, 60)}</td><td>${t.tipo}</td><td>${valorStr}</td></tr>`
+      }).join("")
+      detalheEl.innerHTML = (dre.transacoes || []).length
+        ? `<table class="financeiro-dre-tabela" aria-label="Detalhe das transações do período"><thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th></tr></thead><tbody>${rows}</tbody></table>`
+        : "<p class=\"view-hint\">Nenhuma transação no período.</p>"
+    }
+  } catch (err) {
+    console.warn("[Financeiro] DRE:", err)
+    lastDreData = null
+    resumoEl.innerHTML = "<p class=\"view-hint\">Erro ao carregar DRE. Tente outro período.</p>"
+    if (detalheEl) detalheEl.innerHTML = ""
+  }
+}
+
+function exportDreCsv() {
+  if (!lastDreData || !lastDreData.transacoes || !lastDreData.transacoes.length) {
+    toast("Atualize o DRE primeiro para exportar.", "warn")
+    return
+  }
+  const { start, end } = getDreDateRange()
+  const header = "Data;Descrição;Tipo;Valor"
+  const lines = lastDreData.transacoes.map((t) => {
+    const v = t.tipo === "entrada" ? (t.valor_recebido != null && t.valor_recebido !== "" ? Number(t.valor_recebido) : Number(t.valor) || 0) : Number(t.valor) || 0
+    const valor = t.tipo === "saida" ? -v : v
+    const desc = (t.descricao || "").replace(/;/g, ",")
+    return `${t.data};${desc};${t.tipo};${valor.toFixed(2).replace(".", ",")}`
+  })
+  const csv = [header, ...lines].join("\n")
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `dre_${start}_${end}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+  toast("CSV exportado.")
 }
 
 /* =====================
@@ -204,14 +419,18 @@ export async function renderFinanceiro(){
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       toast("Sessão expirada")
-      window.location.href = "/index.html"
+      redirect("/index.html")
       return
     }
 
     const data = await getFinanceiro()
     let procedures = []
+    let orgProfile = null
     try { procedures = await listProcedures(false) } catch (_) {}
+    try { orgProfile = await import("../services/organization-profile.service.js").then(m => m.getOrganizationProfile()) } catch (_) {}
     const procById = (procedures || []).reduce((acc, p) => { acc[p.id] = p; return acc }, {})
+    const margemAlvoPadrao = orgProfile?.margem_alvo_padrao_pct != null ? Number(orgProfile.margem_alvo_padrao_pct) : 40
+    const comissaoPadraoPct = orgProfile?.comissao_profissional_padrao_pct != null ? Number(orgProfile.comissao_profissional_padrao_pct) : null
 
     const valorEntrada = (t) => (t.tipo === "entrada" && t.valor_recebido != null && t.valor_recebido !== "") ? Number(t.valor_recebido) : Number(t.valor) || 0
     const totalEntradas = (data || []).filter(t => t.tipo === "entrada").reduce((s, t) => s + valorEntrada(t), 0)
@@ -231,6 +450,7 @@ export async function renderFinanceiro(){
 
     if (resumoEl) {
       resumoEl.innerHTML = `
+        <h3 class="financeiro-resumo__titulo">Geral (todas as datas)</h3>
         <div class="financeiro-resumo__grid">
           <div class="financeiro-resumo__card financeiro-resumo__entradas">
             <span class="financeiro-resumo__label">Entradas</span>
@@ -247,6 +467,113 @@ export async function renderFinanceiro(){
           </div>
         </div>
       `
+    }
+
+    const now = new Date()
+    const mesAtualKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    const transacoesMes = (data || []).filter(t => (t.data || "").substring(0, 7) === mesAtualKey)
+    const entradasMes = transacoesMes.filter(t => t.tipo === "entrada").reduce((s, t) => s + valorEntrada(t), 0)
+    const saidasMes = transacoesMes.filter(t => t.tipo === "saida").reduce((s, t) => s + (Number(t.valor) || 0), 0)
+    const saldoMes = entradasMes - saidasMes
+    const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    const formatMesLabel = (ym) => {
+      const [y, m] = ym.split("-")
+      return `${nomesMeses[parseInt(m, 10) - 1]}/${y}`
+    }
+
+    const hoje = getTodayLocal()
+    if (resumoMesEl) {
+      resumoMesEl.innerHTML = `
+        <h3 class="financeiro-resumo-mes__titulo">Como está o mês (${formatMesLabel(mesAtualKey)})</h3>
+        <div class="financeiro-resumo-mes__grid">
+          <div class="financeiro-resumo__card financeiro-resumo__entradas">
+            <span class="financeiro-resumo__label">Entradas</span>
+            <span class="financeiro-resumo__valor">R$ ${entradasMes.toFixed(2).replace(".", ",")}</span>
+          </div>
+          <div class="financeiro-resumo__card financeiro-resumo__saidas">
+            <span class="financeiro-resumo__label">Saídas</span>
+            <span class="financeiro-resumo__valor">R$ ${saidasMes.toFixed(2).replace(".", ",")}</span>
+          </div>
+          <div class="financeiro-resumo__card financeiro-resumo__saldo">
+            <span class="financeiro-resumo__label">Saldo do mês</span>
+            <span class="financeiro-resumo__valor">R$ ${saldoMes.toFixed(2).replace(".", ",")}</span>
+          </div>
+        </div>
+      `
+    }
+
+    const hoje = getTodayLocal()
+    const end30 = new Date(now)
+    end30.setDate(end30.getDate() + 30)
+    const end30Str = end30.toISOString().slice(0, 10)
+    const previstoEl = document.getElementById("financeiroPrevistoReceber")
+    if (previstoEl) {
+      try {
+        const previsto = await getPrevistoReceitaFromAgenda(hoje, end30Str)
+        previstoEl.innerHTML = `
+          <h3 class="financeiro-previsto-receber__titulo">A receber (agendamentos)</h3>
+          <p class="financeiro-previsto-receber__texto">Valor previsto com base nos agendamentos dos próximos 30 dias (procedimentos com valor cadastrado; retornos excluídos).</p>
+          <div class="financeiro-previsto-receber__grid">
+            <div class="financeiro-resumo__card financeiro-resumo__entradas">
+              <span class="financeiro-resumo__label">Previsto (30 dias)</span>
+              <span class="financeiro-resumo__valor">R$ ${(previsto.valor || 0).toFixed(2).replace(".", ",")}</span>
+            </div>
+            <div class="financeiro-previsto-receber__qtd">
+              <span class="financeiro-resumo__label">Atendimentos com valor</span>
+              <span class="financeiro-resumo__valor">${previsto.quantidade || 0}</span>
+            </div>
+          </div>
+        `
+      } catch (_) {
+        previstoEl.innerHTML = ""
+      }
+    }
+
+    const mesesParaGrafico = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      mesesParaGrafico.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`)
+    }
+    const entradasPorMes = {}
+    const saidasPorMes = {}
+    mesesParaGrafico.forEach(m => { entradasPorMes[m] = 0; saidasPorMes[m] = 0 })
+    ;(data || []).forEach(t => {
+      const ym = (t.data || "").substring(0, 7)
+      if (!entradasPorMes.hasOwnProperty(ym)) return
+      if (t.tipo === "entrada") entradasPorMes[ym] += valorEntrada(t)
+      else if (t.tipo === "saida") saidasPorMes[ym] += Number(t.valor) || 0
+    })
+
+    const chartMensalEl = document.getElementById("financeiroChartMensal")
+    if (chartMensalEl && typeof window.Chart !== "undefined") {
+      chartMensalEl.innerHTML = `
+        <h3 class="financeiro-chart-mensal__title">Entradas x Saídas por mês</h3>
+        <div class="financeiro-chart-mensal__wrap">
+          <canvas id="financeiroBarChartMensal" width="400" height="220" aria-label="Gráfico de barras: entradas e saídas por mês"></canvas>
+        </div>
+      `
+      const ctxBar = document.getElementById("financeiroBarChartMensal")
+      if (ctxBar) {
+        if (window._financeiroBarChartMensal) window._financeiroBarChartMensal.destroy()
+        window._financeiroBarChartMensal = new window.Chart(ctxBar.getContext("2d"), {
+          type: "bar",
+          data: {
+            labels: mesesParaGrafico.map(m => formatMesLabel(m)),
+            datasets: [
+              { label: "Entradas", data: mesesParaGrafico.map(m => entradasPorMes[m]), backgroundColor: "rgba(5, 150, 105, 0.7)" },
+              { label: "Saídas", data: mesesParaGrafico.map(m => saidasPorMes[m]), backgroundColor: "rgba(220, 38, 38, 0.7)" }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { position: "top" } },
+            scales: { y: { beginAtZero: true } }
+          }
+        })
+      }
+    } else if (chartMensalEl) {
+      chartMensalEl.innerHTML = ""
     }
 
     const detalheEl = document.getElementById("financeiroSaidasDetalhe")
@@ -281,40 +608,90 @@ export async function renderFinanceiro(){
     }
 
     const entradasPorProc = {}
+    const countPorProc = {}
     ;(data || []).filter(t => t.tipo === "entrada" && t.procedure_id).forEach(t => {
-      entradasPorProc[t.procedure_id] = (entradasPorProc[t.procedure_id] || 0) + valorEntrada(t)
+      const id = t.procedure_id
+      entradasPorProc[id] = (entradasPorProc[id] || 0) + valorEntrada(t)
+      countPorProc[id] = (countPorProc[id] || 0) + 1
     })
     const porProcedimento = Object.entries(entradasPorProc).map(([procedureId, receita]) => {
       const p = procById[procedureId]
-      const custoEst = p && p.custo_material_estimado != null ? Number(p.custo_material_estimado) : null
-      const valorCobrado = p && p.valor_cobrado != null ? Number(p.valor_cobrado) : null
+      const custoMaterial = p && p.custo_material_estimado != null ? Number(p.custo_material_estimado) : null
+      const comissaoPct = (p && p.comissao_profissional_pct != null) ? Number(p.comissao_profissional_pct) : comissaoPadraoPct
+      const count = countPorProc[procedureId] || 0
+      const custoMaterialTotal = custoMaterial != null && count > 0 ? custoMaterial * count : (custoMaterial != null ? custoMaterial : 0)
+      const custoComissao = (comissaoPct != null && comissaoPct > 0 && receita > 0) ? receita * (comissaoPct / 100) : 0
+      const custoTotal = custoMaterialTotal + custoComissao
+      const margemReais = receita - custoTotal
       let margemPct = null
-      if (receita > 0 && custoEst != null) margemPct = ((receita - custoEst) / receita) * 100
-      return { procedureId, name: p ? (p.name || "—") : "—", receita, custoEst, margemPct }
+      if (receita > 0 && custoTotal > 0) margemPct = ((receita - custoTotal) / receita) * 100
+      else if (receita > 0) margemPct = 100
+      const margemAlvo = (p && p.margem_minima_desejada != null) ? Number(p.margem_minima_desejada) : margemAlvoPadrao
+      const abaixoMeta = margemPct != null && margemAlvo != null && margemPct < margemAlvo
+      return { procedureId, name: p ? (p.name || "—") : "—", receita, custoEst: custoMaterial, custoTotal: custoTotal > 0 ? custoTotal : null, margemPct, margemReais, margemAlvo, abaixoMeta }
     }).sort((a, b) => b.receita - a.receita)
+
+    const rankingLucroEl = document.getElementById("financeiroRankingLucro")
+    const topLucro = [...porProcedimento].filter((x) => x.margemReais > 0).sort((a, b) => b.margemReais - a.margemReais).slice(0, 5)
+    if (rankingLucroEl) {
+      if (topLucro.length === 0) {
+        rankingLucroEl.innerHTML = `<h3 class="financeiro-ranking-lucro__title">O que mais traz lucro</h3><p class="financeiro-ranking-lucro__empty">Cadastre <strong>custo estimado de material</strong> nos procedimentos e vincule entradas ao procedimento para ver quais mais bancam a clínica.</p>`
+      } else {
+        const medalhas = ["🥇", "🥈", "🥉", "4º", "5º"]
+        rankingLucroEl.innerHTML = `
+          <h3 class="financeiro-ranking-lucro__title">O que mais traz lucro (margem R$)</h3>
+          <p class="financeiro-ranking-lucro__hint">Procedimentos que mais contribuem para cobrir custos e gerar lucro.</p>
+          <ul class="financeiro-ranking-lucro__list">
+            ${topLucro.map((row, i) => `
+              <li class="financeiro-ranking-lucro__item">
+                <span class="financeiro-ranking-lucro__medal">${medalhas[i]}</span>
+                <span class="financeiro-ranking-lucro__name">${escapeHtml(row.name)}</span>
+                <span class="financeiro-ranking-lucro__margem">R$ ${row.margemReais.toFixed(2).replace(".", ",")}</span>
+              </li>
+            `).join("")}
+          </ul>
+        `
+      }
+    }
 
     if (porProcEl) {
       if (porProcedimento.length === 0) {
         porProcEl.innerHTML = `<p class="financeiro-por-procedimento__empty">Vincule entradas a procedimentos para ver receita, custo e margem por procedimento.</p>`
       } else {
+        const abaixoCount = porProcedimento.filter(r => r.abaixoMeta).length
         porProcEl.innerHTML = `
           <h3 class="financeiro-por-procedimento__title">Por procedimento (receita vinculada)</h3>
+          <p class="financeiro-por-procedimento__hint">Custo total = material + comissão do profissional. Meta de margem definida no procedimento ou em Configurações. Procedimentos abaixo da meta: ajuste preço, custo ou margem alvo.</p>
+          ${abaixoCount > 0 ? `<p class="financeiro-por-procedimento__alerta"><strong>${abaixoCount}</strong> procedimento(s) abaixo da margem alvo. Use "Ajustar" para subir preço, reduzir custo ou baixar a meta.</p>` : ""}
           <div class="financeiro-por-procedimento__table-wrap">
             <table class="financeiro-por-procedimento__table">
-              <thead><tr><th>Procedimento</th><th>Receita</th><th>Custo est.</th><th>Margem</th></tr></thead>
+              <thead><tr><th>Procedimento</th><th>Receita</th><th>Custo total</th><th>Margem R$</th><th>Margem %</th><th>Meta %</th><th></th></tr></thead>
               <tbody>
                 ${porProcedimento.map(row => `
-                  <tr>
+                  <tr class="${row.abaixoMeta ? "financeiro-por-procedimento__row--abaixo" : ""}">
                     <td>${escapeHtml(row.name)}</td>
                     <td>R$ ${row.receita.toFixed(2).replace(".", ",")}</td>
-                    <td>${row.custoEst != null ? "R$ " + row.custoEst.toFixed(2).replace(".", ",") : "—"}</td>
+                    <td>${row.custoTotal != null ? "R$ " + row.custoTotal.toFixed(2).replace(".", ",") : "—"}</td>
+                    <td>${row.margemReais != null ? "R$ " + row.margemReais.toFixed(2).replace(".", ",") : "—"}</td>
                     <td>${row.margemPct != null ? row.margemPct.toFixed(1) + "%" : "—"}</td>
+                    <td>${row.margemAlvo != null ? row.margemAlvo + "%" : "—"}</td>
+                    <td>${row.abaixoMeta ? `<a href="#" class="financeiro-por-procedimento__ajustar" data-procedure-id="${row.procedureId}">Ajustar</a>` : ""}</td>
                   </tr>
                 `).join("")}
               </tbody>
             </table>
           </div>
         `
+        porProcEl.querySelectorAll(".financeiro-por-procedimento__ajustar").forEach(a => {
+          a.addEventListener("click", (e) => {
+            e.preventDefault()
+            const id = a.dataset.procedureId
+            if (id) {
+              sessionStorage.setItem("procedimentoEditId", id)
+              import("../core/spa.js").then(m => m.navigate("procedimento"))
+            }
+          })
+        })
       }
     }
 
@@ -330,12 +707,21 @@ export async function renderFinanceiro(){
       const valorRecebidoDiferente = t.tipo === "entrada" && t.valor_recebido != null && t.valor_recebido !== "" && Number(t.valor_recebido) !== Number(t.valor)
       return `
         <div class="${cardClass}" data-id="${t.id}">
-          <b>${escapeHtml(t.descricao || "")}</b>${isImportado ? " <span class=\"item-card__badge-importado\">Importado</span>" : ""}<br>
-          ${t.tipo} - R$ ${valorExibir.toFixed(2).replace(".", ",")}${valorRecebidoDiferente ? ` <span class="item-card__valor-recebido">(cobrado R$ ${Number(t.valor).toFixed(2).replace(".", ",")})</span>` : ""}
-          ${formaPagamentoText ? `<br><span class="item-card__forma-pagamento">${escapeHtml(formaPagamentoText)}</span>` : ""}
-          ${procName ? `<br><span class="item-card__procedure">${escapeHtml(procName)}</span>` : ""}
-          ${catName ? `<br><span class="item-card__categoria">${escapeHtml(catName)}</span>` : ""}
-          ${t.conta_origem ? `<br><span class="item-card__conta">${escapeHtml(t.conta_origem)}</span>` : ""}
+          <div class="item-card__content">
+            <b>${escapeHtml(t.descricao || "")}</b>${isImportado ? " <span class=\"item-card__badge-importado\">Importado</span>" : ""}<br>
+            ${t.tipo} - R$ ${valorExibir.toFixed(2).replace(".", ",")}${valorRecebidoDiferente ? ` <span class="item-card__valor-recebido">(cobrado R$ ${Number(t.valor).toFixed(2).replace(".", ",")})</span>` : ""}
+            ${formaPagamentoText ? `<br><span class="item-card__forma-pagamento">${escapeHtml(formaPagamentoText)}</span>` : ""}
+            ${procName ? `<br><span class="item-card__procedure">${escapeHtml(procName)}</span>` : ""}
+            ${catName ? `<br><span class="item-card__categoria">${escapeHtml(catName)}</span>` : ""}
+            ${t.conta_origem ? `<br><span class="item-card__conta">${escapeHtml(t.conta_origem)}</span>` : ""}
+          </div>
+          <div class="item-card__menu-wrap">
+            <button type="button" class="item-card__menu-btn" aria-label="Abrir menu da transação" title="Editar ou excluir">⋮</button>
+            <div class="item-card__dropdown hidden">
+              <button type="button" class="item-card__dropdown-item" data-action="edit">Editar</button>
+              <button type="button" class="item-card__dropdown-item item-card__dropdown-item--danger" data-action="delete">Excluir</button>
+            </div>
+          </div>
         </div>
       `
     }).join("")
@@ -412,16 +798,16 @@ async function openCreateModal(){
 
   `
    <p class="financeiro-categoria-hint">Dica: ao digitar "Aluguel", "Luz", "Internet" etc., o sistema classifica como Custo fixo automaticamente.</p>
-   <label>Descrição</label>
+   <label for="desc">Descrição</label>
    <input id="desc" required placeholder="Ex.: Aluguel, Conta de luz, Salário Maria">
 
-   <label>Tipo</label>
+   <label for="tipo">Tipo</label>
    <select id="tipo">
     <option value="entrada">Entrada</option>
     <option value="saida">Saída</option>
    </select>
 
-   <label id="labelCategoriaSaida" class="financeiro-categoria-saida-label">Tipo de saída</label>
+   <label id="labelCategoriaSaida" class="financeiro-categoria-saida-label" for="categoriaSaida">Tipo de saída</label>
    <select id="categoriaSaida">
     <option value="">— (detectar pela descrição)</option>
     <option value="funcionario">Funcionário</option>
@@ -430,11 +816,11 @@ async function openCreateModal(){
     <option value="outro">Outro</option>
    </select>
 
-   <label id="labelProc" class="financeiro-proc-label">Procedimento (receita por serviço)</label>
+   <label id="labelProc" class="financeiro-proc-label" for="procId">Procedimento (receita por serviço)</label>
    <select id="procId">${procOptions}</select>
 
    <div id="wrapFormaPagamento" class="financeiro-entrada-extra" style="display:none;">
-     <label>Forma de pagamento</label>
+     <label for="formaPagamento">Forma de pagamento</label>
      <select id="formaPagamento">
        <option value="">—</option>
        <option value="pix">PIX</option>
@@ -445,27 +831,54 @@ async function openCreateModal(){
        <option value="boleto">Boleto</option>
        <option value="outro">Outro</option>
      </select>
-     <label>Valor recebido (quanto entrou de fato)</label>
+     <p id="financeiroParcelasSugestao" class="financeiro-parcelas-sugestao hidden" aria-live="polite"></p>
+     <label for="valorRecebido">Valor recebido (quanto entrou de fato)</label>
      <input id="valorRecebido" type="number" step="0.01" placeholder="Deixe vazio = mesmo que o valor">
    </div>
 
-   <label>Valor</label>
+   <label for="valor">Valor</label>
    <input id="valor" type="number" step="0.01" required>
 
-   <label>Data</label>
+   <label for="data">Data</label>
    <input id="data" type="date" required>
   `,
 
   createTransacao
  )
- const tipoSelect = document.getElementById("tipo")
- if (tipoSelect) tipoSelect.addEventListener("change", toggleEntradaCamposCreate)
- toggleEntradaCamposCreate()
+  const tipoSelect = document.getElementById("tipo")
+  if (tipoSelect) tipoSelect.addEventListener("change", () => { toggleEntradaCamposCreate(); atualizarParcelasSugestao() })
+  const formaSelect = document.getElementById("formaPagamento")
+  const valorInput = document.getElementById("valor")
+  if (formaSelect) formaSelect.addEventListener("change", atualizarParcelasSugestao)
+  if (valorInput) valorInput.addEventListener("input", atualizarParcelasSugestao)
+  toggleEntradaCamposCreate()
+  atualizarParcelasSugestao()
 }
 function toggleEntradaCamposCreate() {
   const wrap = document.getElementById("wrapFormaPagamento")
   const tipo = document.getElementById("tipo")?.value
   if (wrap) wrap.style.display = tipo === "entrada" ? "block" : "none"
+}
+async function atualizarParcelasSugestao() {
+  const el = document.getElementById("financeiroParcelasSugestao")
+  if (!el) return
+  const tipo = document.getElementById("tipo")?.value
+  const forma = document.getElementById("formaPagamento")?.value
+  const valorRaw = document.getElementById("valor")?.value?.trim()?.replace(",", ".")
+  const valor = parseFloat(valorRaw, 10)
+  if (tipo !== "entrada" || forma !== "cartao_credito" || !valor || Number.isNaN(valor) || valor <= 0) {
+    el.classList.add("hidden")
+    el.textContent = ""
+    return
+  }
+  try {
+    const { maxParcelas, margemPct } = await getMaxParcelasParaValor(valor)
+    el.classList.remove("hidden")
+    el.textContent = `Para manter o lucro da empresa (pelo menos ${margemPct}% do valor): parcelar em até ${maxParcelas}x no cartão.`
+  } catch (_) {
+    el.classList.add("hidden")
+    el.textContent = ""
+  }
 }
 
 
@@ -494,6 +907,9 @@ async function openEditModal(id){
    "Editar transação",
 
    `
+    <div class="financeiro-edit-actions financeiro-edit-actions--top">
+      <button type="button" class="btn-danger btn-delete-transacao" id="btnDeleteTransacao" title="Remove este lançamento do Financeiro">Excluir lançamento</button>
+    </div>
     ${hintImportado}
     <label>Descrição</label>
     <input id="desc" value="${(data.descricao || "").replace(/"/g, "&quot;")}">
@@ -541,6 +957,17 @@ async function openEditModal(id){
 
    () => updateTransacao(id)
   )
+  document.getElementById("btnDeleteTransacao")?.addEventListener("click", async () => {
+    if (!confirm("Excluir este lançamento? Esta ação não pode ser desfeita.")) return
+    try {
+      await deleteFinanceiro(id)
+      closeModal()
+      renderFinanceiro()
+      toast("Lançamento excluído")
+    } catch (e) {
+      toast(e?.message || "Erro ao excluir")
+    }
+  })
   document.getElementById("tipo")?.addEventListener("change", () => {
     const wrap = document.getElementById("wrapFormaPagamentoEdit")
     const tipo = document.getElementById("tipo")?.value
@@ -584,7 +1011,7 @@ async function createTransacao(){
 
  if(!user){
  toast("Sessão expirada")
- window.location.href="/index.html"
+ redirect("/index.html")
  return
 }
 
@@ -722,18 +1149,47 @@ async function updateTransacao(id){
    EVENTS
 ===================== */
 
-function bindEditEvents(){
+function bindEditEvents() {
+  const lista = document.getElementById("listaFinanceiro")
+  if (!lista) return
 
- document
-  .querySelectorAll(
-   ".item-card"
-  )
-  .forEach(card=>{
-   card.onclick =
-    () =>
-     openEditModal(
-      card.dataset.id
-     )
+  lista.querySelectorAll(".item-card").forEach((card) => {
+    const id = card.dataset.id
+    const content = card.querySelector(".item-card__content")
+    const menuBtn = card.querySelector(".item-card__menu-btn")
+    const dropdown = card.querySelector(".item-card__dropdown")
+
+    if (content) {
+      content.onclick = () => openEditModal(id)
+    }
+
+    if (menuBtn && dropdown) {
+      menuBtn.onclick = (e) => {
+        e.stopPropagation()
+        const isOpen = !dropdown.classList.contains("hidden")
+        lista.querySelectorAll(".item-card__dropdown").forEach((d) => d.classList.add("hidden"))
+        if (!isOpen) dropdown.classList.remove("hidden")
+      }
+      dropdown.onclick = (e) => e.stopPropagation()
+      dropdown.querySelectorAll(".item-card__dropdown-item").forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation()
+          dropdown.classList.add("hidden")
+          if (btn.dataset.action === "edit") openEditModal(id)
+          if (btn.dataset.action === "delete") {
+            if (!confirm("Excluir este lançamento? Não é possível desfazer.")) return
+            deleteFinanceiro(id).then(() => {
+              renderFinanceiro()
+              toast("Lançamento excluído")
+            }).catch((err) => toast(err?.message || "Erro ao excluir"))
+          }
+        }
+      })
+    }
+  })
+
+  document.addEventListener("click", () => {
+    lista.querySelectorAll(".item-card__dropdown").forEach((d) => d.classList.add("hidden"))
   })
 }
 

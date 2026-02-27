@@ -1,6 +1,6 @@
 import { getRole } from "../services/permissions.service.js"
 import { supabase } from "../core/supabase.js"
-import { withOrg } from "../core/org.js"
+import { withOrg, getActiveOrg } from "../core/org.js"
 import { navigate } from "../core/spa.js"
 import { PAGAMENTO_APP_ENABLED } from "../core/feature-flags.js"
 import { init as initMasterDashboard } from "./master.dashboard.views.js"
@@ -17,25 +17,25 @@ export async function init() {
   if (cardPagamento) cardPagamento.style.display = PAGAMENTO_APP_ENABLED ? "" : "none"
 
   bindCardLinks()
+  bindEquipeGerenciar()
   await renderResumo()
   await renderConvites()
   initMasterDashboard()
 }
 
-function bindCardLinks() {
-  const container = document.getElementById("view-master")
-  if (!container) return
-  container.querySelectorAll(".master-settings-card[data-view] .master-card-btn").forEach((btn) => {
-    const card = btn.closest(".master-settings-card")
-    const view = card?.dataset?.view
-    if (view) btn.addEventListener("click", () => navigate(view))
-  })
-  container.querySelectorAll("a[data-view]").forEach((link) => {
-    link.addEventListener("click", (e) => {
-      e.preventDefault()
-      navigate(link.dataset.view)
+function bindEquipeGerenciar() {
+  const btn = document.getElementById("btnMasterEquipe")
+  if (btn) {
+    btn.addEventListener("click", () => {
+      sessionStorage.setItem("teamShowManage", "1")
+      navigate("team")
     })
-  })
+  }
+}
+
+function bindCardLinks() {
+  /* Navegação dos cards (data-view) e links (a[data-view]) é feita pelo SPA (bindMenu com delegação). */
+  /* Apenas o botão "Gerenciar equipe" é tratado em bindEquipeGerenciar (sem data-view no card). */
 }
 
 async function renderResumo() {
@@ -53,9 +53,16 @@ async function renderConvites() {
   const box = document.getElementById("masterListaConvites")
   if (!box) return
   try {
-    const { data } = await withOrg(
-      supabase.from("convites").select("*").eq("status", "pending")
-    )
+    const orgId = getActiveOrg();
+    if (!orgId) {
+      box.innerHTML = "<li class=\"master-convites-empty\">Selecione uma organização.</li>";
+      return;
+    }
+    const { data } = await supabase
+      .from("organization_invites")
+      .select("*")
+      .eq("org_id", orgId)
+      .eq("status", "pending")
     box.innerHTML = ""
     ;(data || []).forEach((c) => {
       const li = document.createElement("li")
@@ -83,11 +90,14 @@ function escapeHtml(s) {
 ===================== */
 
 async function aprovar(id) {
-  const { error } = await supabase.rpc("approve_invite", { p_invite_id: id })
+  const { error } = await supabase
+    .from("organization_invites")
+    .update({ status: "accepted" })
+    .eq("id", id);
   if (error) {
-    alert("Erro ao aprovar")
-    return
+    alert("Erro ao aprovar: " + (error.message || ""));
+    return;
   }
-  alert("Aprovado")
-  await renderConvites()
+  alert("Aprovado");
+  await renderConvites();
 }

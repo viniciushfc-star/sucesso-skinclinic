@@ -42,6 +42,10 @@ Para login, Google e redefinição de senha funcionarem em **localhost**:
 
 Sem isso, o Supabase pode bloquear redirects após login/OAuth e a “conexão” parece não funcionar.
 
+## Login com e-mail e senha não funciona (só Google entra)
+
+Se só o login com Google funciona e e-mail/senha dá erro: no Supabase vá em **Authentication** → **Providers** → **Email**. Se "Confirm email" estiver ativado, o usuário precisa clicar no link enviado no cadastro antes de entrar. Para testes você pode desativar "Confirm email". Inclua também a URL do app (ex.: `https://skinclinic-one.vercel.app` e `https://skinclinic-one.vercel.app/**`) em **Authentication** → **URL Configuration** → **Redirect URLs**. O app agora mostra mensagens mais claras: "Confirme seu e-mail…" ou "E-mail ou senha incorretos".
+
 ## Supabase – RLS ao criar organização (403 / "violates row-level security")
 
 Se ao clicar em **"Criar clínica"** aparecer **403 (Forbidden)** ou:

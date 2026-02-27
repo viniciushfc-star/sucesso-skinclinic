@@ -5,7 +5,8 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
-import { getResumoPorProduto } from "./estoque-entradas.service.js";
+import { getTodayLocal } from "./metrics.service.js";
+import { getResumoPorProduto, registrarConsumoEstimado } from "./estoque-entradas.service.js";
 
 function getOrgId() {
   const orgId = getActiveOrg();
@@ -77,14 +78,14 @@ export async function getProtocolos() {
 /**
  * Lista protocolos aplicados a um cliente (histórico na aba do cliente).
  * @param {string} clientId
- * @returns {Promise<Array<{ id, protocolo_id, aplicado_em, observacao, protocolos: { nome } }>>}
+ * @returns {Promise<Array<{ id, protocolo_id, aplicado_em, observacao, descricao, produtos_usados, protocolos: { nome } }>>}
  */
 export async function getProtocolosAplicadosByClient(clientId) {
   if (!clientId) return [];
   const orgId = getOrgId();
   const { data, error } = await supabase
     .from("protocolos_aplicados")
-    .select("id, protocolo_id, aplicado_em, observacao, protocolos(nome)")
+    .select("id, protocolo_id, aplicado_em, observacao, descricao, produtos_usados, protocolos(nome)")
     .eq("org_id", orgId)
     .eq("client_id", clientId)
     .order("aplicado_em", { ascending: false });
@@ -98,9 +99,11 @@ export async function getProtocolosAplicadosByClient(clientId) {
  */
 export async function getProtocolosAplicadosHoje() {
   const orgId = getOrgId();
-  const hoje = new Date().toISOString().slice(0, 10);
-  const inicio = `${hoje}T00:00:00.000Z`;
-  const fim = `${hoje}T23:59:59.999Z`;
+  const hoje = getTodayLocal();
+  const startLocal = new Date(hoje + "T00:00:00");
+  const endLocal = new Date(startLocal.getTime() + 24 * 60 * 60 * 1000 - 1);
+  const inicio = startLocal.toISOString();
+  const fim = endLocal.toISOString();
   const { data, error } = await supabase
     .from("protocolos_aplicados")
     .select("id, client_id, aplicado_em, observacao, protocolos(nome)")
@@ -119,27 +122,66 @@ export async function getProtocolosAplicadosHoje() {
 }
 
 /**
- * Registra que um protocolo foi aplicado ao cliente (e dispara consumo estimado de descartáveis no estoque).
- * @param {{ clientId: string, protocoloId: string, agendaId?: string, observacao?: string }} payload
+ * Registra o que foi feito no atendimento: opcionalmente um protocolo cadastrado, descrição livre e produtos usados (estoque).
+ * Ligado ao prontuário do paciente e à data (aplicado_em).
+ * @param {{ clientId: string, protocoloId?: string, agendaId?: string, observacao?: string, descricao?: string, aplicado_em?: string, produtos_usados?: Array<{ produto_nome: string, quantidade?: number }> }} payload
  */
 export async function createProtocoloAplicado(payload) {
   const orgId = getOrgId();
-  const { clientId, protocoloId, agendaId = null, observacao = "" } = payload || {};
-  if (!clientId || !protocoloId) throw new Error("Cliente e protocolo são obrigatórios.");
+  const {
+    clientId,
+    protocoloId = null,
+    agendaId = null,
+    observacao = "",
+    descricao = "",
+    aplicado_em = null,
+    produtos_usados = [],
+  } = payload || {};
+  if (!clientId) throw new Error("Cliente é obrigatório.");
+  if (!protocoloId && !(descricao && descricao.trim()) && (!produtos_usados || produtos_usados.length === 0)) {
+    throw new Error("Informe pelo menos: um protocolo, o que foi feito (descrição) ou produtos utilizados.");
+  }
 
   const { data: uid } = await supabase.auth.getUser();
+  const aplicadoAt = aplicado_em ? new Date(aplicado_em).toISOString() : new Date().toISOString();
+  const produtosUsados = Array.isArray(produtos_usados)
+    ? produtos_usados
+        .filter((p) => p && (p.produto_nome || "").trim())
+        .map((p) => ({
+          produto_nome: (p.produto_nome || "").trim(),
+          quantidade: Math.max(0, Number(p.quantidade) || 1),
+        }))
+    : [];
+
   const { data, error } = await supabase
     .from("protocolos_aplicados")
     .insert({
       org_id: orgId,
       client_id: clientId,
-      protocolo_id: protocoloId,
+      protocolo_id: protocoloId || null,
       agenda_id: agendaId || null,
+      aplicado_em: aplicadoAt,
       observacao: (observacao || "").trim(),
+      descricao: (descricao || "").trim(),
+      produtos_usados: produtosUsados,
       created_by: uid?.user?.id ?? null,
     })
     .select("id")
     .single();
   if (error) throw error;
+
+  for (const p of produtosUsados) {
+    try {
+      await registrarConsumoEstimado({
+        produto_nome: p.produto_nome,
+        quantidade: p.quantidade,
+        protocolo_aplicado_id: data.id,
+        tipo: "estimado",
+      });
+    } catch (e) {
+      console.warn("[protocolo] consumo produto:", p.produto_nome, e);
+    }
+  }
+
   return data;
 }

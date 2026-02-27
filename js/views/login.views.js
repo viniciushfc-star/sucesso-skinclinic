@@ -10,6 +10,9 @@ import { bootstrapAfterLogin }
 import { clearActiveOrg }
   from "../core/org.js";
 
+import { redirect }
+  from "../core/base-path.js";
+
 import { toast } 
   from "../ui/toast.js";
 
@@ -39,15 +42,49 @@ const regConfirmInput = document.getElementById("confirmPassword");
 /* =========================
    INIT
 ========================= */
-document.addEventListener("DOMContentLoaded", init);
+let loginInitDone = false;
 
 function init() {
+  if (loginInitDone) return;
+  loginInitDone = true;
   if (modal) modal.classList.add("hidden");
   bindLogin();
   bindRegister();
   bindGoogle();
+  bindPasswordToggles();
   if (btnRegister) btnRegister.addEventListener("click", () => modal?.classList.remove("hidden"));
   if (closeBtn) closeBtn.addEventListener("click", () => modal?.classList.add("hidden"));
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+
+/** Botão olho: mostrar/ocultar senha */
+function bindPasswordToggles() {
+  const pairs = [
+    { inputId: "password", btnId: "togglePasswordLogin" },
+    { inputId: "registerPassword", btnId: "togglePasswordRegister" },
+    { inputId: "confirmPassword", btnId: "togglePasswordConfirm" },
+  ];
+  pairs.forEach(({ inputId, btnId }) => {
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if (!input || !btn) return;
+    btn.type = "button";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const isPassword = input.type === "password";
+      input.type = isPassword ? "text" : "password";
+      input.focus();
+      btn.setAttribute("aria-label", isPassword ? "Ocultar senha" : "Mostrar senha");
+      btn.setAttribute("title", isPassword ? "Ocultar senha" : "Mostrar senha");
+      btn.textContent = isPassword ? "🙈" : "👁";
+    });
+  });
 }
 
 /* =========================
@@ -76,19 +113,19 @@ function bindLogin() {
       // 🔹 DECISÃO DE FLUXO CENTRALIZADA
       const result = await bootstrapAfterLogin();
 
-      if (result.next === "dashboard") {
-        window.location.href = "/dashboard.html";
+      if (result.next === "dashboard" || result.next === "agenda") {
+        redirect("/dashboard.html");
         return;
       }
 
       if (result.next === "onboarding") {
         clearActiveOrg();
-        window.location.href = "/onboarding.html";
+        redirect("/onboarding.html");
         return;
       }
 
       if (result.next === "accept-invite") {
-        window.location.href = "/index.html#accept-invite";
+        redirect("/index.html#accept-invite");
         return;
       }
 
@@ -96,7 +133,14 @@ function bindLogin() {
 
     } catch (err) {
       console.error("[LOGIN]", err);
-      toast(err.message || "Erro ao entrar");
+      const msg = String(err?.message || err?.error_description || err?.msg || "Erro ao entrar").trim();
+      if (msg.includes("Email not confirmed") || String(err?.message || "").includes("email_not_confirmed")) {
+        toast("Confirme seu e-mail. Verifique a caixa de entrada (e o spam) e clique no link enviado no cadastro.", "error");
+      } else if (msg.includes("Invalid login credentials") || msg.includes("invalid_credentials") || msg.toLowerCase().includes("invalid")) {
+        toast("E-mail ou senha incorretos. Tente novamente ou use \"Esqueci minha senha\".", "error");
+      } else {
+        toast(msg || "Erro ao entrar. Tente novamente.", "error");
+      }
     } finally {
       hideLoader();
     }

@@ -32,13 +32,5 @@ export async function init() {
     if (ocrEmitirPlaceholder) ocrEmitirPlaceholder.classList.remove("hidden");
   }
 
-  ocrEmitirPlaceholder?.querySelector("a[data-view='empresa']")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    navigate("empresa");
-  });
-
-  container.querySelector("a[data-view='estoque']")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    navigate("estoque");
-  });
+  /* Links Empresa e Estoque (data-view) são tratados pelo SPA (bindMenu com delegação) */
 }

@@ -34,8 +34,15 @@ export async function init() {
   const btnSalvarTaxas = document.getElementById("precificacaoBtnSalvarTaxas");
   const inputValorProcedimento = document.getElementById("precificacaoValorProcedimento");
   const tabelaSimulador = document.getElementById("precificacaoTabelaSimulador");
+  const tabelaSimuladorBandeiras = document.getElementById("precificacaoTabelaSimuladorBandeiras");
   const blocoDescontoAvista = document.getElementById("precificacaoBlocoDescontoAvista");
   const recomendacao = document.getElementById("precificacaoRecomendacao");
+
+  const BANDEIRAS_IDS = {
+    visa: { debito: "precificacaoBandeiraVisaDebito", credito_avista: "precificacaoBandeiraVisaCredito", parcelado_2_6: "precificacaoBandeiraVisaParcelado26", parcelado_7_12: "precificacaoBandeiraVisaParcelado712" },
+    master: { debito: "precificacaoBandeiraMasterDebito", credito_avista: "precificacaoBandeiraMasterCredito", parcelado_2_6: "precificacaoBandeiraMasterParcelado26", parcelado_7_12: "precificacaoBandeiraMasterParcelado712" },
+    elo: { debito: "precificacaoBandeiraEloDebito", credito_avista: "precificacaoBandeiraEloCredito", parcelado_2_6: "precificacaoBandeiraEloParcelado26", parcelado_7_12: "precificacaoBandeiraEloParcelado712" }
+  };
 
   let taxasAtuais = {
     taxa_transacao_pct: null,
@@ -46,6 +53,11 @@ export async function init() {
     taxa_parcelado_7_12_pct: null
   };
   for (let i = 2; i <= 12; i++) taxasAtuais[`taxa_parcelado_${i}_pct`] = null;
+
+  function setVal(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.value = v != null && v !== "" ? v : "";
+  }
 
   async function carregarTaxas() {
     try {
@@ -58,6 +70,22 @@ export async function init() {
         const key = `taxa_parcelado_${i}_pct`;
         if (el) el.value = taxasAtuais[key] != null ? taxasAtuais[key] : "";
       }
+      const bandeiras = taxasAtuais.taxas_bandeiras;
+      if (bandeiras && typeof bandeiras === "object") {
+        for (const bandeira of ["visa", "master", "elo"]) {
+          const b = bandeiras[bandeira];
+          if (!b || typeof b !== "object") continue;
+          const ids = BANDEIRAS_IDS[bandeira];
+          setVal(ids.debito, b.debito);
+          setVal(ids.credito_avista, b.credito_avista);
+          setVal(ids.parcelado_2_6, b.parcelado_2_6);
+          setVal(ids.parcelado_7_12, b.parcelado_7_12);
+        }
+      }
+      setVal("precificacaoParcelamentoMargem", taxasAtuais.parcelamento_margem_minima_pct != null ? taxasAtuais.parcelamento_margem_minima_pct : 80);
+      setVal("precificacaoParcelamentoMax", taxasAtuais.parcelamento_max_parcelas != null ? taxasAtuais.parcelamento_max_parcelas : "");
+      setVal("precificacaoMargemAlvoPadrao", taxasAtuais.margem_alvo_padrao_pct != null ? taxasAtuais.margem_alvo_padrao_pct : 40);
+      setVal("precificacaoComissaoPadrao", taxasAtuais.comissao_profissional_padrao_pct != null ? taxasAtuais.comissao_profissional_padrao_pct : "");
     } catch (e) {
       console.error("[PRECIFICACAO-TAXAS] Erro ao carregar taxas", e);
       toast("Erro ao carregar taxas da organização");
@@ -84,6 +112,26 @@ export async function init() {
         payload[`taxa_parcelado_${i}_pct`] = parsePct(inputTaxaParcelado[i]);
       }
       payload.taxa_avista_pct = payload.taxa_avista_credito_pct ?? taxasAtuais.taxa_avista_pct;
+      const bandeirasOut = {};
+      for (const bandeira of ["visa", "master", "elo"]) {
+        const ids = BANDEIRAS_IDS[bandeira];
+        const debito = parsePct(document.getElementById(ids.debito));
+        const credito = parsePct(document.getElementById(ids.credito_avista));
+        const p26 = parsePct(document.getElementById(ids.parcelado_2_6));
+        const p712 = parsePct(document.getElementById(ids.parcelado_7_12));
+        if (debito != null || credito != null || p26 != null || p712 != null) {
+          bandeirasOut[bandeira] = { debito: debito ?? null, credito_avista: credito ?? null, parcelado_2_6: p26 ?? null, parcelado_7_12: p712 ?? null };
+        }
+      }
+      if (Object.keys(bandeirasOut).length) payload.taxas_bandeiras = bandeirasOut;
+      const margemEl = document.getElementById("precificacaoParcelamentoMargem");
+      const maxEl = document.getElementById("precificacaoParcelamentoMax");
+      const margemAlvoEl = document.getElementById("precificacaoMargemAlvoPadrao");
+      const comissaoPadraoEl = document.getElementById("precificacaoComissaoPadrao");
+      if (margemEl) payload.parcelamento_margem_minima_pct = margemEl.value.trim() === "" ? 80 : parseFloat(margemEl.value, 10) || 80;
+      if (maxEl) payload.parcelamento_max_parcelas = maxEl.value.trim() === "" ? null : (parseInt(maxEl.value, 10) || null);
+      if (margemAlvoEl) payload.margem_alvo_padrao_pct = margemAlvoEl.value.trim() === "" ? 40 : parseFloat(margemAlvoEl.value, 10) || 40;
+      if (comissaoPadraoEl) payload.comissao_profissional_padrao_pct = comissaoPadraoEl.value.trim() === "" ? null : (parseFloat(comissaoPadraoEl.value, 10) || null);
       try {
         taxasAtuais = await updateTaxasOrganizacao(payload);
         toast("Taxas salvas.");
@@ -115,6 +163,9 @@ export async function init() {
     const refAvista = Math.min(liquidoAvistaDebito, liquidoAvistaCredito);
 
     const linhas = [];
+    linhas.push(`<tr><td>PIX</td><td>0%</td><td>R$ ${fmtNum(valor)}</td><td>—</td></tr>`);
+    linhas.push(`<tr><td>Dinheiro</td><td>0%</td><td>R$ ${fmtNum(valor)}</td><td>—</td></tr>`);
+    linhas.push(`<tr><td>Transferência</td><td>0%</td><td>R$ ${fmtNum(valor)}</td><td>—</td></tr>`);
     linhas.push(`<tr><td>À vista (débito)</td><td>${fmtPct(taxaAvistaDebito)}</td><td>R$ ${fmtNum(liquidoAvistaDebito)}</td><td>—</td></tr>`);
     linhas.push(`<tr><td>À vista (crédito)</td><td>${fmtPct(taxaAvistaCredito)}</td><td>R$ ${fmtNum(liquidoAvistaCredito)}</td><td>—</td></tr>`);
     for (let p = 2; p <= 12; p++) {
@@ -133,6 +184,35 @@ export async function init() {
       "<table class=\"precificacao-tabela\" aria-label=\"Simulador: valor líquido por forma de pagamento\"><thead><tr><th>Forma</th><th>Taxa</th><th>Você recebe</th><th>Diferença vs à vista</th></tr></thead><tbody>" +
       linhas.join("") +
       "</tbody></table>";
+
+    const transacao = Number(taxasAtuais.taxa_transacao_pct) || 0;
+    const bandeiras = taxasAtuais.taxas_bandeiras;
+    if (tabelaSimuladorBandeiras && bandeiras && typeof bandeiras === "object" && Object.keys(bandeiras).length > 0) {
+      const bandeiraLabels = { visa: "Visa", master: "Master", elo: "Elo" };
+      const linhasB = [];
+      for (const [key, b] of Object.entries(bandeiras)) {
+        if (!b || typeof b !== "object") continue;
+        const taxaDeb = transacao + (Number(b.debito) || 0);
+        const taxaCred = transacao + (Number(b.credito_avista) || 0);
+        const taxa26 = transacao + (Number(b.parcelado_2_6) || 0);
+        const taxa712 = transacao + (Number(b.parcelado_7_12) || 0);
+        const liqDeb = calcularLiquido(valor, taxaDeb);
+        const liqCred = calcularLiquido(valor, taxaCred);
+        const liq26 = calcularLiquido(valor, taxa26);
+        const liq712 = calcularLiquido(valor, taxa712);
+        linhasB.push(
+          `<tr><th scope="row">${bandeiraLabels[key] || key}</th><td>${fmtPct(taxaDeb)}<br><small>R$ ${fmtNum(liqDeb)}</small></td><td>${fmtPct(taxaCred)}<br><small>R$ ${fmtNum(liqCred)}</small></td><td>${fmtPct(taxa26)}<br><small>R$ ${fmtNum(liq26)}</small></td><td>${fmtPct(taxa712)}<br><small>R$ ${fmtNum(liq712)}</small></td></tr>`
+        );
+      }
+      tabelaSimuladorBandeiras.innerHTML =
+        "<h4 class=\"precificacao-simulador-bandeiras-title\">Por bandeira (conforme cadastrado)</h4>" +
+        "<table class=\"precificacao-tabela precificacao-bandeiras-simulador\" aria-label=\"Simulador por bandeira\"><thead><tr><th scope=\"col\">Bandeira</th><th scope=\"col\">Débito</th><th scope=\"col\">Crédito à vista</th><th scope=\"col\">Parcelado 2x–6x</th><th scope=\"col\">Parcelado 7x–12x</th></tr></thead><tbody>" +
+        linhasB.join("") + "</tbody></table>";
+      tabelaSimuladorBandeiras.classList.remove("hidden");
+    } else if (tabelaSimuladorBandeiras) {
+      tabelaSimuladorBandeiras.innerHTML = "";
+      tabelaSimuladorBandeiras.classList.add("hidden");
+    }
 
     const liquido12 = calcularLiquido(valor, getTaxaParaParcelas(taxasAtuais, 12));
     const taxaAvistaRef = (taxasAtuais.taxa_avista_credito_pct != null || taxasAtuais.taxa_avista_debito_pct != null)

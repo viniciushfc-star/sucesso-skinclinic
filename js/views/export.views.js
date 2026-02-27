@@ -1,9 +1,12 @@
 import { exportarTabela, exportarBackupUnico } from "../services/export.service.js";
 import { importarLote, getTemplateHeaders, importarBackupUnico, parseCSV, MAX_IMPORT_ROWS } from "../services/importacao-lote.service.js";
 import { getProcedimentosRealizadosPorPeriodo } from "../services/metrics.service.js";
+import { getRelatorioContador } from "../services/contador.service.js";
+import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { listProcedures } from "../services/procedimentos.service.js";
 import { getOrgMembers } from "../core/org.js";
 import { toCSV } from "../utils/csv.js";
+import { relatorioContadorToReadable } from "../utils/contador-report.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
 
@@ -63,8 +66,107 @@ function bindUI() {
   const btnRelatorioProc = document.getElementById("btnRelatorioProcedimentos");
   if (btnRelatorioProc) btnRelatorioProc.onclick = gerarRelatorioProcedimentos;
 
-  const backupLink = document.querySelector("#view-export .export-import-hint a[data-view=\"backup\"]");
-  if (backupLink) backupLink.addEventListener("click", (e) => { e.preventDefault(); navigate("backup"); });
+  const btnContadorPdf = document.getElementById("btnContadorPdf");
+  const btnContadorWord = document.getElementById("btnContadorWord");
+  if (btnContadorPdf) btnContadorPdf.onclick = baixarRelatorioContadorPdf;
+  if (btnContadorWord) btnContadorWord.onclick = baixarRelatorioContadorWord;
+
+  preencherDatasPadraoContador();
+
+  /* Link "Backup" (data-view="backup") é tratado pelo SPA (bindMenu com delegação) */
+}
+
+function preencherDatasPadraoContador() {
+  const hoje = new Date();
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const elInicio = document.getElementById("contadorDataInicio");
+  const elFim = document.getElementById("contadorDataFim");
+  if (elInicio && !elInicio.value) elInicio.value = fmt(primeiro);
+  if (elFim && !elFim.value) elFim.value = fmt(ultimo);
+}
+
+function getContadorParams() {
+  const dataInicio = document.getElementById("contadorDataInicio")?.value?.trim();
+  const dataFim = document.getElementById("contadorDataFim")?.value?.trim();
+  const limiteEl = document.getElementById("contadorLimiteClientes");
+  const limite = limiteEl?.value?.trim() === "" ? null : parseInt(limiteEl?.value, 10);
+  return { dataInicio, dataFim, limite };
+}
+
+function gerarPdfDoTexto(text) {
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) throw new Error("Biblioteca de PDF não carregada. Recarregue a página.");
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const margin = 14;
+  const pageW = doc.internal.pageSize.getWidth();
+  const maxW = pageW - margin * 2;
+  let y = margin;
+  const lineHeight = 5;
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setFontSize(11);
+  const linhas = text.split("\n");
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i];
+    const split = doc.splitTextToSize(linha || " ", maxW);
+    for (let j = 0; j < split.length; j++) {
+      if (y + lineHeight > pageH - margin) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.text(split[j], margin, y);
+      y += lineHeight;
+    }
+  }
+  return doc;
+}
+
+async function baixarRelatorioContadorPdf() {
+  const { dataInicio, dataFim, limite } = getContadorParams();
+  if (!dataInicio || !dataFim) {
+    toast("Informe o período (De e Até).");
+    return;
+  }
+  try {
+    toast("Gerando relatório…");
+    const rel = await getRelatorioContador(dataInicio, dataFim, { limiteClientes: limite });
+    const profile = await getOrganizationProfile().catch(() => ({}));
+    const nomeClinica = profile?.name || "";
+    const { text } = relatorioContadorToReadable(rel, nomeClinica);
+    const doc = gerarPdfDoTexto(text);
+    const nome = "relatorio_contador_" + dataInicio + "_" + dataFim + ".pdf";
+    doc.save(nome);
+    toast("PDF baixado!");
+  } catch (err) {
+    console.error("[EXPORT] contador pdf", err);
+    toast(err?.message || "Erro ao gerar PDF.");
+  }
+}
+
+async function baixarRelatorioContadorWord() {
+  const { dataInicio, dataFim, limite } = getContadorParams();
+  if (!dataInicio || !dataFim) {
+    toast("Informe o período (De e Até).");
+    return;
+  }
+  try {
+    toast("Gerando relatório…");
+    const rel = await getRelatorioContador(dataInicio, dataFim, { limiteClientes: limite });
+    const profile = await getOrganizationProfile().catch(() => ({}));
+    const nomeClinica = profile?.name || "";
+    const { html } = relatorioContadorToReadable(rel, nomeClinica);
+    const blob = new Blob(["\ufeff" + html], { type: "application/msword" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "relatorio_contador_" + dataInicio + "_" + dataFim + ".doc";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("Word baixado!");
+  } catch (err) {
+    console.error("[EXPORT] contador word", err);
+    toast(err?.message || "Erro ao gerar Word.");
+  }
 }
 
 let relatorioProcDropdownsPopulated = false;

@@ -24,11 +24,8 @@ export async function getMasterMetrics() {
    if (alt?.count != null) totalClientes = alt.count
   }
 
-  /* AGENDAMENTOS HOJE */
-  const hoje =
-   new Date()
-    .toISOString()
-    .split("T")[0]
+  /* AGENDAMENTOS HOJE (data local) */
+  const hoje = getTodayLocal()
 
   const { count: agHoje } =
    await withOrg(
@@ -65,12 +62,21 @@ export async function getMasterMetrics() {
  }
 }
 
+/** Data de hoje em YYYY-MM-DD (fuso local) para não errar agenda. */
+export function getTodayLocal() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 /**
  * Retorna startDate e endDate (YYYY-MM-DD) para o período selecionado.
  */
 export function getPeriodRange(period, customStart, customEnd) {
   const today = new Date()
-  const hoje = today.toISOString().split("T")[0]
+  const hoje = getTodayLocal()
   if (period === "today") return { startDate: hoje, endDate: hoje }
   if (period === "week") {
     const d = new Date(today)
@@ -80,20 +86,16 @@ export function getPeriodRange(period, customStart, customEnd) {
     start.setDate(diff)
     const end = new Date(start)
     end.setDate(end.getDate() + 6)
-    return {
-      startDate: start.toISOString().slice(0, 10),
-      endDate: end.toISOString().slice(0, 10),
-    }
+    const fmt = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`
+    return { startDate: fmt(start), endDate: fmt(end) }
   }
   if (period === "month") {
     const y = today.getFullYear()
     const m = today.getMonth()
     const start = new Date(y, m, 1)
     const end = new Date(y, m + 1, 0)
-    return {
-      startDate: start.toISOString().slice(0, 10),
-      endDate: end.toISOString().slice(0, 10),
-    }
+    const fmt = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`
+    return { startDate: fmt(start), endDate: fmt(end) }
   }
   if (period === "custom" && customStart && customEnd) {
     return { startDate: customStart, endDate: customEnd }
@@ -113,7 +115,7 @@ export async function getDashboardMetricsForUser(opts = {}) {
   const { data: { user } } = await supabase.auth.getUser()
   const userId = user?.id ?? null
 
-  const startDate = opts.startDate || new Date().toISOString().split("T")[0]
+  const startDate = opts.startDate || getTodayLocal()
   const endDate = opts.endDate || startDate
 
   let totalClientes = 0
@@ -191,17 +193,18 @@ export async function getMeuPrevistoHoje() {
     const pct = model?.percentual_procedimento
     if (pct == null || pct <= 0) return null
 
-    const hoje = new Date().toISOString().split("T")[0]
+    const hoje = getTodayLocal()
     const { data: agendaRows } = await withOrg(
     supabase
       .from("agenda")
-      .select("id, procedure_id")
+      .select("id, procedure_id, is_retorno, is_modelo_agendamento, desconto_modelo_pct")
       .eq("data", hoje)
       .eq("user_id", user.id)
   )
   if (!agendaRows?.length) return { valor: 0, percentual: pct }
 
-  const procedureIds = [...new Set(agendaRows.map((r) => r.procedure_id).filter(Boolean))]
+  const rowsComReceita = (agendaRows || []).filter((r) => !r.is_retorno)
+  const procedureIds = [...new Set(rowsComReceita.map((r) => r.procedure_id).filter(Boolean))]
   if (procedureIds.length === 0) return { valor: 0, percentual: pct }
 
   const { data: procedures } = await withOrg(
@@ -213,8 +216,13 @@ export async function getMeuPrevistoHoje() {
   }, {})
 
   let soma = 0
-  for (const row of agendaRows) {
-    if (row.procedure_id) soma += valorPorId[row.procedure_id] || 0
+  for (const row of rowsComReceita) {
+    if (!row.procedure_id) continue
+    let v = valorPorId[row.procedure_id] || 0
+    if (row.is_modelo_agendamento && row.desconto_modelo_pct != null) {
+      v = v * (1 - Number(row.desconto_modelo_pct) / 100)
+    }
+    soma += v
   }
   const previsto = (soma * pct) / 100
   return { valor: previsto, percentual: pct }
@@ -315,4 +323,105 @@ export async function getProcedimentosRealizadosPorPeriodo(startDate, endDate, o
     procedure_name: names[id] || "—",
     total: byProc[id],
   })).sort((a, b) => b.total - a.total)
+}
+
+/**
+ * Faturamento por dia (entradas) no período — para gráfico de linhas.
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @returns {Promise<Array<{ date: string, valor: number }>>}
+ */
+export async function getFaturamentoPorDia(startDate, endDate) {
+  const { data, error } = await withOrg(
+    supabase
+      .from("financeiro")
+      .select("data, valor, valor_recebido")
+      .eq("tipo", "entrada")
+      .gte("data", startDate)
+      .lte("data", endDate)
+  )
+  if (error) throw error
+  const byDay = {}
+  const start = new Date(startDate + "T12:00:00")
+  const end = new Date(endDate + "T12:00:00")
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10)
+    byDay[key] = 0
+  }
+  ;(data || []).forEach((f) => {
+    const key = (f.data || "").slice(0, 10)
+    if (!key) return
+    const v = f.valor_recebido != null && f.valor_recebido !== "" ? Number(f.valor_recebido) : Number(f.valor) || 0
+    byDay[key] = (byDay[key] || 0) + v
+  })
+  return Object.entries(byDay)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, valor]) => ({ date, valor }))
+}
+
+/**
+ * Ranking de procedimentos no período com quantidade e receita (financeiro vinculado).
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @param {number} limit
+ * @returns {Promise<Array<{ procedure_id, procedure_name, total: number, receita: number }>>}
+ */
+export async function getRankingProcedimentosComReceita(startDate, endDate, limit = 5) {
+  const porPeriodo = await getProcedimentosRealizadosPorPeriodo(startDate, endDate)
+  const { data: entradas } = await withOrg(
+    supabase
+      .from("financeiro")
+      .select("procedure_id, valor, valor_recebido")
+      .eq("tipo", "entrada")
+      .not("procedure_id", "is", null)
+      .gte("data", startDate)
+      .lte("data", endDate)
+  )
+  const receitaPorProc = {}
+  ;(entradas || []).forEach((e) => {
+    const id = e.procedure_id
+    const v = e.valor_recebido != null && e.valor_recebido !== "" ? Number(e.valor_recebido) : Number(e.valor) || 0
+    receitaPorProc[id] = (receitaPorProc[id] || 0) + v
+  })
+  return porPeriodo
+    .slice(0, limit)
+    .map((p) => ({
+      ...p,
+      receita: receitaPorProc[p.procedure_id] || 0,
+    }))
+}
+
+/**
+ * Ranking de produtos mais usados no período (protocolos aplicados — produtos_usados).
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate - YYYY-MM-DD
+ * @param {number} limit
+ * @returns {Promise<Array<{ produto_nome: string, quantidade: number }>>}
+ */
+export async function getRankingProdutosPorUso(startDate, endDate, limit = 5) {
+  const inicio = `${startDate}T00:00:00`
+  const fim = `${endDate}T23:59:59`
+  const { data, error } = await withOrg(
+    supabase
+      .from("protocolos_aplicados")
+      .select("produtos_usados")
+      .gte("aplicado_em", inicio)
+      .lte("aplicado_em", fim)
+  )
+  if (error) return []
+  const byName = {}
+  ;(data || []).forEach((row) => {
+    const arr = row.produtos_usados
+    if (!Array.isArray(arr)) return
+    arr.forEach((p) => {
+      const nome = (p && p.produto_nome && String(p.produto_nome).trim()) || ""
+      if (!nome) return
+      const qty = Number(p.quantidade) || 1
+      byName[nome] = (byName[nome] || 0) + qty
+    })
+  })
+  return Object.entries(byName)
+    .map(([produto_nome, quantidade]) => ({ produto_nome, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade)
+    .slice(0, limit)
 }

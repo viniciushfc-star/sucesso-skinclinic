@@ -1,4 +1,5 @@
 import { createOrgAndSetActive } from "../core/org.js";
+import { redirect } from "../core/base-path.js";
 
 const form = document.getElementById("createOrgForm");
 const input = document.getElementById("orgName");
@@ -15,7 +16,7 @@ form.addEventListener("submit", async (e) => {
     await createOrgAndSetActive(input.value.trim());
 
     // após criar e vincular → dashboard
-    window.location.href = "/dashboard.html";
+    redirect("/dashboard.html");
 
   } catch (err) {
     console.error("[CREATE-ORG]", err);

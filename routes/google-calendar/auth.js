@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Inicia o fluxo OAuth do Google Calendar.
  * GET /api/google-calendar/auth?userId=xxx&orgId=xxx
  * Redireciona para Google; após autorização, o usuário volta em /api/google-calendar/callback.
@@ -13,16 +13,25 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido" });
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const baseUrl = process.env.BASE_URL || process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : "";
   const userId = req.query.userId || "";
   const orgId = req.query.orgId || "";
-
-  if (!clientId || !baseUrl || !userId || !orgId) {
+  if (!userId || !orgId) {
     return res.status(400).json({
-      error: "Configure GOOGLE_CLIENT_ID e BASE_URL (ou VERCEL_URL). Envie userId e orgId na query.",
+      error: "Envie userId e orgId na query.",
+    });
+  }
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  let baseUrl = process.env.BASE_URL || "";
+  if (!baseUrl && process.env.VERCEL_URL) baseUrl = `https://${process.env.VERCEL_URL}`;
+  if (!baseUrl && req.headers.host) {
+    const protocol = req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    baseUrl = `${protocol}://${req.headers.host}`;
+  }
+
+  if (!clientId || !baseUrl) {
+    return res.status(400).json({
+      error: "Configure GOOGLE_CLIENT_ID e BASE_URL no servidor (ou use o app na mesma origem que a API). Em desenvolvimento: BASE_URL=http://localhost:3000",
     });
   }
 

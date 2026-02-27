@@ -35,3 +35,29 @@ export async function linkUserAsMaster(orgId, userId) {
     throw error;
   }
 }
+
+/* =========================
+   CONVITE: vincular usuário à org com a role do convite
+========================= */
+export async function linkUserToOrganization({ orgId, userId, role }) {
+  const { error } = await supabase
+    .from("organization_users")
+    .insert({
+      org_id: orgId,
+      user_id: userId,
+      role: role || "staff"
+    });
+  if (error) throw error;
+}
+
+/* =========================
+   CONVITE: marcar convite como aceito (organization_invites)
+========================= */
+export async function markInviteAsAccepted(inviteId) {
+  if (!inviteId) return;
+  const { error } = await supabase
+    .from("organization_invites")
+    .update({ status: "accepted" })
+    .eq("id", inviteId);
+  if (error) throw error;
+}

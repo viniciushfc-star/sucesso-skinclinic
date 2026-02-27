@@ -18,7 +18,7 @@ export async function bootstrapAfterLogin() {
   // 2️⃣ se tiver org, define ANTES de qualquer outro service
   if (orgs && orgs.length > 0) {
     setActiveOrg(orgs[0].org_id);
-    return { next: "dashboard" };
+    return { next: "agenda" };
   }
 
   // 3️⃣ somente se NÃO tiver org, verifica convite

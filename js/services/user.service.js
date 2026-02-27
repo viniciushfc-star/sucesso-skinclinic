@@ -32,9 +32,15 @@ export async function inviteUser(email, role){
   return data
 }
 
-export async function getTeam(){
-  // Continua listando da tabela convites (ou adapte para organization_invites se preferir)
-  return await supabase
-    .from("convites")
-    .select("*")
+/** Lista membros da organização (equipe). Para nomes/e-mail o front pode usar profiles ou outra fonte. */
+export async function getTeam() {
+  const orgId = getActiveOrg();
+  if (!orgId) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from("organization_users")
+    .select("user_id, role")
+    .eq("org_id", orgId);
+  if (error) return { data: [], error };
+  const rows = (data || []).map((r) => ({ id: r.user_id, user_id: r.user_id, role: r.role, email: null }));
+  return { data: rows, error: null };
 }

@@ -29,7 +29,7 @@ async function render() {
               <h3 class="view-card-title">${escapeHtml(d.label)}</h3>
               ${d.updatedAt ? `<span class="documentos-termos-updated">Atualizado em ${formatDate(d.updatedAt)}</span>` : "<span class=\"documentos-termos-modelo\">Modelo padrão</span>"}
             </div>
-            <p class="documentos-termos-placeholder-hint">Substitua os placeholders entre colchetes (ex.: [NOME_DA_CLINICA], [CPF]) pelos dados reais. O sistema preenche automaticamente nome, CNPJ e endereço da empresa quando disponíveis.</p>
+            <p class="documentos-termos-placeholder-hint">As marcações entre colchetes — como [NOME_DA_CLINICA], [CNPJ], [ENDERECO], [TELEFONE] — são preenchidas automaticamente com os dados do cadastro da empresa (Configurações → Empresa) quando você envia ou imprime o documento. Os campos em branco (ex.: nome do cliente, CPF, assinatura) devem ser preenchidos à mão ou no momento de enviar para cada cliente.</p>
             <textarea class="documentos-termos-textarea" data-doc-key="${escapeAttr(d.key)}" rows="${getRows(d.key)}" placeholder="Clique em 'Carregar modelo padrão' para usar o texto base">${escapeHtml(d.content ?? "")}</textarea>
             <div class="documentos-termos-actions">
               <button type="button" class="btn-secondary btn-sm documentos-termos-btn-reset" data-doc-key="${escapeAttr(d.key)}" title="Carrega o modelo no editor para você editar e salvar">Carregar modelo padrão</button>

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Callback OAuth Google Calendar: troca code por tokens e grava na tabela.
  * GET /api/google-calendar/callback?code=xxx&state=xxx
  */
@@ -15,7 +15,12 @@ export default async function handler(req, res) {
 
   const code = req.query.code;
   const stateRaw = req.query.state;
-  const baseUrl = process.env.BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  let baseUrl = process.env.BASE_URL || "";
+  if (!baseUrl && process.env.VERCEL_URL) baseUrl = `https://${process.env.VERCEL_URL}`;
+  if (!baseUrl && req.headers.host) {
+    const protocol = req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    baseUrl = `${protocol}://${req.headers.host}`;
+  }
   const dashboardUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}/dashboard.html#team` : "/dashboard.html#team";
 
   if (!code || !stateRaw) {

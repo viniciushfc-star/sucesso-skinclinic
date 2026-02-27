@@ -41,11 +41,17 @@ import { audit } from "../services/audit.service.js"
 import { listProcedures } from "../services/procedimentos.service.js"
 
 import { navigate } from "../core/spa.js"
+import { redirect } from "../core/base-path.js"
+
+import { getEntradasByAgendaId } from "../services/financeiro.service.js"
+
+import { listPacotesComSaldoByClient } from "../services/pacotes.service.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
-
+import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
+import { listAfazeresByPrazo } from "../services/afazeres.service.js"
 
 /* =====================
    ESTADO (calendário + dia selecionado)
@@ -61,7 +67,11 @@ const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Jul
 let agendaPanelEl = null
 
 function getTodayStr() {
-  return new Date().toISOString().split("T")[0]
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
 }
 
 function ensureAgendaPanel() {
@@ -130,6 +140,12 @@ function bindUI() {
       toast("Modelo baixado!")
     }
   }
+
+  const filtroProf = document.getElementById("agendaFiltroProfissional")
+  if (filtroProf && !filtroProf.dataset.bound) {
+    filtroProf.dataset.bound = "1"
+    filtroProf.addEventListener("change", () => renderCalendarAndDay())
+  }
 }
 
 function changeMonth(delta) {
@@ -158,11 +174,25 @@ async function renderCalendarAndDay() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       toast("Sessão expirada")
-      window.location.href = "/index.html"
+      redirect("/index.html")
       return
     }
 
-    const monthData = await listAppointmentsByMonth(calendarYear, calendarMonth)
+    const filtroEl = document.getElementById("agendaFiltroProfissional")
+    const professionalId = filtroEl?.value?.trim() || null
+
+    if (filtroEl && filtroEl.options.length <= 1) {
+      const members = await getOrgMembers()
+      const roleLabel = (r) => ({ master: "Administrador", gestor: "Gestor", staff: "Colaborador", viewer: "Visualização" }[r] || r)
+      const opts = (members || []).map((m, i) => {
+        const label = roleLabel(m.role) || `Profissional ${i + 1}`
+        return `<option value="${m.user_id}">${String(label).replace(/</g, "&lt;")}</option>`
+      })
+      filtroEl.innerHTML = "<option value=\"\">Todos</option>" + opts.join("")
+      if (professionalId) filtroEl.value = professionalId
+    }
+
+    const monthData = await listAppointmentsByMonth(calendarYear, calendarMonth, professionalId)
     const countsByDay = {}
     for (const row of monthData) {
       const d = row.data
@@ -170,7 +200,7 @@ async function renderCalendarAndDay() {
     }
 
     renderCalendar(countsByDay)
-    await renderDayList(selectedDate)
+    await renderDayList(selectedDate, professionalId)
   } catch (err) {
     console.error("[AGENDA] erro render", err)
     toast("Erro ao carregar agenda")
@@ -230,7 +260,20 @@ function renderCalendar(countsByDay) {
   })
 }
 
-async function renderDayList(date) {
+/** Converte "09:00" ou "9:00" em minutos desde meia-noite. */
+function parseHoraToMinutes(horaStr) {
+  if (!horaStr) return 0
+  const s = String(horaStr).trim().slice(0, 5)
+  const [h, m] = s.split(":").map((n) => parseInt(n, 10) || 0)
+  return h * 60 + m
+}
+
+/** Timeline: 6h–22h (horário comercial), blocos maiores estilo Google. */
+const TIMELINE_START_HOUR = 6
+const TIMELINE_END_HOUR = 22
+const TIMELINE_PX_PER_HOUR = 64
+
+function renderDayList(date, professionalId = null) {
   const listaAgenda = document.getElementById("listaAgenda")
   const dayTitleEl = document.getElementById("agendaDayTitle")
   if (!listaAgenda) return
@@ -240,51 +283,118 @@ async function renderDayList(date) {
     dayTitleEl.textContent = `Agendamentos do dia ${d}/${m}/${y}`
   }
 
-  try {
-    const data = await listAppointmentsByDate(date)
-    const cliente = (a) => a.clientes || a.clients || {}
-    const hora = (a) => a.hora ?? ""
-    const isEvent = (a) => a.item_type === "event"
-    const items = data || []
+  listAppointmentsByDate(date, professionalId)
+    .then((data) => {
+      const cliente = (a) => a.clientes || a.clients || {}
+      const hora = (a) => a.hora ?? ""
+      const isEvent = (a) => a.item_type === "event"
+      const items = data || []
 
-    if (items.length === 0) {
-      listaAgenda.innerHTML = `
-        <p class="agenda-empty">Nenhum agendamento neste dia. Use o botão acima para agendar.</p>
-      `
-      return
-    }
+      if (items.length === 0) {
+        listaAgenda.innerHTML = `
+          <p class="agenda-empty">Nenhum agendamento neste dia. Use o botão <strong>Criar</strong> para agendar.</p>
+        `
+        renderAgendaAfazeres(date)
+        return
+      }
 
-    listaAgenda.innerHTML = items
-      .map(
-        (a) => `
-    <div class="calendar-event ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"}"
+      const totalHours = TIMELINE_END_HOUR - TIMELINE_START_HOUR
+      const totalHeight = totalHours * TIMELINE_PX_PER_HOUR
+      const hourLabels = []
+      for (let h = TIMELINE_START_HOUR; h < TIMELINE_END_HOUR; h++) {
+        hourLabels.push(`<div class="agenda-timeline-hour" style="height:${TIMELINE_PX_PER_HOUR}px">${String(h).padStart(2, "0")}:00</div>`)
+      }
+
+      const startMinutesBase = TIMELINE_START_HOUR * 60
+      const eventBlocks = items
+        .map((a) => {
+          const startMin = parseHoraToMinutes(a.hora)
+          const durationMin = Math.max(15, Number(a.duration_minutes) || 60)
+          const top = ((startMin - startMinutesBase) / 60) * TIMELINE_PX_PER_HOUR
+          const height = Math.max(44, (durationMin / 60) * TIMELINE_PX_PER_HOUR - 4)
+          const nome = isEvent(a)
+            ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
+            : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")
+          const titulo = nome.replace(/"/g, "&quot;").replace(/</g, "&lt;")
+          return `
+    <div class="calendar-event calendar-event--block ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
+         style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
          data-id="${a.id}"
          data-tel="${(cliente(a).telefone || cliente(a).phone || "").replace(/"/g, "&quot;")}"
          data-email="${(cliente(a).email || "").replace(/"/g, "&quot;")}">
-      <div class="calendar-event-time">${hora(a)}</div>
-      <div class="calendar-event-name">
-        ${isEvent(a)
-          ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
-          : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")}
+      <div class="calendar-event-block-time">${hora(a)}${durationMin !== 60 ? ` · ${durationMin} min` : ""}</div>
+      <div class="calendar-event-block-name" title="${titulo}">${titulo}</div>
+      <div class="calendar-event-block-actions">
+        ${!isEvent(a) && a.reminder_sent_at ? `<span class="agenda-lembrete-enviado" title="Lembrete enviado">✓</span>` : ""}
+        ${!isEvent(a) ? `<button type="button" class="btn-lembrete btn-icon-sm" data-id="${a.id}" title="Lembrete">📋</button>` : ""}
+        ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete btn-icon-sm" data-id="${a.id}" title="E-mail">✉️</button>` : ""}
+        ${!isEvent(a) ? `<button class="btn-whats btn-icon-sm" title="WhatsApp">📲</button>` : ""}
       </div>
-      <div class="calendar-event-actions">
-        ${!isEvent(a) && a.reminder_sent_at ? `<span class="agenda-lembrete-enviado" title="Lembrete enviado">✓ Lembrete</span>` : ""}
-        ${!isEvent(a) ? `<button type="button" class="btn-lembrete" data-id="${a.id}" title="Copiar lembrete com link de confirmação">📋 Lembrete</button>` : ""}
-        ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete" data-id="${a.id}" title="Abrir e-mail personalizado (custo zero)">✉️ E-mail</button>` : ""}
-        ${!isEvent(a) ? `<button class="btn-whats" title="WhatsApp (mensagem com link de confirmação)">📲</button>` : ""}
-      </div>
-    </div>
-  `
-      )
-      .join("")
+    </div>`
+        })
+        .join("")
 
-    bindEditEvents()
-    bindLembreteButtons(items, date)
-    bindEmailLembreteButtons(items, date)
-    notificarSemResponsavel().catch(() => {})
-  } catch (err) {
-    console.error("[AGENDA] erro lista dia", err)
-    listaAgenda.innerHTML = `<p class="agenda-empty">Erro ao carregar agendamentos.</p>`
+      listaAgenda.innerHTML = `
+        <div class="agenda-day-timeline">
+          <div class="agenda-timeline-hours">${hourLabels.join("")}</div>
+          <div class="agenda-timeline-events" style="min-height:${totalHeight}px">
+            ${eventBlocks}
+          </div>
+        </div>`
+
+      bindEditEvents()
+      bindLembreteButtons(items, date)
+      bindEmailLembreteButtons(items, date)
+      notificarSemResponsavel().catch(() => {})
+
+      const firstBlock = listaAgenda.querySelector(".calendar-event--block")
+      if (firstBlock) {
+        firstBlock.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      }
+
+      renderAgendaAfazeres(date)
+    })
+    .catch((err) => {
+      console.error("[AGENDA] erro lista dia", err)
+      listaAgenda.innerHTML = `<p class="agenda-empty">Erro ao carregar agendamentos.</p>`
+    })
+}
+
+/** Preenche o bloco "Tarefas do dia" na agenda (afazeres com prazo nesta data; não ocupam horário). */
+async function renderAgendaAfazeres(date) {
+  const wrap = document.getElementById("agendaAfazeresWrap")
+  const listEl = document.getElementById("listaAgendaAfazeres")
+  if (!wrap || !listEl) return
+  try {
+    const afazeres = await listAfazeresByPrazo(date)
+    const members = await getOrgMembers()
+    const roleByUser = (members || []).reduce((acc, m) => { acc[m.user_id] = m.role; return acc }, {})
+    const roleLabels = { master: "Administrador", gestor: "Gestor", staff: "Colaborador", viewer: "Visualização" }
+    const { data: { user } } = await supabase.auth.getUser()
+    const currentUserId = user?.id
+
+    if (!afazeres || afazeres.length === 0) {
+      listEl.innerHTML = "<p class=\"agenda-afazeres-empty\">Nenhuma tarefa com prazo neste dia.</p>"
+      return
+    }
+    listEl.innerHTML = afazeres.map((a) => {
+      const role = roleByUser[a.responsavel_user_id]
+      const roleLabel = roleLabels[role] || role || "—"
+      const responsavelLabel = a.responsavel_user_id === currentUserId ? "Você" : roleLabel
+      const statusLabel = a.status === "concluido" ? "Concluída" : a.status === "em_andamento" ? "Em andamento" : "Pendente"
+      return `
+        <div class="calendar-event calendar-event--afazer" data-afazer-id="${a.id}">
+          <div class="calendar-event-time calendar-event-time--afazer" aria-hidden="true">📌</div>
+          <div class="calendar-event-name">
+            ${(a.titulo || "Tarefa").replace(/</g, "&lt;")}
+            <span class="calendar-event-afazer-meta">Responsável: ${responsavelLabel} · ${statusLabel}</span>
+          </div>
+        </div>
+      `
+    }).join("")
+  } catch (e) {
+    console.warn("[AGENDA] afazeres do dia", e)
+    listEl.innerHTML = "<p class=\"agenda-afazeres-empty\">Erro ao carregar tarefas do dia.</p>"
   }
 }
 
@@ -305,18 +415,18 @@ function bindLembreteButtons(items, date) {
       const hora = item.hora || ""
       const [y, m, d] = (date || selectedDate).split("-")
       const dataFmt = `${d}/${m}/${y}`
-      let texto = `Olá, ${nome}! Lembrete: você tem agendamento dia ${dataFmt} às ${hora}. — ${profile.name || "Clínica"}`
+      let linkConfirmar = ""
       try {
         const conf = await createConfirmation(id)
-        const token = conf?.token
-        if (token) {
+        if (conf?.token) {
           const base = typeof window !== "undefined" && window.location?.origin ? window.location.origin : ""
-          const linkConfirmar = `${base}/portal.html?confirmToken=${encodeURIComponent(token)}`
-          texto = `Olá, ${nome}! Lembrete: você tem agendamento dia ${dataFmt} às ${hora}. Confirme sua presença em um clique: ${linkConfirmar} — ${profile.name || "Clínica"}`
+          linkConfirmar = `${base}/portal.html?confirmToken=${encodeURIComponent(conf.token)}`
         }
       } catch (err) {
         console.warn("[AGENDA] createConfirmation falhou, enviando lembrete sem link", err)
       }
+      const vars = { nome_cliente: nome, data: dataFmt, hora, nome_clinica: profile.name || "Clínica", link_confirmar: linkConfirmar }
+      const texto = await buildMessage("lembrete_agendamento", vars, { useConfirmar: !!linkConfirmar })
       try {
         navigator.clipboard.writeText(texto)
         toast("Lembrete (com link de confirmação) copiado. Cole no WhatsApp ou envie por e-mail.")
@@ -363,11 +473,11 @@ function bindEmailLembreteButtons(items, date) {
         const conf = await createConfirmation(id)
         if (conf?.token) {
           const base = typeof window !== "undefined" && window.location?.origin ? window.location.origin : ""
-          linkConfirmar = `\n\nConfirme sua presença em um clique: ${base}/portal.html?confirmToken=${encodeURIComponent(conf.token)}`
+          linkConfirmar = `${base}/portal.html?confirmToken=${encodeURIComponent(conf.token)}`
         }
       } catch (_) {}
-      const assunto = `Lembrete: agendamento ${dataFmt} às ${hora} — ${profile.name || "Clínica"}`
-      const corpo = `Olá, ${nome}!\n\nLembrete: você tem agendamento dia ${dataFmt} às ${hora}.${linkConfirmar}\n\n— ${profile.name || "Clínica"}`
+      const vars = { nome_cliente: nome, data: dataFmt, hora, nome_clinica: profile.name || "Clínica", link_confirmar: linkConfirmar }
+      const { subject: assunto, body: corpo } = await buildEmailLembrete(vars, linkConfirmar)
       const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`
       window.location.href = mailto
       try {
@@ -408,12 +518,10 @@ async function notificarSemResponsavel() {
   })
 }
 
-/** Monta mensagem de aniversário (com ou sem oferta de brinde). */
-function buildMensagemAniversario(nomeCliente, brindeHabilitado, nomeEmpresa) {
-  let msg = `Olá, ${nomeCliente}! Feliz aniversário! 🎂 Desejamos muita saúde e sucesso.`
-  if (brindeHabilitado) msg += " Visite-nos e retire seu brinde de aniversário!"
-  msg += ` — ${nomeEmpresa || "Clínica"}`
-  return msg
+/** Monta mensagem de aniversário (usa modelo da org se existir; senão padrão com ou sem brinde). */
+async function buildMensagemAniversario(nomeCliente, brindeHabilitado, nomeEmpresa) {
+  const vars = { nome_cliente: nomeCliente, nome_clinica: nomeEmpresa || "Clínica", data: "", hora: "", link_confirmar: "" }
+  return buildMessage("aniversario", vars, { brindeAniversario: !!brindeHabilitado })
 }
 
 /** Carrega e exibe aniversariantes do dia / desta semana; botão Enviar mensagem (copia + WhatsApp). */
@@ -447,10 +555,10 @@ async function renderAniversariantes() {
       )
       .join("")
     listEl.querySelectorAll(".btn-enviar-msg-aniversario").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
+      btn.addEventListener("click", async (e) => {
         e.stopPropagation()
         const nome = btn.dataset.nome || "Cliente"
-        const msg = buildMensagemAniversario(nome, brinde, nomeEmpresa)
+        const msg = await buildMensagemAniversario(nome, brinde, nomeEmpresa)
         const phone = (btn.dataset.phone || "").replace(/\D/g, "")
         try {
           navigator.clipboard.writeText(msg)
@@ -481,11 +589,13 @@ function escapeHtml(s) {
 async function openCreateModal(){
 
  let { data: clientes } = await withOrg(
-  supabase.from("clientes").select("id,nome")
+  supabase.from("clients").select("id, name, is_paciente_modelo, model_discount_pct")
  )
- if ((!clientes || clientes.length === 0) && getActiveOrg()) {
-  const alt = await withOrg(supabase.from("clients").select("id,name"))
-  clientes = alt.data ? alt.data.map(c => ({ id: c.id, nome: c.name || c.nome })) : []
+ if (!clientes?.length && getActiveOrg()) {
+  const alt = await withOrg(supabase.from("clientes").select("id, nome, is_paciente_modelo, model_discount_pct"))
+  clientes = alt?.data ? alt.data.map(c => ({ id: c.id, name: c.nome, nome: c.nome, is_paciente_modelo: c.is_paciente_modelo, model_discount_pct: c.model_discount_pct })) : []
+ } else if (clientes?.length) {
+  clientes = clientes.map(c => ({ ...c, nome: c.name || c.nome }))
  }
 
  const members = await getOrgMembers()
@@ -511,13 +621,13 @@ async function openCreateModal(){
   "Novo agendamento",
 
   `
-   <label>Data</label>
+   <label for="data">Data</label>
    <input type="date" id="data" value="${selectedDate || getTodayStr()}" required>
 
-   <label>Hora</label>
+   <label for="hora">Hora</label>
    <input type="time" id="hora" required>
 
-   <label>Duração (min)</label>
+   <label for="procDuration">Duração (min)</label>
    <input type="number" id="procDuration" min="5" step="5" value="60" title="Preenchido ao escolher procedimento do catálogo">
 
    <div class="agenda-modal-availability">
@@ -525,32 +635,43 @@ async function openCreateModal(){
     <p id="agendaDisponiveis" class="agenda-disponiveis-msg" aria-live="polite"></p>
    </div>
 
-   <label>Sala/Cabine${config.sala_obrigatoria ? " *" : ""}</label>
+   <label for="sala">Sala/Cabine${config.sala_obrigatoria ? " *" : ""}</label>
    <select id="sala" ${config.sala_obrigatoria ? "required" : ""}>
     <option value="">Selecione a sala…</option>
     ${salaOptions}
    </select>
    <p id="agendaSalaStatus" class="agenda-sala-status" aria-live="polite"></p>
 
-   <label>Profissional${config.profissional_obrigatorio ? " *" : ""}</label>
+   <label for="profissional">Profissional${config.profissional_obrigatorio ? " *" : ""}</label>
    <select id="profissional" ${config.profissional_obrigatorio ? "required" : ""}>
     <option value="">Selecione o profissional…</option>
     ${profOptions}
    </select>
    <p id="agendaProfStatus" class="agenda-prof-status" aria-live="polite"></p>
 
-   <label>Cliente</label>
+   <label for="cliente">Cliente</label>
    <select id="cliente">
     ${(clientes || []).map(c=>`
-     <option value="${c.id}">${c.nome || c.name || ""}</option>
+     <option value="${c.id}" data-modelo="${c.is_paciente_modelo ? "1" : "0"}" data-discount="${c.model_discount_pct != null ? c.model_discount_pct : ""}">${(c.nome || c.name || "").replace(/</g, "&lt;")}${c.is_paciente_modelo ? " (modelo)" : ""}</option>
     `).join("")}
    </select>
+   <div id="agendaModeloWrap" class="agenda-modelo-wrap hidden">
+    <p class="agenda-modelo-title">Paciente modelo</p>
+    <label><input type="checkbox" id="agendaAplicarDescontoModelo" checked> Aplicar desconto modelo neste agendamento</label>
+    <label for="agendaDescontoModeloPct">Desconto neste agendamento (%)</label>
+    <input type="number" id="agendaDescontoModeloPct" min="0" max="100" step="0.5" placeholder="Ex.: 30">
+   </div>
 
-   <label>Procedimento (catálogo)</label>
+   <label for="procCatalog">Procedimento (catálogo)</label>
    <select id="procCatalog">${procCatalogOptions}</select>
 
-   <label>Procedimento (nome ou texto livre)</label>
+   <label for="proc">Procedimento (nome ou texto livre)</label>
    <input id="proc" required placeholder="Preenchido ao escolher do catálogo">
+
+   <div class="agenda-retorno-option">
+    <label><input type="checkbox" id="agendaIsRetorno"> Retorno (não gera receita)</label>
+    <p class="agenda-retorno-hint">Marque para consultas de retorno (ex.: pós-botox). O horário ocupa a agenda, mas não entra no faturamento previsto.</p>
+   </div>
 
    <p class="agenda-modal-respiro-hint">
     <strong>Respiro automático:</strong> ${config.respiro_sala_minutos} min para sala, ${config.respiro_profissional_minutos} min para profissional.
@@ -577,6 +698,22 @@ async function openCreateModal(){
  const procCatalogEl = document.getElementById("procCatalog")
  const procEl = document.getElementById("proc")
  const procDurationEl = document.getElementById("procDuration")
+ const clienteSelect = document.getElementById("cliente")
+ const modeloWrap = document.getElementById("agendaModeloWrap")
+ const descontoModeloPctEl = document.getElementById("agendaDescontoModeloPct")
+
+ function updateModeloWrap() {
+  const opt = clienteSelect?.selectedOptions?.[0]
+  const isModelo = opt?.dataset?.modelo === "1"
+  if (modeloWrap) modeloWrap.classList.toggle("hidden", !isModelo)
+  if (isModelo && descontoModeloPctEl && opt?.dataset?.discount !== undefined && opt.dataset.discount !== "") {
+   descontoModeloPctEl.value = opt.dataset.discount
+  }
+ }
+ if (clienteSelect) {
+  clienteSelect.addEventListener("change", updateModeloWrap)
+  updateModeloWrap()
+ }
 
  if (procCatalogEl) {
   procCatalogEl.onchange = async () => {
@@ -666,6 +803,20 @@ async function refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl
  if (salaEl) refreshSalaStatus(salaEl, dataEl, horaEl, procDurationEl)
 }
 
+/** Monta HTML com botões "Escolher" para cada profissional disponível no horário (para trocar no select). */
+async function buildDisponiveisButtons(date, time, duration, procedureId, profSelectEl, dataEl, horaEl, procDurationEl, excludeAgendaId = null) {
+ const ids = await getAvailableProfessionals(date, time, duration, procedureId)
+ if (!ids.length) return ""
+ const members = await getOrgMembers()
+ const roleLabel = (r) => ({ master: "Administrador", gestor: "Gestor", staff: "Colaborador", viewer: "Visualização" }[r] || r)
+ return ids.map((uid) => {
+  const m = members.find((x) => x.user_id === uid)
+  const label = roleLabel(m?.role) || (uid || "").slice(0, 8) + "…"
+  const safeLabel = String(label).replace(/</g, "&lt;").replace(/"/g, "&quot;")
+  return `<button type="button" class="agenda-prof-disponivel-btn" data-user-id="${uid}" title="Escolher ${safeLabel}">${safeLabel}</button>`
+ }).join(" ")
+}
+
 async function refreshProfStatus(profEl, dataEl, horaEl, procDurationEl, excludeAgendaId = null) {
  const statusEl = document.getElementById("agendaProfStatus")
  if (!statusEl || !profEl?.value) {
@@ -679,6 +830,8 @@ async function refreshProfStatus(profEl, dataEl, horaEl, procDurationEl, exclude
   return
  }
  const duration = procDurationEl?.value ? Number(procDurationEl.value) : 60
+ const procCatalogEl = document.getElementById("procCatalog")
+ const procedureId = procCatalogEl?.value?.trim() || null
  statusEl.textContent = "Verificando…"
  try {
   const result = await checkProfessionalAvailableWithRespiro(profEl.value, date, time, duration, excludeAgendaId)
@@ -687,9 +840,16 @@ async function refreshProfStatus(profEl, dataEl, horaEl, procDurationEl, exclude
    statusEl.className = "agenda-prof-status agenda-prof-ok"
   } else {
    const c = result.conflito
-   statusEl.innerHTML = `<strong>Indisponível:</strong> ${c.procedimento} às ${c.inicio}–${c.fim}` +
-     (c.respiroNecessario ? ` (+${c.respiroNecessario} min de descanso)` : "")
+   const conflitoText = `${(c.procedimento || "").replace(/</g, "&lt;")} às ${c.inicio || ""}–${c.fim || ""}` + (c.respiroNecessario ? ` (+${c.respiroNecessario} min de descanso)` : "")
+   const disponiveisBtns = await buildDisponiveisButtons(date, time, duration, procedureId, profEl, dataEl, horaEl, procDurationEl, excludeAgendaId)
+   statusEl.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. ${disponiveisBtns ? `<span class="agenda-prof-disponiveis-label">Disponíveis neste horário:</span> ${disponiveisBtns}` : ""}`
    statusEl.className = "agenda-prof-status agenda-prof-busy"
+   statusEl.querySelectorAll(".agenda-prof-disponivel-btn").forEach((btn) => {
+    btn.onclick = () => {
+     profEl.value = btn.dataset.userId || ""
+     refreshProfStatus(profEl, dataEl, horaEl, procDurationEl, excludeAgendaId)
+    }
+   })
   }
  } catch (e) {
   statusEl.textContent = ""
@@ -749,6 +909,23 @@ async function openSlotPanel(id){
   const isEvent = item.item_type === "event"
   const cliente = item.clientes || item.clients || {}
   const clientId = item.cliente_id || item.client_id
+
+  let baixasJaRegistradas = []
+  if (!isEvent && item.id) {
+   try { baixasJaRegistradas = await getEntradasByAgendaId(item.id) } catch (_) {}
+  }
+  const temBaixa = baixasJaRegistradas.length > 0
+  const primeiraBaixa = baixasJaRegistradas[0]
+  const valorBaixa = primeiraBaixa && (primeiraBaixa.valor_recebido != null && primeiraBaixa.valor_recebido !== "" ? Number(primeiraBaixa.valor_recebido) : Number(primeiraBaixa.valor))
+  const dataBaixaFmt = primeiraBaixa && primeiraBaixa.data ? new Date(primeiraBaixa.data + "T12:00:00").toLocaleDateString("pt-BR") : ""
+  const baixaRegistradaHtml = temBaixa
+   ? `<div class="agenda-panel__baixa-ja-registrada">
+       <p class="agenda-panel__baixa-ja-msg">Baixa já registrada${dataBaixaFmt ? ` em ${dataBaixaFmt}` : ""}: R$ ${(valorBaixa || 0).toFixed(2).replace(".", ",")}</p>
+       ${baixasJaRegistradas.length > 1 ? `<p class="agenda-panel__baixa-ja-dup">Há ${baixasJaRegistradas.length} lançamentos para este agendamento. Exclua os duplicados em <strong>Financeiro</strong>.</p>` : ""}
+       <a href="#" data-view="financeiro" class="agenda-panel__link-financeiro">Ver no Financeiro</a>
+      </div>`
+   : ""
+
   let resumoHtml = ""
   if (!isEvent && clientId) {
    const resumo = await getClientAgendaResumo(clientId, item.id).catch(() => ({ anterior: null, atual: null, proximo: null }))
@@ -780,9 +957,10 @@ async function openSlotPanel(id){
      ${(cliente.telefone || cliente.phone) ? `<p class="agenda-panel__phone">${String(cliente.telefone || cliente.phone).replace(/</g, "&lt;")}</p>` : ""}
      ${resumoHtml}
     <p class="agenda-panel__hint">Anamnese e histórico completo: abra o perfil do cliente.</p>
+    ${baixaRegistradaHtml}
     <button type="button" class="btn-primary agenda-panel__btn-profile" id="agendaPanelBtnProfile">Abrir perfil do cliente (e Anamnese)</button>
     <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado (protocolo)">Registrar protocolo</button>
-    <button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>
+    ${!temBaixa ? `<button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
      `
      }
      <button type="button" class="btn-secondary agenda-panel__btn-edit" id="agendaPanelBtnEdit">Editar</button>
@@ -830,6 +1008,16 @@ async function openSlotPanel(id){
    }
   }
 
+  const linkFinanceiro = agendaPanelEl.querySelector(".agenda-panel__link-financeiro")
+  if (linkFinanceiro) {
+    linkFinanceiro.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSlotPanel();
+      navigate("financeiro");
+    });
+  }
+
  }catch(err){
 
   console.error("[AGENDA] erro painel", err)
@@ -852,13 +1040,13 @@ async function openEditModal(id){
   if(error || !data) return
 
   let { data: clientes } = await withOrg(
-   supabase.from("clients").select("id,name")
+   supabase.from("clients").select("id, name, is_paciente_modelo, model_discount_pct")
   )
   if (clientes && clientes.length) {
-   clientes = clientes.map(c => ({ id: c.id, nome: c.name || c.nome }))
+   clientes = clientes.map(c => ({ id: c.id, nome: c.name || c.nome, is_paciente_modelo: c.is_paciente_modelo, model_discount_pct: c.model_discount_pct }))
   } else if (getActiveOrg()) {
-   const alt = await withOrg(supabase.from("clientes").select("id,nome"))
-   clientes = alt.data ? alt.data.map(c => ({ id: c.id, nome: c.nome || c.name })) : []
+   const alt = await withOrg(supabase.from("clientes").select("id, nome, is_paciente_modelo, model_discount_pct"))
+   clientes = alt?.data ? alt.data.map(c => ({ id: c.id, nome: c.nome || c.name, is_paciente_modelo: c.is_paciente_modelo, model_discount_pct: c.model_discount_pct })) : []
   } else {
    clientes = []
   }
@@ -895,45 +1083,52 @@ async function openEditModal(id){
    "Editar agendamento",
 
    `
-    <label>Data</label>
+    <label for="data">Data</label>
     <input type="date" id="data" value="${data.data}">
 
-    <label>Hora</label>
+    <label for="hora">Hora</label>
     <input type="time" id="hora" value="${data.hora || ""}">
 
-    <label>Duração (min)</label>
+    <label for="procDuration">Duração (min)</label>
     <input type="number" id="procDuration" min="5" step="5" value="${procDuration}">
 
-    <label>Sala/Cabine${config.sala_obrigatoria ? " *" : ""}</label>
+    <label for="sala">Sala/Cabine${config.sala_obrigatoria ? " *" : ""}</label>
     <select id="sala" ${config.sala_obrigatoria ? "required" : ""}>
      <option value="">Selecione a sala…</option>
      ${salaOptionsEdit}
     </select>
     <p id="agendaSalaStatus" class="agenda-sala-status" aria-live="polite"></p>
 
-    <label>Profissional${config.profissional_obrigatorio ? " *" : ""}</label>
+    <label for="profissional">Profissional${config.profissional_obrigatorio ? " *" : ""}</label>
     <select id="profissional" ${config.profissional_obrigatorio ? "required" : ""}>
      <option value="">Selecione o profissional…</option>
      ${profOptionsEdit}
     </select>
     <p id="agendaProfStatus" class="agenda-prof-status" aria-live="polite"></p>
 
-    <label>Cliente</label>
+    <label for="cliente">Cliente</label>
     <select id="cliente">
      ${(clientes || []).map(c=>`
-      <option
-       value="${c.id}"
-       ${c.id === data.cliente_id ? "selected" : ""}>
-       ${(c.nome || c.name || "").replace(/</g, "&lt;")}
-      </option>
+      <option value="${c.id}" data-modelo="${c.is_paciente_modelo ? "1" : "0"}" data-discount="${c.model_discount_pct != null ? c.model_discount_pct : ""}" ${c.id === data.cliente_id ? "selected" : ""}>${(c.nome || c.name || "").replace(/</g, "&lt;")}${c.is_paciente_modelo ? " (modelo)" : ""}</option>
      `).join("")}
     </select>
+    <div id="agendaModeloWrapEdit" class="agenda-modelo-wrap hidden">
+     <p class="agenda-modelo-title">Paciente modelo</p>
+     <label><input type="checkbox" id="agendaAplicarDescontoModeloEdit" ${data.is_modelo_agendamento ? "checked" : ""}> Aplicar desconto modelo neste agendamento</label>
+     <label for="agendaDescontoModeloPctEdit">Desconto neste agendamento (%)</label>
+     <input type="number" id="agendaDescontoModeloPctEdit" min="0" max="100" step="0.5" value="${data.desconto_modelo_pct != null ? data.desconto_modelo_pct : ""}" placeholder="Ex.: 30">
+    </div>
 
-    <label>Procedimento (catálogo)</label>
+    <label for="procCatalog">Procedimento (catálogo)</label>
     <select id="procCatalog">${procCatalogOptionsEdit}</select>
 
-    <label>Procedimento (nome ou texto livre)</label>
+    <label for="proc">Procedimento (nome ou texto livre)</label>
     <input id="proc" value="${procValue}">
+
+    <div class="agenda-retorno-option">
+     <label><input type="checkbox" id="agendaIsRetorno" ${data.is_retorno ? "checked" : ""}> Retorno (não gera receita)</label>
+     <p class="agenda-retorno-hint">Marque para consultas de retorno (ex.: pós-botox). Não entra no faturamento previsto.</p>
+    </div>
 
     <p class="agenda-modal-respiro-hint">
      <strong>Respiro automático:</strong> ${config.respiro_sala_minutos} min para sala, ${config.respiro_profissional_minutos} min para profissional.
@@ -942,6 +1137,22 @@ async function openEditModal(id){
 
    () => updateAgenda(id)
   )
+
+  const clienteSelectEdit = document.getElementById("cliente")
+  const modeloWrapEdit = document.getElementById("agendaModeloWrapEdit")
+  const descontoModeloPctEditEl = document.getElementById("agendaDescontoModeloPctEdit")
+  function updateModeloWrapEdit() {
+   const opt = clienteSelectEdit?.selectedOptions?.[0]
+   const isModelo = opt?.dataset?.modelo === "1"
+   if (modeloWrapEdit) modeloWrapEdit.classList.toggle("hidden", !isModelo)
+   if (isModelo && descontoModeloPctEditEl && opt?.dataset?.discount !== undefined && opt.dataset.discount !== "") {
+    descontoModeloPctEditEl.value = opt.dataset.discount
+   }
+  }
+  if (clienteSelectEdit) {
+   clienteSelectEdit.addEventListener("change", updateModeloWrapEdit)
+   updateModeloWrapEdit()
+  }
 
   // Bind events para verificação em tempo real
   const dataEl = document.getElementById("data")
@@ -967,32 +1178,58 @@ async function openEditModal(id){
  }
 }
 
-/** Modal "Dar baixa": valor vem do procedimento (agenda); acréscimo só se produto a mais / outro procedimento. */
+/** Modal "Dar baixa": valor vem do procedimento (agenda); acréscimo só se produto a mais / outro procedimento. Opção de descontar 1 sessão de pacote. */
 async function openDarBaixaModal(item) {
+  const jaTemBaixa = await getEntradasByAgendaId(item.id).then((r) => r.length > 0).catch(() => false)
+  if (jaTemBaixa) {
+    toast("Este agendamento já teve baixa registrada. Para alterar ou ver, abra o agendamento e use \"Ver no Financeiro\" ou acesse Financeiro no menu.")
+    return
+  }
+
+  const clientId = item.client_id || item.cliente_id || item.clients?.id
   const cliente = item.clientes || item.clients || {}
   const nomeCliente = (cliente.nome || cliente.name || "Cliente").replace(/"/g, "&quot;").replace(/</g, "&lt;")
   const procedimento = (item.procedimento || "Procedimento").replace(/"/g, "&quot;").replace(/</g, "&lt;")
   const dataHoje = new Date().toISOString().split("T")[0]
   const descricaoSugerida = `Agenda: ${nomeCliente} – ${procedimento} (${item.data || ""})`
 
+  let pacotesComSaldo = []
+  if (clientId) {
+    try { pacotesComSaldo = await listPacotesComSaldoByClient(clientId) } catch (_) {}
+  }
+  const blocoPacote = pacotesComSaldo.length > 0
+    ? `
+    <div class="agenda-baixa-pacote-wrap">
+      <label for="baixaPacoteId">Descontar 1 sessão de pacote (opcional)</label>
+      <select id="baixaPacoteId">
+        <option value="">Não descontar</option>
+        ${pacotesComSaldo.map((p) => `<option value="${p.id}">${(p.nome_pacote || "Pacote").replace(/</g, "&lt;")} — ${p.sessoes_restantes} restantes</option>`).join("")}
+      </select>
+    </div>
+    `
+    : ""
+
   let procedure = null
   if (item.procedure_id) {
     try { procedure = await getProcedure(item.procedure_id) } catch (_) {}
   }
-  const valorProcedimento = procedure?.valor_cobrado != null && procedure?.valor_cobrado !== "" ? Number(procedure.valor_cobrado) : null
+  let valorProcedimento = procedure?.valor_cobrado != null && procedure?.valor_cobrado !== "" ? Number(procedure.valor_cobrado) : null
+  if (valorProcedimento != null && item.is_modelo_agendamento && item.desconto_modelo_pct != null) {
+    valorProcedimento = valorProcedimento * (1 - Number(item.desconto_modelo_pct) / 100)
+  }
   const valorProcedimentoFmt = valorProcedimento != null ? valorProcedimento.toFixed(2).replace(".", ",") : ""
 
   const temValorProcedimento = valorProcedimento != null && valorProcedimento > 0
   const blocoValor = temValorProcedimento
     ? `
     <p class="agenda-baixa-valor-proc">Valor do procedimento: <strong>R$ ${valorProcedimentoFmt}</strong></p>
-    <label>Acréscimo (opcional)</label>
+    <label for="baixaAcrescimo">Acréscimo (opcional)</label>
     <input type="number" id="baixaAcrescimo" step="0.01" min="0" value="" placeholder="Produto a mais, outro procedimento…">
     <p class="agenda-baixa-total-wrap">Valor total: <strong id="baixaValorTotal">R$ ${valorProcedimentoFmt}</strong></p>
     <input type="hidden" id="baixaValorProcedimento" value="${valorProcedimento}">
     `
     : `
-    <label>Valor total (R$)</label>
+    <label for="baixaValorTotalInput">Valor total (R$)</label>
     <input type="number" id="baixaValorTotalInput" step="0.01" min="0" required placeholder="Procedimento sem valor cadastrado">
     <input type="hidden" id="baixaValorProcedimento" value="">
     `
@@ -1001,10 +1238,11 @@ async function openDarBaixaModal(item) {
     "Dar baixa — Registrar pagamento",
     `
     <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Valor do procedimento já preenchido; altere só se houver acréscimo (produto a mais, outro procedimento).</p>
-    <label>Descrição</label>
+    ${blocoPacote}
+    <label for="baixaDesc">Descrição</label>
     <input type="text" id="baixaDesc" value="${descricaoSugerida}" placeholder="Ex.: Agenda: Cliente – Procedimento">
     ${blocoValor}
-    <label>Forma de pagamento</label>
+    <label for="baixaFormaPagamento">Forma de pagamento</label>
     <select id="baixaFormaPagamento">
       <option value="">—</option>
       <option value="pix">PIX</option>
@@ -1015,9 +1253,9 @@ async function openDarBaixaModal(item) {
       <option value="boleto">Boleto</option>
       <option value="outro">Outro</option>
     </select>
-    <label>Valor recebido (quanto entrou de fato)</label>
+    <label for="baixaValorRecebido">Valor recebido (quanto entrou de fato)</label>
     <input type="number" id="baixaValorRecebido" step="0.01" min="0" placeholder="Vazio = mesmo que o valor total">
-    <label>Data do recebimento</label>
+    <label for="baixaData">Data do recebimento</label>
     <input type="date" id="baixaData" value="${dataHoje}" required>
     <input type="hidden" id="baixaTemValorProcedimento" value="${temValorProcedimento ? "1" : "0"}">
     `,
@@ -1075,29 +1313,44 @@ async function submitDarBaixa(item) {
       tipo: "entrada",
       descricao,
       valor,
-      data: dataEl?.value || new Date().toISOString().split("T")[0],
+      data: dataEl?.value || getTodayStr(),
     }
     if (item.procedure_id) payload.procedure_id = item.procedure_id
+    if (item.id) payload.agenda_id = item.id
     if (formaEl?.value) payload.forma_pagamento = formaEl.value
     const vr = valorRecebidoEl?.value?.trim()
     if (vr !== "" && vr != null && !isNaN(Number(vr))) payload.valor_recebido = Number(vr)
 
-    const { error } = await withOrg(
-      supabase.from("financeiro").insert(payload).select("id")
-    )
+    const { error } = await supabase
+      .from("financeiro")
+      .insert(payload)
+      .select("id")
     if (error) throw error
+
+    const pacoteId = document.getElementById("baixaPacoteId")?.value?.trim()
+    if (pacoteId) {
+      try {
+        const { consumirSessao } = await import("../services/pacotes.service.js")
+        await consumirSessao(pacoteId, item.id)
+        toast("Pagamento registrado e 1 sessão descontada do pacote.")
+      } catch (e) {
+        console.warn("[AGENDA] consumirSessao", e)
+        toast("Pagamento registrado. Erro ao descontar sessão do pacote: " + (e?.message || "tente no perfil do cliente."))
+      }
+    } else {
+      toast("Pagamento registrado. Entrada criada no Financeiro.")
+    }
 
     await audit({
       action: "financeiro.create",
       tableName: "financeiro",
       recordId: null,
       permissionUsed: "financeiro:manage",
-      metadata: { origem: "agenda_baixa", agenda_id: item.id, valor },
+      metadata: { origem: "agenda_baixa", agenda_id: item.id, valor, pacote_id: pacoteId || null },
     }).catch(() => {})
 
     closeModal()
     renderAgenda()
-    toast("Pagamento registrado. Entrada criada no Financeiro.")
   } catch (err) {
     console.error("[AGENDA] submitDarBaixa", err)
     toast(err?.message || "Erro ao registrar pagamento.")
@@ -1172,15 +1425,36 @@ async function createAgenda(){
   }
 
   // Validar disponibilidade de profissional com respiro
+  const procedureIdCreate = procCatalogEl && procCatalogEl.value ? procCatalogEl.value : null
   if (profissionalId) {
    const profCheck = await checkProfessionalAvailableWithRespiro(profissionalId, dataInput.value, horaInput.value, durationMinutes)
    if (!profCheck.disponivel) {
-    toast(`Profissional indisponível: ${profCheck.conflito.procedimento} às ${profCheck.conflito.inicio}`)
+    const statusEl = document.getElementById("agendaProfStatus")
+    const c = profCheck.conflito
+    const conflitoText = `${c?.procedimento || "—"} às ${c?.inicio || ""}–${c?.fim || ""}`
+    const disponiveisBtns = await buildDisponiveisButtons(dataInput.value, horaInput.value, durationMinutes, procedureIdCreate, profissionalInput, dataInput, horaInput, procDurationEl, null)
+    if (statusEl && disponiveisBtns) {
+     statusEl.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. <span class="agenda-prof-disponiveis-label">Escolha quem está disponível:</span> ${disponiveisBtns}`
+     statusEl.className = "agenda-prof-status agenda-prof-busy"
+     statusEl.scrollIntoView({ behavior: "smooth", block: "nearest" })
+     statusEl.querySelectorAll(".agenda-prof-disponivel-btn").forEach((btn) => {
+      btn.onclick = () => {
+       profissionalInput.value = btn.dataset.userId || ""
+       refreshProfStatus(profissionalInput, dataInput, horaInput, procDurationEl)
+      }
+     })
+    }
+    toast("Profissional indisponível. Escolha um dos disponíveis acima e salve de novo.")
     return
    }
   }
 
-  const procedureId = procCatalogEl && procCatalogEl.value ? procCatalogEl.value : null
+  const procedureId = procedureIdCreate
+  const isRetornoEl = document.getElementById("agendaIsRetorno")
+  const isRetorno = !!(isRetornoEl && isRetornoEl.checked)
+  const aplicarDescontoModelo = document.getElementById("agendaAplicarDescontoModelo")?.checked ?? false
+  const descontoModeloPctRaw = document.getElementById("agendaDescontoModeloPct")?.value?.trim()
+  const descontoModeloPct = aplicarDescontoModelo && descontoModeloPctRaw !== "" ? (parseFloat(descontoModeloPctRaw) || null) : null
 
   const payload = {
    data: dataInput.value,
@@ -1189,7 +1463,10 @@ async function createAgenda(){
    org_id: orgId,
    duration_minutes: durationMinutes,
    user_id: profissionalId || null,
-   sala_id: salaId || null
+   sala_id: salaId || null,
+   is_retorno: isRetorno,
+   is_modelo_agendamento: !!aplicarDescontoModelo && descontoModeloPct != null,
+   desconto_modelo_pct: descontoModeloPct,
   }
   const clienteId = (clienteInput.value || "").trim()
   if (clienteId) payload.cliente_id = clienteId
@@ -1261,13 +1538,36 @@ async function updateAgenda(id){
   }
 
   // Validar disponibilidade de profissional com respiro
+  const procCatalogElEdit = document.getElementById("procCatalog")
+  const procedureIdEdit = procCatalogElEdit && procCatalogElEdit.value ? procCatalogElEdit.value : null
   if (profissionalId) {
    const profCheck = await checkProfessionalAvailableWithRespiro(profissionalId, dataInput.value, horaInput.value, durationMinutes, id)
    if (!profCheck.disponivel) {
-    toast(`Profissional indisponível: ${profCheck.conflito.procedimento} às ${profCheck.conflito.inicio}`)
+    const statusElEdit = document.getElementById("agendaProfStatus")
+    const c = profCheck.conflito
+    const conflitoText = `${c?.procedimento || "—"} às ${c?.inicio || ""}–${c?.fim || ""}`
+    const disponiveisBtns = await buildDisponiveisButtons(dataInput.value, horaInput.value, durationMinutes, procedureIdEdit, profissionalInput, dataInput, horaInput, procDurationEl, id)
+    if (statusElEdit && disponiveisBtns) {
+     statusElEdit.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. <span class="agenda-prof-disponiveis-label">Escolha quem está disponível:</span> ${disponiveisBtns}`
+     statusElEdit.className = "agenda-prof-status agenda-prof-busy"
+     statusElEdit.scrollIntoView({ behavior: "smooth", block: "nearest" })
+     statusElEdit.querySelectorAll(".agenda-prof-disponivel-btn").forEach((btn) => {
+      btn.onclick = () => {
+       profissionalInput.value = btn.dataset.userId || ""
+       refreshProfStatus(profissionalInput, dataInput, horaInput, procDurationEl, id)
+      }
+     })
+    }
+    toast("Profissional indisponível. Escolha um dos disponíveis acima e salve de novo.")
     return
    }
   }
+
+  const isRetornoEl = document.getElementById("agendaIsRetorno")
+  const isRetorno = !!(isRetornoEl && isRetornoEl.checked)
+  const aplicarDescontoModeloEdit = document.getElementById("agendaAplicarDescontoModeloEdit")?.checked ?? false
+  const descontoModeloPctRawEdit = document.getElementById("agendaDescontoModeloPctEdit")?.value?.trim()
+  const descontoModeloPctEdit = aplicarDescontoModeloEdit && descontoModeloPctRawEdit !== "" ? (parseFloat(descontoModeloPctRawEdit) || null) : null
 
   const payload = {
    data: dataInput.value,
@@ -1276,7 +1576,10 @@ async function updateAgenda(id){
    procedimento: procInput.value,
    duration_minutes: durationMinutes,
    user_id: profissionalId || null,
-   sala_id: salaId || null
+   sala_id: salaId || null,
+   is_retorno: isRetorno,
+   is_modelo_agendamento: !!aplicarDescontoModeloEdit && descontoModeloPctEdit != null,
+   desconto_modelo_pct: descontoModeloPctEdit,
   }
   if (procCatalogEl && procCatalogEl.value) payload.procedure_id = procCatalogEl.value
 
@@ -1355,15 +1658,24 @@ async function enviarWhats(tel, appointmentId) {
   let mensagem = "Olá! Lembrete do seu atendimento.";
   if (appointmentId) {
     try {
+      const profile = await getOrganizationProfile().catch(() => ({}));
+      const item = await getAgendaItemById(appointmentId).catch(() => null);
+      const cliente = item?.clientes || item?.clients || {};
+      const nome = cliente.nome || cliente.name || "Cliente";
+      const hora = item?.hora || "";
+      const dataStr = item?.data || selectedDate || "";
+      const [y, m, d] = dataStr.split("-");
+      const dataFmt = y && m && d ? `${d}/${m}/${y}` : "";
+      let linkConfirmar = "";
       const conf = await createConfirmation(appointmentId);
-      const token = conf?.token;
-      if (token) {
+      if (conf?.token) {
         const base = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "";
-        const linkConfirmar = `${base}/portal.html?confirmToken=${encodeURIComponent(token)}`;
-        mensagem = `Olá! Lembrete do seu atendimento. Confirme sua presença em um clique: ${linkConfirmar}`;
+        linkConfirmar = `${base}/portal.html?confirmToken=${encodeURIComponent(conf.token)}`;
       }
+      const vars = { nome_cliente: nome, data: dataFmt, hora, nome_clinica: profile.name || "Clínica", link_confirmar: linkConfirmar };
+      mensagem = await buildMessage("lembrete_agendamento", vars, { useConfirmar: !!linkConfirmar });
     } catch (err) {
-      console.warn("[AGENDA] createConfirmation falhou, enviando só lembrete", err);
+      console.warn("[AGENDA] enviarWhats buildMessage ou createConfirmation", err);
     }
   }
 

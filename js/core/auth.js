@@ -1,4 +1,5 @@
 import { supabase } from "./supabase.js"
+import { getBase, redirect, urlFor } from "./base-path.js"
 
 /* ======================
    LOGGER (apoio)
@@ -108,7 +109,7 @@ export async function sendReset(email) {
 
   await supabase.auth.resetPasswordForEmail(
     email,
-    { redirectTo: `${window.location.origin}/new-password.html` }
+    { redirectTo: urlFor("/new-password.html") }
   )
 }
 
@@ -117,33 +118,51 @@ export async function getSession() {
   return data.session || null
 }
 
+/** Chaves de sessionStorage que guardam estado de navegação (perfil, edição, etc.). Limpar ao sair para não vazar entre usuários. */
+const SESSION_KEYS_TO_CLEAR = [
+  "clientePerfilId", "clientePerfilOpenEdit", "clientePerfilOpenTab", "clientePerfilAgendaId",
+  "profissionalPerfilId", "procedimentoEditId", "teamShowManage",
+  "anamnese_client_id", "anamnese_agenda_id", "anamnese_procedimento", "anamnese_funcao_slug",
+  "skincare_client_id", "skincare_from_profile", "skincare_protocol_id",
+  "financeiro_open_tab", "precificacaoValorSimulador",
+  "protocolo_analise_id", "calendario_paste_content",
+];
+
+export function clearSessionState() {
+  if (typeof sessionStorage === "undefined") return;
+  SESSION_KEYS_TO_CLEAR.forEach((key) => sessionStorage.removeItem(key));
+  log("info", "Session state cleared");
+}
+
 export async function logout() {
-  await supabase.auth.signOut()
-  log("info", "Logout realizado")
+  clearSessionState();
+  await supabase.auth.signOut();
+  log("info", "Logout realizado");
 }
 /* ======================
    PROTECT PAGE
 ====================== */
 
 export async function protectPage() {
+  const pathname = typeof window !== "undefined" ? window.location.pathname : ""
+  const base = getBase()
   const isLoginPage =
     typeof window !== "undefined" &&
-    (window.location.pathname === "/" ||
-     window.location.pathname === "/index.html" ||
-     window.location.pathname.endsWith("/index.html"));
+    (pathname === "/" || pathname === base || pathname === base + "/" ||
+     pathname.endsWith("/index.html") || pathname === base + "/index.html");
 
   const { data, error } = await supabase.auth.getSession();
 
   if (error) {
     console.error("[AUTH] Erro ao verificar sessão", error);
-    if (!isLoginPage) window.location.href = "/index.html";
+    if (!isLoginPage) redirect("/index.html");
     return;
   }
 
   if (!data?.session) {
     if (!isLoginPage) {
       console.warn("[AUTH] Sessão inexistente, redirecionando para login");
-      window.location.href = "/index.html";
+      redirect("/index.html");
     }
     return;
   }
@@ -151,3 +170,41 @@ export async function protectPage() {
   // sessão válida → segue o fluxo
 }
 
+/* ======================
+   SESSÃO EXPIRADA / 401
+====================== */
+
+/**
+ * Redireciona para login e limpa estado quando a sessão for invalidada
+ * (ex.: token expirado, logout em outra aba). Chame uma vez no bootstrap do app.
+ */
+export function setupSessionExpiredRedirect() {
+  const isLoginPage = () => {
+    const pathname = typeof window !== "undefined" ? window.location.pathname : ""
+    const base = getBase()
+    return pathname === "/" || pathname === base || pathname === base + "/" ||
+      pathname.endsWith("/index.html") || pathname === base + "/index.html"
+  }  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT" || event === "TOKEN_REFRESH_FAILED") {
+      clearSessionState();
+      if (!isLoginPage()) {
+        log("warn", "Sessão encerrada ou expirada, redirecionando para login");
+        redirect("/index.html");
+      }
+    }
+  });
+}/**
+ * Útil após uma chamada à API/Supabase: se o erro for 401 ou PGRST301 (JWT expirado),
+ * redireciona para login. Use em serviços que fazem fetch direto (ex.: /api/*).
+ */
+export function redirectToLoginIfUnauthorized(error) {
+  const code = error?.code || error?.status;
+  const msg = String(error?.message || error?.error_description || "").toLowerCase();
+  if (code === 401 || code === "401" || msg.includes("jwt") && (msg.includes("expired") || msg.includes("invalid"))) {
+    clearSessionState();
+    if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html"))
+      redirect("/index.html");
+    return true;
+  }
+  return false;
+}

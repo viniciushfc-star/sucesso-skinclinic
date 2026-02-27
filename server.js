@@ -75,6 +75,7 @@ const postRoutes = [
   ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
   ["/api/webhook-transacoes", "./routes/webhook-transacoes.js"],
   ["/api/create-portal-session", "./routes/create-portal-session.js"],
+  ["/api/send-invite-email", "./routes/send-invite-email.js"],
 ];
 
 const getRoutes = [
@@ -122,6 +123,7 @@ app.get("/select-org", (req, res) => res.sendFile(path.join(__dirname, "index.ht
 app.get("/select-org/*", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.get("/reset", (req, res) => res.sendFile(path.join(__dirname, "reset.html")));
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "dashboard.html")));
 app.get("/dashboard.html", (req, res) => res.sendFile(path.join(__dirname, "dashboard.html")));
 
@@ -130,13 +132,25 @@ export { app, registerRoutes };
 
 if (!process.env.VERCEL) {
   registerRoutes().then(() => {
-    app.listen(PORT, () => {
-      console.log("Servidor rodando em http://localhost:" + PORT);
-      console.log("Frontend: http://localhost:" + PORT + "/dashboard.html");
-      console.log("API saúde: http://localhost:" + PORT + "/api/health");
-      if (!process.env.OPENAI_KEY) console.warn("OPENAI_KEY não definida: Copilot, Preço, Marketing etc. podem falhar.");
-      if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) console.warn("Supabase não configurado: defina SUPABASE_URL e SUPABASE_SERVICE_KEY no .env");
-      if (!process.env.SUPABASE_ANON_KEY) console.warn("SUPABASE_ANON_KEY não definida: link do portal do cliente pode falhar.");
-    });
+    function tryListen(port, maxTries = 6) {
+      const server = app.listen(port, () => {
+        console.log("Servidor rodando em http://localhost:" + port);
+        console.log("Frontend: http://localhost:" + port + "/dashboard.html");
+        console.log("API saúde: http://localhost:" + port + "/api/health");
+        if (!process.env.OPENAI_KEY) console.warn("OPENAI_KEY não definida: Copilot, Preço, Marketing etc. podem falhar.");
+        if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) console.warn("Supabase não configurado: defina SUPABASE_URL e SUPABASE_SERVICE_KEY no .env");
+        if (!process.env.SUPABASE_ANON_KEY) console.warn("SUPABASE_ANON_KEY não definida: link do portal do cliente pode falhar.");
+      });
+      server.on("error", (err) => {
+        if (err.code === "EADDRINUSE" && maxTries > 1) {
+          console.warn("Porta " + port + " em uso, tentando " + (port + 1) + "...");
+          tryListen(port + 1, maxTries - 1);
+        } else {
+          console.error("Erro ao iniciar servidor:", err.message);
+          process.exit(1);
+        }
+      });
+    }
+    tryListen(PORT);
   });
 }

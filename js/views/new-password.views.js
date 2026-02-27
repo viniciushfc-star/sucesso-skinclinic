@@ -1,4 +1,5 @@
 import { updatePassword } from "../core/auth.js";
+import { redirect } from "../core/base-path.js";
 
 /* =========================
    ELEMENTOS
@@ -12,6 +13,27 @@ const passInput =
 
 const confirmInput =
   document.getElementById("confirmPassword");
+
+(function bindPasswordToggles() {
+  const pairs = [
+    { inputId: "password", btnId: "togglePasswordNew" },
+    { inputId: "confirmPassword", btnId: "togglePasswordConfirmNew" },
+  ];
+  pairs.forEach(({ inputId, btnId }) => {
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if (!input || !btn) return;
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const isPassword = input.type === "password";
+      input.type = isPassword ? "text" : "password";
+      btn.setAttribute("aria-label", isPassword ? "Ocultar senha" : "Mostrar senha");
+      btn.setAttribute("title", isPassword ? "Ocultar senha" : "Mostrar senha");
+      btn.textContent = isPassword ? "🙈" : "👁";
+    });
+  });
+})();
 
 const msgBox = document.createElement("div");
 msgBox.style.marginTop = "10px";
@@ -78,7 +100,7 @@ form.addEventListener("submit", async (e) => {
     );
 
     setTimeout(() => {
-      window.location.href = "/";
+      redirect("/index.html");
     }, 2000);
 
   } catch (err) {

@@ -2,18 +2,23 @@ import { getClientById, getOtherClientWithSameCpf, updateClient, updateClientSta
 import { getEventsByClient, createClientEvent } from "../services/client-events.service.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina, liberarSkincareRotina } from "../services/skincare-rotina.service.js";
 import { getProtocolos, getProtocolosAplicadosByClient, createProtocoloAplicado, getAlertaEstoqueProtocolo } from "../services/protocolo-db.service.js";
+import { getResumoPorProduto } from "../services/estoque-entradas.service.js";
 import { createEstudoCaso } from "../services/estudo-caso.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } from "../services/evolution-photos.service.js";
 import { listProcedures } from "../services/procedimentos.service.js";
+import { listPacotesByClient, createPacote } from "../services/pacotes.service.js";
 import { audit } from "../services/audit.service.js";
 import { checkPermission } from "../core/permissions.js";
 import { getActiveOrg } from "../core/org.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
+import { MAPAS, PRODUTOS_APLICACAO } from "../utils/injetaveis-mapas.js";
 
 let currentClient = null;
+/** Registros de anamnese injetáveis (rosto_injetaveis) para abrir o mapa pelo id */
+let cachedRegistrosInjetaveis = [];
 /** Stream da câmera no modal de editar cliente */
 let cameraStream = null;
 /** Data URL da foto capturada pela câmera (garante uso no submit mesmo antes do toBlob) */
@@ -26,6 +31,7 @@ let canEditClient = false;
 let editPermissionUsed = "clientes:manage"; // qual permissão usar na auditoria (manage ou edit)
 let cachedProceduresList = [];
 let cachedEvolutionPhotos = [];
+let cachedProdutosEstoque = [];
 
 export async function init() {
   const clientId = sessionStorage.getItem("clientePerfilId");
@@ -40,7 +46,7 @@ export async function init() {
 
   try {
     currentClient = await getClientById(clientId);
-    const [events, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, cpfOther] = await Promise.all([
+    const [events, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther, pacotes] = await Promise.all([
       getEventsByClient(clientId),
       getSkincareRotinaByClient(clientId).catch(() => null),
       getProtocolos().catch(() => []),
@@ -48,13 +54,16 @@ export async function init() {
       listRegistrosByClient(clientId).catch(() => []),
       listEvolutionPhotosByClient(clientId).catch(() => []),
       listProcedures(false).catch(() => []),
+      getResumoPorProduto().catch(() => []),
       currentClient.cpf ? getOtherClientWithSameCpf(currentClient.cpf, clientId).catch(() => null) : Promise.resolve(null),
+      listPacotesByClient(clientId).catch(() => []),
     ]);
+    const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
     const canManage = await checkPermission("clientes:manage");
     const canEditPerm = await checkPermission("clientes:edit");
     canEditClient = canManage || canEditPerm;
     editPermissionUsed = canManage ? "clientes:manage" : "clientes:edit";
-    renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, cpfOther);
+    renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes);
     if (sessionStorage.getItem("clientePerfilOpenEdit") === "1") {
       sessionStorage.removeItem("clientePerfilOpenEdit");
       if (canEditClient) setTimeout(() => openEditModal(currentClient), 100);
@@ -100,11 +109,12 @@ function formatCpfForInput(cpf) {
   return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 }
 
-function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], cpfOther = null) {
+function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], produtosEstoque = [], cpfOther = null, pacotes = []) {
   const container = document.getElementById("clientePerfilContent");
   if (!container) return;
   cachedProceduresList = proceduresList || [];
   cachedEvolutionPhotos = evolutionPhotos || [];
+  cachedProdutosEstoque = produtosEstoque || [];
   const rotinaConteudo = skincareRotina?.conteudo ?? "";
   const rotinaLiberada = !!skincareRotina?.liberado_em;
   const rotinaUpdated = skincareRotina?.updated_at;
@@ -134,6 +144,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
               ${client.phone ? ` · ${escapeHtml(client.phone)}` : ""}
               ${client.email ? ` · ${escapeHtml(client.email)}` : ""}
             </p>
+            ${registrosAnamnese.length ? `<p class="cliente-perfil-anamnese-meta">Anamnese salva · Última: ${escapeHtml((registrosAnamnese[0].created_at ? new Date(registrosAnamnese[0].created_at).toLocaleDateString("pt-BR") : "—"))}</p>` : ""}
           </div>
         </div>
         <div class="cliente-perfil-actions">
@@ -160,14 +171,17 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         <button type="button" class="tab-btn active" data-tab="dados">Dados do cliente</button>
         <button type="button" class="tab-btn" data-tab="historico">Histórico / Linha do tempo</button>
         <button type="button" class="tab-btn" data-tab="protocolo">Protocolo</button>
+        <button type="button" class="tab-btn" data-tab="evolucao">Evolução</button>
         <button type="button" class="tab-btn" data-tab="rotina-skincare">Rotina skincare</button>
+        <button type="button" class="tab-btn" data-tab="pacotes">Pacotes</button>
       </div>
 
       <div id="tabDados" class="tab-pane active">
         <div class="cliente-dados">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
           ${cpfOther ? `<div class="form-warning cliente-cpf-duplicado-aviso" role="alert"><strong>Atenção:</strong> Outro cliente nesta organização possui o mesmo CPF: ${escapeHtml(cpfOther.name || "cliente cadastrado")}. Revise os cadastros para evitar duplicidade.</div>` : ""}
-          <p><strong>Nome:</strong> ${escapeHtml(client.name)}</p>
+          <p><strong>Nome:</strong> ${escapeHtml(client.name)} ${client.is_paciente_modelo ? '<span class="cliente-badge-modelo">Paciente modelo</span>' : ""}</p>
+          ${client.is_paciente_modelo && client.model_discount_pct != null ? `<p><strong>Desconto modelo:</strong> ${Number(client.model_discount_pct)}%</p>` : ""}
           <p><strong>Contato:</strong> ${escapeHtml(client.phone || "—")} / ${escapeHtml(client.email || "—")}</p>
           ${client.cpf ? `<p><strong>CPF:</strong> ${formatCpfForInput(client.cpf)}</p>` : ""}
           <p><strong>Nascimento:</strong> ${formatDate(client.birth_date)}</p>
@@ -208,13 +222,21 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
               </li>
             `).join("") : "<li>Nenhum evento registrado.</li>"}
           </ul>
+          <div class="cliente-prontuario-por-data">
+            <h4 class="cliente-evolucao-title">Prontuário por data</h4>
+            <p class="client-hint">Cada dia reúne: ficha de anamnese salva naquela data, registro do que foi feito (protocolo) e fotos do dia. Use para ver tudo que aconteceu em um atendimento.</p>
+            <div id="prontuarioPorDataList" class="prontuario-por-data-list">
+              ${renderProntuarioPorData(registrosAnamnese, protocolosAplicados, evolutionPhotos)}
+            </div>
+          </div>
           <div class="cliente-evolucao">
-            <h4 class="cliente-evolucao-title">Evolução (anamnese)</h4>
-            <p class="client-hint cliente-evolucao-hint">Resumo dos registros de anamnese (ficha e evolução) por área. Use a tela <strong>Anamnese</strong> para ver detalhes completos.</p>
+            <h4 class="cliente-evolucao-title">Documentos de anamnese no prontuário</h4>
+            <p class="client-hint cliente-evolucao-hint">Fichas e evoluções já salvas ficam aqui. Cada documento é estático no prontuário. Use o botão <strong>Anamnese</strong> para abrir a ficha e ver o histórico completo ou adicionar novo registro.</p>
             <div class="cliente-evolucao-list">
               ${renderEvolucaoCards(registrosAnamnese)}
             </div>
           </div>
+          ${renderMapaInjetaveisSection(registrosAnamnese)}
           <div class="cliente-evolucao-fotos-ad" id="clienteEvolutionPhotosWrap">
             <h4 class="cliente-evolucao-title">Fotos antes/depois</h4>
             <p class="client-hint">Registre fotos de evolução por data e tipo (antes ou depois). Opcionalmente associe a um procedimento. Use <strong>Comparar fotos</strong> para ver duas fotos lado a lado.</p>
@@ -252,26 +274,37 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
       <div id="tabProtocolo" class="tab-pane hidden">
         <div class="cliente-protocolo">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
-          <p class="client-hint">Registre o que foi aplicado no atendimento. O estoque é atualizado com os descartáveis do protocolo.</p>
+          <p class="client-hint">Registre o que foi feito no atendimento: descrição, produtos usados (do estoque) e, se quiser, um protocolo cadastrado. O registro fica ligado ao prontuário e à data.</p>
           <div class="protocolo-registro-form">
-            <label for="protocoloSelect">Protocolo aplicado</label>
+            <label for="protocoloData">Data do atendimento</label>
+            <input type="date" id="protocoloData" value="${(function(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})()}">
+            <label for="protocoloDescricao">O que foi feito</label>
+            <textarea id="protocoloDescricao" rows="3" placeholder="Ex.: Limpeza de pele, aplicação de toxina na região frontal, peelings..."></textarea>
+            <div class="protocolo-produtos-wrap">
+              <label>Produtos utilizados (estoque)</label>
+              <p class="client-hint protocolo-produtos-hint">Adicione os produtos que foram usados; o estoque será atualizado.</p>
+              <div class="protocolo-produtos-add">
+                <select id="protocoloProdutoSelect">
+                  <option value="">— Selecione um produto —</option>
+                  ${(produtosEstoque || []).map((nome) => `<option value="${escapeHtml(nome)}">${escapeHtml(nome)}</option>`).join("")}
+                </select>
+                <input type="number" id="protocoloProdutoQty" min="0.01" step="0.01" value="1" style="width:4rem;">
+                <button type="button" class="btn-secondary" id="btnProtocoloAddProduto">Adicionar</button>
+              </div>
+              <ul id="protocoloProdutosList" class="protocolo-produtos-list"></ul>
+            </div>
+            <label for="protocoloSelect">Protocolo cadastrado (opcional)</label>
             <select id="protocoloSelect">
-              <option value="">— Selecione —</option>
+              <option value="">— Nenhum —</option>
               ${(protocolos || []).map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome)}</option>`).join("")}
             </select>
             <label for="protocoloObservacao">Observação (opcional)</label>
             <textarea id="protocoloObservacao" rows="2" placeholder="Ex.: área aplicada, reação..."></textarea>
-            <button type="button" class="btn-primary" id="btnRegistrarProtocolo">Registrar o que foi aplicado</button>
+            <button type="button" class="btn-primary" id="btnRegistrarProtocolo">Registrar no prontuário</button>
           </div>
-          <h4 class="protocolo-hist-title">Histórico de protocolos aplicados</h4>
+          <h4 class="protocolo-hist-title">Histórico de registros (por data)</h4>
           <ul class="protocolo-aplicados-list" id="protocoloAplicadosList">
-            ${(protocolosAplicados || []).length ? (protocolosAplicados || []).map((a) => `
-              <li class="protocolo-aplicado-item">
-                <span class="protocolo-aplicado-nome">${escapeHtml(a.protocolos?.nome || "—")}</span>
-                <span class="protocolo-aplicado-data">${formatDateTime(a.aplicado_em)}</span>
-                ${a.observacao ? `<p class="protocolo-aplicado-obs">${escapeHtml(a.observacao)}</p>` : ""}
-              </li>
-            `).join("") : "<li>Nenhum protocolo registrado ainda.</li>"}
+            ${(protocolosAplicados || []).length ? (protocolosAplicados || []).map((a) => renderProtocoloAplicadoItem(a)) : "<li>Nenhum registro ainda.</li>"}
           </ul>
           <div class="protocolo-estudo-caso-wrap">
             <h4 class="protocolo-hist-title">Registrar para estudo de caso (anonimizado)</h4>
@@ -320,6 +353,36 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         </div>
       </div>
 
+      <div id="tabEvolucao" class="tab-pane hidden">
+        <div class="cliente-evolucao-aba">
+          <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir anamnese">Abrir anamnese</button></p>
+          <p class="client-hint cliente-evolucao-aba-hint">Fotos antes e depois para acompanhar a evolução do tratamento. Use para <strong>mostrar ao cliente a melhora</strong> e incentivar a continuidade; também para <strong>montar conteúdo para redes sociais</strong> (com autorização de uso de imagem).</p>
+          <div class="cliente-evolucao-aba-actions">
+            ${(evolutionPhotos || []).length >= 2 ? `<button type="button" class="btn-primary" id="btnCompararFotosEvolucao">Comparar fotos</button>` : ""}
+            <button type="button" class="btn-secondary" id="btnRelatorioEvolucao">Relatório antes/depois</button>
+          </div>
+          <div class="cliente-evolucao-aba-galeria">
+            <h4 class="cliente-evolucao-title">Galeria de evolução</h4>
+            <div id="clienteEvolutionPhotosListEvolucao" class="cliente-evolucao-fotos-grid cliente-evolucao-fotos-grid--aba">
+              ${(evolutionPhotos || []).length ? (evolutionPhotos || []).map((ph) => {
+                const procName = (proceduresList || []).find((p) => p.id === ph.procedure_id)?.name || "";
+                return `<div class="cliente-evolucao-foto-item" data-id="${ph.id}">
+                  <a href="${escapeHtml(ph.photo_url)}" target="_blank" rel="noopener" class="cliente-evolucao-foto-link">
+                    <img src="${escapeHtml(ph.photo_url)}" alt="" class="cliente-evolucao-foto-thumb" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23f1f5f9%22 width=%22100%22 height=%22100%22/%3E%3Ctext x=%2250%22 y=%2255%22 fill=%22%2394a3b8%22 text-anchor=%22middle%22 font-size=%2212%22%3EErro%3C/text%3E%3C/svg%3E'">
+                  </a>
+                  <div class="cliente-evolucao-foto-meta">
+                    <span class="cliente-evolucao-foto-date">${formatDate(ph.taken_at)}</span>
+                    <span class="cliente-evolucao-foto-type cliente-evolucao-foto-type--${ph.type}">${ph.type === "depois" ? "Depois" : "Antes"}</span>
+                    ${procName ? `<span class="cliente-evolucao-foto-proc">${escapeHtml(procName)}</span>` : ""}
+                    ${ph.notes ? `<span class="cliente-evolucao-foto-notes">${escapeHtml(ph.notes)}</span>` : ""}
+                  </div>
+                </div>`;
+              }).join("") : "<p class=\"cliente-evolucao-empty\">Nenhuma foto de evolução. Adicione fotos na aba <strong>Histórico</strong> (seção Fotos antes/depois) para montar a galeria e comparativos.</p>"}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="tabRotinaSkincare" class="tab-pane hidden">
         <div class="cliente-rotina-skincare">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
@@ -340,10 +403,93 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
           ${rotinaUpdated ? `<small class="skincare-rotina-updated">Última atualização: ${formatDateTime(rotinaUpdated)}</small>` : ""}
         </div>
       </div>
+
+      <div id="tabPacotes" class="tab-pane hidden">
+        <div class="cliente-pacotes">
+          <p class="client-hint">Pacotes de sessões vendidos a este cliente. Dê baixa ao concluir cada atendimento (na Agenda, ao dar baixa no agendamento, ou manualmente aqui).</p>
+          ${canEdit ? `<button type="button" class="btn-primary" id="btnVenderPacote">+ Vender pacote</button>` : ""}
+          <ul id="clientePacotesList" class="cliente-pacotes-list">
+            ${(pacotes || []).length ? (pacotes || []).map((p) => {
+              const restantes = p.sessoes_restantes ?? Math.max(0, (p.total_sessoes ?? 0) - (p.sessoes_utilizadas ?? 0));
+              const valido = !p.valido_ate || new Date(p.valido_ate) >= new Date();
+              return `<li class="cliente-pacote-item ${restantes === 0 ? "cliente-pacote-esgotado" : ""} ${!valido ? "cliente-pacote-vencido" : ""}" data-package-id="${p.id}">
+                <span class="cliente-pacote-nome">${escapeHtml(p.nome_pacote)}</span>
+                ${p.procedure_name ? `<span class="cliente-pacote-proc">${escapeHtml(p.procedure_name)}</span>` : ""}
+                <span class="cliente-pacote-sessoes">${p.sessoes_utilizadas ?? 0} / ${p.total_sessoes ?? 0} sessões</span>
+                ${restantes > 0 && valido ? `<span class="cliente-pacote-restantes">${restantes} restantes</span>` : ""}
+                ${p.valido_ate ? `<span class="cliente-pacote-valido">Válido até ${formatDate(p.valido_ate)}</span>` : ""}
+                ${p.valor_pago != null ? `<span class="cliente-pacote-valor">R$ ${Number(p.valor_pago).toFixed(2).replace(".", ",")}</span>` : ""}
+              </li>`;
+            }).join("") : "<li class=\"cliente-pacotes-empty\">Nenhum pacote. Clique em \"Vender pacote\" para registrar.</li>"}
+          </ul>
+        </div>
+      </div>
     </div>
   `;
 
-  bindPerfilEvents(client, canEdit);
+  bindPerfilEvents(client, canEdit, proceduresList, pacotes);
+}
+
+function dateKey(d) {
+  if (!d) return "";
+  const s = typeof d === "string" ? d : d.toISOString ? d.toISOString() : String(d);
+  return s.slice(0, 10);
+}
+
+function renderProntuarioPorData(registrosAnamnese, protocolosAplicados, evolutionPhotos) {
+  const byDate = {};
+  const add = (key, type, item) => {
+    if (!key) return;
+    if (!byDate[key]) byDate[key] = { anamnese: [], protocolos: [], fotos: [] };
+    byDate[key][type].push(item);
+  };
+  (registrosAnamnese || []).forEach((r) => add(dateKey(r.created_at), "anamnese", r));
+  (protocolosAplicados || []).forEach((a) => add(dateKey(a.aplicado_em), "protocolos", a));
+  (evolutionPhotos || []).forEach((ph) => add(dateKey(ph.taken_at), "fotos", ph));
+  const dates = Object.keys(byDate).filter(Boolean).sort().reverse();
+  if (dates.length === 0) {
+    return "<p class=\"cliente-evolucao-empty\">Nenhum registro por data ainda. Registre anamnese, protocolo ou fotos para ver o prontuário por dia.</p>";
+  }
+  return dates.map((key) => {
+    const d = byDate[key];
+    const dataBr = new Date(key + "T12:00:00").toLocaleDateString("pt-BR");
+    const anamneseItems = (d.anamnese || []).slice(0, 3).map((r) => {
+      const nome = r.anamnesis_funcoes?.nome || "Anamnese";
+      const resumo = (r.conteudo || "").trim().slice(0, 80) + ((r.conteudo || "").length > 80 ? "…" : "");
+      return `<span class="prontuario-data-badge prontuario-data-badge--anamnese">${escapeHtml(nome)}${resumo ? ": " + escapeHtml(resumo) : ""}</span>`;
+    }).join("");
+    const protocoloItems = (d.protocolos || []).slice(0, 5).map((a) => {
+      const nome = a.protocolos?.nome || (a.descricao || "").trim().slice(0, 40) || "Registro";
+      const desc = (a.descricao || "").trim().slice(0, 60);
+      return `<span class="prontuario-data-badge prontuario-data-badge--protocolo">${escapeHtml(nome)}${desc ? " — " + escapeHtml(desc) + (a.descricao?.length > 60 ? "…" : "") : ""}</span>`;
+    }).join("");
+    const fotoItems = (d.fotos || []).slice(0, 4).map((ph) => {
+      const tipo = ph.type === "depois" ? "Depois" : "Antes";
+      return `<a href="${escapeHtml(ph.photo_url)}" target="_blank" rel="noopener" class="prontuario-data-foto-thumb" title="${tipo}"><img src="${escapeHtml(ph.photo_url)}" alt="" loading="lazy"></a>`;
+    }).join("");
+    return `
+      <div class="prontuario-por-data-card" data-date="${escapeHtml(key)}">
+        <h5 class="prontuario-por-data-date">${dataBr}</h5>
+        ${d.anamnese?.length ? `<div class="prontuario-por-data-anamnese">${anamneseItems}</div>` : ""}
+        ${d.protocolos?.length ? `<div class="prontuario-por-data-protocolos">${protocoloItems}</div>` : ""}
+        ${d.fotos?.length ? `<div class="prontuario-por-data-fotos">${fotoItems}</div>` : ""}
+      </div>`;
+  }).join("");
+}
+
+function renderProtocoloAplicadoItem(a) {
+  const nome = a.protocolos?.nome || (a.descricao ? "" : "—");
+  const desc = (a.descricao || "").trim();
+  const prods = Array.isArray(a.produtos_usados) ? a.produtos_usados : [];
+  const produtosStr = prods.length ? prods.map((p) => `${escapeHtml(p.produto_nome || "")}${(p.quantidade && p.quantidade !== 1) ? " × " + p.quantidade : ""}`).join(", ") : "";
+  return `
+    <li class="protocolo-aplicado-item">
+      <span class="protocolo-aplicado-data">${formatDateTime(a.aplicado_em)}</span>
+      ${nome ? `<span class="protocolo-aplicado-nome">${escapeHtml(nome)}</span>` : ""}
+      ${desc ? `<p class="protocolo-aplicado-desc">${escapeHtml(desc)}</p>` : ""}
+      ${produtosStr ? `<p class="protocolo-aplicado-produtos">Produtos: ${produtosStr}</p>` : ""}
+      ${a.observacao ? `<p class="protocolo-aplicado-obs">${escapeHtml(a.observacao)}</p>` : ""}
+    </li>`;
 }
 
 function canChangeState(client) {
@@ -384,15 +530,15 @@ function renderEvolutionPhotosList(photos, proceduresList = []) {
 
 function renderEvolucaoCards(registros) {
   if (!Array.isArray(registros) || registros.length === 0) {
-    return `<p class="cliente-evolucao-empty">Nenhum registro de anamnese ainda. Use o botão <strong>Anamnese</strong> para iniciar a ficha e registrar evoluções com fotos.</p>`;
+    return `<p class="cliente-evolucao-empty">Nenhum documento de anamnese salvo ainda. Use o botão <strong>Anamnese</strong> para preencher e salvar a primeira ficha; ela ficará fixa aqui no prontuário.</p>`;
   }
-  // Agrupa por função (área) e pega os últimos registros de cada
   const byFuncao = {};
   for (const r of registros) {
     const slug = r.anamnesis_funcoes?.slug || "geral";
     if (!byFuncao[slug]) byFuncao[slug] = [];
-    if (byFuncao[slug].length < 4) byFuncao[slug].push(r);
+    if (byFuncao[slug].length < 6) byFuncao[slug].push(r);
   }
+  const urlDeFoto = (f) => (typeof f === "string" ? f : f?.url);
   const cards = Object.entries(byFuncao).map(([slug, list]) => {
     const nome = list[0].anamnesis_funcoes?.nome || slug;
     const ultimo = list[0];
@@ -400,14 +546,18 @@ function renderEvolucaoCards(registros) {
     const resumo = ultimo.conteudo && ultimo.conteudo.trim()
       ? escapeHtml(ultimo.conteudo.trim().slice(0, 120)) + (ultimo.conteudo.length > 120 ? "…" : "")
       : "";
-    const fotos = Array.isArray(ultimo.fotos) && ultimo.fotos.length
-      ? `<div class="cliente-evolucao-fotos">${ultimo.fotos.slice(0, 3).map((url) => `<img src="${escapeHtml(url)}" alt="" class="cliente-evolucao-foto-thumb">`).join("")}</div>`
+    const fotosArr = Array.isArray(ultimo.fotos) ? ultimo.fotos : [];
+    const urls = fotosArr.slice(0, 3).map(urlDeFoto).filter(Boolean);
+    const fotos = urls.length
+      ? `<div class="cliente-evolucao-fotos">${urls.map((url) => `<img src="${escapeHtml(url)}" alt="" class="cliente-evolucao-foto-thumb">`).join("")}</div>`
       : "";
+    const temFicha = ultimo.ficha && typeof ultimo.ficha === "object" && Object.keys(ultimo.ficha).length > 0;
+    const badge = temFicha ? " <span class=\"cliente-evolucao-badge\">Ficha salva</span>" : "";
     return `
       <div class="cliente-evolucao-card" data-funcao-slug="${escapeHtml(slug)}">
         <div class="cliente-evolucao-header">
           <span class="cliente-evolucao-area">${escapeHtml(nome)}</span>
-          <span class="cliente-evolucao-data">${escapeHtml(data)}</span>
+          <span class="cliente-evolucao-data">${escapeHtml(data)}${badge}</span>
         </div>
         ${resumo ? `<p class="cliente-evolucao-resumo">${resumo}</p>` : ""}
         ${fotos}
@@ -415,6 +565,133 @@ function renderEvolucaoCards(registros) {
     `;
   });
   return cards.join("");
+}
+
+/** Registros de anamnese só de injetáveis (rosto_injetaveis) com pontos no mapa */
+function getRegistrosInjetaveisComMapa(registros) {
+  if (!Array.isArray(registros)) return [];
+  return registros.filter((r) => {
+    const slug = r.anamnesis_funcoes?.slug;
+    if (slug !== "rosto_injetaveis") return false;
+    const pts = r.ficha?.pontos_aplicacao;
+    return Array.isArray(pts) && pts.length > 0;
+  });
+}
+
+/** Seção "Mapa de injetáveis": lista separada com botão Ver mapa (abre modal ampliado) */
+function renderMapaInjetaveisSection(registrosAnamnese) {
+  const lista = getRegistrosInjetaveisComMapa(registrosAnamnese || []);
+  cachedRegistrosInjetaveis = lista;
+  if (lista.length === 0) return "";
+  const cards = lista.map((r) => {
+    const dataStr = r.created_at ? new Date(r.created_at).toLocaleDateString("pt-BR") : "—";
+    const pts = r.ficha.pontos_aplicacao || [];
+    const byMapa = { rosto: 0, barriga: 0, gluteos: 0 };
+    pts.forEach((p) => {
+      const m = p.mapa || "rosto";
+      if (byMapa[m] != null) byMapa[m]++;
+    });
+    const resumo = [
+      byMapa.rosto ? byMapa.rosto + " pt(s) rosto" : "",
+      byMapa.barriga ? byMapa.barriga + " pt(s) barriga" : "",
+      byMapa.gluteos ? byMapa.gluteos + " pt(s) glúteos" : ""
+    ].filter(Boolean).join(" · ") || "Pontos registrados";
+    return `
+      <div class="cliente-injetaveis-card" data-registro-id="${escapeHtml(r.id)}">
+        <div class="cliente-injetaveis-card-header">
+          <span class="cliente-injetaveis-data">${escapeHtml(dataStr)}</span>
+          <button type="button" class="btn-primary btn-ver-mapa-injetaveis" data-registro-id="${escapeHtml(r.id)}" title="Abrir mapa com pontos de aplicação (onde foi feito, ml/UI, entrada da cânula)">Ver mapa</button>
+        </div>
+        <p class="cliente-injetaveis-resumo">${escapeHtml(resumo)}</p>
+      </div>
+    `;
+  });
+  return `
+    <div class="cliente-mapa-injetaveis-wrap" id="clienteMapaInjetaveisWrap">
+      <h4 class="cliente-evolucao-title">Mapa de injetáveis</h4>
+      <p class="client-hint">Registros de anamnese (Rosto — Injetáveis) com pontos de aplicação. Clique em <strong>Ver mapa</strong> para ver onde foi aplicado, quantidades (ml/UI) e observações (ex.: entrada da cânula).</p>
+      <div class="cliente-injetaveis-list">
+        ${cards.join("")}
+      </div>
+    </div>
+  `;
+}
+
+/** Abre modal com mapa ampliado: rosto, barriga, glúteos com pontos (produto, ml/UI, observação) */
+function openMapaInjetaveisModal(registroId) {
+  const registro = cachedRegistrosInjetaveis.find((r) => r.id === registroId);
+  if (!registro || !registro.ficha?.pontos_aplicacao?.length) {
+    toast("Registro não encontrado ou sem pontos de aplicação.");
+    return;
+  }
+  const dataStr = registro.created_at ? new Date(registro.created_at).toLocaleDateString("pt-BR") : "";
+  const pts = registro.ficha.pontos_aplicacao;
+  const byMapa = { rosto: [], barriga: [], gluteos: [] };
+  pts.forEach((p) => {
+    const m = (p.mapa || "rosto").toLowerCase();
+    if (byMapa[m]) byMapa[m].push(p);
+  });
+
+  const produtoLabel = (id) => PRODUTOS_APLICACAO.find((x) => x.id === id)?.label || id || "—";
+  const pontoLine = (p) => {
+    const nome = produtoLabel(p.produto);
+    const qty = p.quantidade != null ? ` ${p.quantidade} ${p.unidade || ""}` : "";
+    const obs = p.observacao ? ` · ${p.observacao}` : "";
+    return nome + qty + obs;
+  };
+
+  const tabsHtml = MAPAS.map((m) => {
+    const list = byMapa[m.id] || [];
+    const dotsHtml = list.map((p) => {
+      const x = (p.x_pct != null ? p.x_pct : 50);
+      const y = (p.y_pct != null ? p.y_pct : 50);
+      return `<div class="injetaveis-mapa-dot" style="left:${x}%;top:${y}%;" title="${escapeHtml(pontoLine(p))}"></div>`;
+    }).join("");
+    const listItems = list.map((p) => `<li class="injetaveis-mapa-lista-item">${escapeHtml(pontoLine(p))}</li>`).join("");
+    return `
+      <div class="injetaveis-mapa-panel" data-mapa="${m.id}" id="modalMapaPanel_${m.id}">
+        <div class="injetaveis-mapa-svg-wrap">
+          ${m.svg}
+          <div class="injetaveis-mapa-dots">${dotsHtml}</div>
+        </div>
+        <div class="injetaveis-mapa-lista">
+          <p class="injetaveis-mapa-lista-title">${escapeHtml(m.label)} — onde foi feito e quantidade</p>
+          ${list.length ? `<ul class="injetaveis-mapa-ul">${listItems}</ul>` : "<p class=\"injetaveis-mapa-vazio\">Nenhum ponto nesta área.</p>"}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const tabButtons = MAPAS.map((m) => `<button type="button" class="injetaveis-mapa-tab" data-mapa="${m.id}">${escapeHtml(m.label)}</button>`).join("");
+
+  const modalHtml = `
+    <div class="injetaveis-mapa-modal-content">
+      <p class="injetaveis-mapa-modal-data">Registro de ${escapeHtml(dataStr)}</p>
+      <div class="injetaveis-mapa-tabs">${tabButtons}</div>
+      ${tabsHtml}
+      <div class="modal-actions" style="margin-top:1rem;">
+        <button type="button" class="btn-secondary" id="btnFecharMapaInjetaveis">Fechar</button>
+      </div>
+    </div>
+  `;
+  openModal("Mapa de aplicação — onde foi feito (ml/UI, entrada da cânula)", modalHtml, () => closeModal(), null);
+
+  const container = document.getElementById("modalFields");
+  if (!container) return;
+  container.querySelectorAll(".injetaveis-mapa-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      container.querySelectorAll(".injetaveis-mapa-tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      container.querySelectorAll(".injetaveis-mapa-panel").forEach((p) => p.classList.add("hidden"));
+      const panel = container.querySelector("#modalMapaPanel_" + tab.dataset.mapa);
+      if (panel) panel.classList.remove("hidden");
+    });
+  });
+  container.querySelector(".injetaveis-mapa-tab")?.classList.add("active");
+  container.querySelectorAll(".injetaveis-mapa-panel").forEach((p, i) => {
+    p.classList.toggle("hidden", i !== 0);
+  });
+  document.getElementById("btnFecharMapaInjetaveis")?.addEventListener("click", () => closeModal());
 }
 
 /** Converte data URL (base64) em Blob — versão síncrona para usar no momento da captura. */
@@ -544,6 +821,44 @@ function bindCompararFotos(clientId) {
   document.getElementById("btnCompararFotos")?.addEventListener("click", () => openCompararFotosModal(clientId));
 }
 
+/** Abre relatório de evolução (fotos antes/depois) em nova janela para impressão ou uso em redes (com autorização). */
+function openRelatorioEvolucaoModal(client) {
+  const photos = cachedEvolutionPhotos || [];
+  const nome = (client?.name || "Cliente").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  const antes = photos.filter((p) => p.type !== "depois");
+  const depois = photos.filter((p) => p.type === "depois");
+  const win = window.open("", "_blank");
+  if (!win) {
+    toast("Permita pop-ups para abrir o relatório.");
+    return;
+  }
+  const fotosHtml = (list, label) =>
+    list.length
+      ? `<div class="evolucao-col"><h3>${label}</h3><div class="evolucao-fotos">${list
+          .slice(0, 6)
+          .map(
+            (ph) =>
+              `<div class="evolucao-foto-item"><img src="${(ph.photo_url || "").replace(/"/g, "&quot;")}" alt=""><span class="evolucao-foto-meta">${formatDate(ph.taken_at)}${ph.notes ? " — " + String(ph.notes).replace(/</g, "&lt;") : ""}</span></div>`
+          )
+          .join("")}</div></div>`
+      : "";
+  win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Evolução - ${nome}</title>
+<style>body{font-family:system-ui,sans-serif;font-size:14px;color:#1e293b;margin:20px;background:#fff;} h1{font-size:20px;} h3{font-size:14px;margin:12px 0 6px;} .evolucao-grid{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;} .evolucao-col{flex:1;min-width:200px;} .evolucao-fotos{display:flex;flex-wrap:wrap;gap:8px;} .evolucao-foto-item{text-align:center;} .evolucao-foto-item img{width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;} .evolucao-foto-meta{display:block;font-size:11px;color:#64748b;margin-top:4px;} .footer{margin-top:24px;font-size:12px;color:#64748b;} @media print{.evolucao-foto-item img{width:140px;height:140px;}}</style>
+</head>
+<body>
+  <h1>Evolução do tratamento — ${nome}</h1>
+  <p>Relatório antes/depois para acompanhamento e, com autorização do cliente, uso em redes sociais.</p>
+  <div class="evolucao-grid">${fotosHtml(antes, "Antes")}${fotosHtml(depois, "Depois")}</div>
+  ${!photos.length ? "<p>Nenhuma foto de evolução registrada. Adicione na aba Histórico (Fotos antes/depois).</p>" : ""}
+  <div class="footer">Gerado pelo SkinClinic. Use com autorização de imagem do cliente.</div>
+  <script>window.onload=function(){window.print();};</script>
+</body>
+</html>`);
+  win.document.close();
+}
+
 function bindPerfilEvents(client, canEdit) {
   document.getElementById("btnVoltarClientes")?.addEventListener("click", () => {
     closeModal();
@@ -569,6 +884,13 @@ function bindPerfilEvents(client, canEdit) {
       sessionStorage.removeItem("anamnese_procedimento");
       sessionStorage.setItem("anamnese_funcao_slug", slug);
       navigate("anamnese");
+    });
+  });
+
+  document.querySelectorAll(".btn-ver-mapa-injetaveis").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openMapaInjetaveisModal(btn.dataset.registroId);
     });
   });
 
@@ -633,7 +955,9 @@ function bindPerfilEvents(client, canEdit) {
       }
     } catch (err) {
       console.error(err);
-      toast(err?.message || "Erro ao gerar link");
+      const msg = err?.message || "Erro ao gerar link";
+      const hint = (msg.includes("rota") || msg.includes("Servidor") || msg.includes("404")) ? " Tente novamente ou acesse Configurações." : "";
+      toast(msg + hint, "error");
     }
   });
 
@@ -643,34 +967,85 @@ function bindPerfilEvents(client, canEdit) {
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
       document.querySelectorAll(".tab-pane").forEach((p) => p.classList.add("hidden"));
       btn.classList.add("active");
-      const paneId = tab === "dados" ? "tabDados" : tab === "historico" ? "tabHistorico" : tab === "protocolo" ? "tabProtocolo" : "tabRotinaSkincare";
+      const paneId = tab === "dados" ? "tabDados" : tab === "historico" ? "tabHistorico" : tab === "protocolo" ? "tabProtocolo" : tab === "evolucao" ? "tabEvolucao" : tab === "pacotes" ? "tabPacotes" : "tabRotinaSkincare";
       const pane = document.getElementById(paneId);
       if (pane) pane.classList.remove("hidden");
     });
   });
 
+  document.getElementById("btnProtocoloAddProduto")?.addEventListener("click", () => {
+    const sel = document.getElementById("protocoloProdutoSelect");
+    const qtyEl = document.getElementById("protocoloProdutoQty");
+    const listEl = document.getElementById("protocoloProdutosList");
+    const nome = (sel?.value || "").trim();
+    if (!nome) {
+      toast("Selecione um produto");
+      return;
+    }
+    const qty = Math.max(0.01, parseFloat(qtyEl?.value) || 1);
+    const li = document.createElement("li");
+    li.className = "protocolo-produto-line";
+    li.dataset.produto = nome;
+    li.dataset.quantidade = String(qty);
+    li.innerHTML = `<span>${escapeHtml(nome)} × ${qty}</span> <button type="button" class="btn-sm btn-remove-produto" title="Remover">×</button>`;
+    li.querySelector(".btn-remove-produto")?.addEventListener("click", () => li.remove());
+    listEl?.appendChild(li);
+    sel.value = "";
+    qtyEl.value = "1";
+  });
+
   document.getElementById("btnRegistrarProtocolo")?.addEventListener("click", async () => {
-    const select = document.getElementById("protocoloSelect");
-    const protocoloId = select?.value?.trim();
-    if (!protocoloId) {
-      toast("Selecione um protocolo");
+    const protocoloId = document.getElementById("protocoloSelect")?.value?.trim() || null;
+    const descricao = document.getElementById("protocoloDescricao")?.value?.trim() || "";
+    const observacao = document.getElementById("protocoloObservacao")?.value?.trim() || "";
+    const dataEl = document.getElementById("protocoloData");
+    const aplicado_em = dataEl?.value ? `${dataEl.value}T12:00:00.000Z` : null;
+    const produtosList = document.getElementById("protocoloProdutosList");
+    const produtos_usados = [];
+    produtosList?.querySelectorAll(".protocolo-produto-line").forEach((li) => {
+      const nome = (li.dataset.produto || "").trim();
+      if (nome) produtos_usados.push({ produto_nome: nome, quantidade: parseFloat(li.dataset.quantidade) || 1 });
+    });
+    if (!protocoloId && !descricao && produtos_usados.length === 0) {
+      toast("Informe o que foi feito (descrição), adicione produtos ou selecione um protocolo.");
       return;
     }
     const agendaId = sessionStorage.getItem("clientePerfilAgendaId") || null;
     try {
-      const { alertas } = await getAlertaEstoqueProtocolo(protocoloId).catch(() => ({ alertas: [] }));
-      if (alertas.length > 0) {
-        const msg = alertas.map((a) => `${a.produto_nome} (precisa ${a.quantidade_necessaria}, saldo ${a.saldo_estimado})`).join("; ");
-        toast(`Atenção: estoque baixo ou zerado — ${msg}`, "warning");
+      if (protocoloId) {
+        const { alertas } = await getAlertaEstoqueProtocolo(protocoloId).catch(() => ({ alertas: [] }));
+        if (alertas.length > 0) {
+          const msg = alertas.map((a) => `${a.produto_nome} (precisa ${a.quantidade_necessaria}, saldo ${a.saldo_estimado})`).join("; ");
+          toast(`Atenção: estoque baixo ou zerado — ${msg}`, "warning");
+        }
       }
-      await createProtocoloAplicado({ clientId: client.id, protocoloId, agendaId: agendaId || undefined, observacao: document.getElementById("protocoloObservacao")?.value?.trim() || "" });
+      await createProtocoloAplicado({
+        clientId: client.id,
+        protocoloId: protocoloId || undefined,
+        agendaId: agendaId || undefined,
+        observacao,
+        descricao,
+        aplicado_em: aplicado_em || undefined,
+        produtos_usados,
+      });
       if (agendaId) sessionStorage.removeItem("clientePerfilAgendaId");
-      toast("Protocolo registrado. O estoque foi atualizado com os descartáveis do protocolo.");
-      const aplicados = await getProtocolosAplicadosByClient(client.id);
-      renderPerfil(currentClient, await getEventsByClient(client.id), canEditClient, await getSkincareRotinaByClient(client.id).catch(() => null), await getProtocolos(), aplicados);
+      toast("Registro salvo no prontuário do paciente.");
+      const [events, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
+        getEventsByClient(client.id),
+        getSkincareRotinaByClient(client.id).catch(() => null),
+        getProtocolos(),
+        getProtocolosAplicadosByClient(client.id),
+        listRegistrosByClient(client.id).catch(() => []),
+        listEvolutionPhotosByClient(client.id).catch(() => []),
+        listProcedures(false).catch(() => []),
+        getResumoPorProduto().catch(() => []),
+        client.cpf ? getOtherClientWithSameCpf(client.cpf, client.id).catch(() => null) : Promise.resolve(null),
+      ]);
+      const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+      renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther);
     } catch (err) {
       console.error(err);
-      toast(err?.message || "Erro ao registrar protocolo");
+      toast(err?.message || "Erro ao registrar");
     }
   });
 
@@ -681,8 +1056,19 @@ function bindPerfilEvents(client, canEdit) {
       try {
         await upsertSkincareRotina(client.id, { conteudo });
         toast("Rotina salva.");
-        const rotina = await getSkincareRotinaByClient(client.id).catch(() => null);
-        renderPerfil(currentClient, await getEventsByClient(client.id), canEditClient, rotina);
+        const [events, rotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
+          getEventsByClient(client.id),
+          getSkincareRotinaByClient(client.id).catch(() => null),
+          getProtocolos(),
+          getProtocolosAplicadosByClient(client.id),
+          listRegistrosByClient(client.id).catch(() => []),
+          listEvolutionPhotosByClient(client.id).catch(() => []),
+          listProcedures(false).catch(() => []),
+          getResumoPorProduto().catch(() => []),
+          client.cpf ? getOtherClientWithSameCpf(client.cpf, client.id).catch(() => null) : Promise.resolve(null),
+        ]);
+        const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        renderPerfil(currentClient, events, canEditClient, rotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther);
       } catch (err) {
         console.error(err);
         toast(err?.message || "Erro ao salvar rotina");
@@ -694,8 +1080,19 @@ function bindPerfilEvents(client, canEdit) {
       try {
         await upsertSkincareRotina(client.id, { conteudo, liberar: true });
         toast("Rotina liberada no portal. O cliente poderá ver no portal.");
-        const rotina = await getSkincareRotinaByClient(client.id).catch(() => null);
-        renderPerfil(currentClient, await getEventsByClient(client.id), canEditClient, rotina);
+        const [events, rotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
+          getEventsByClient(client.id),
+          getSkincareRotinaByClient(client.id).catch(() => null),
+          getProtocolos(),
+          getProtocolosAplicadosByClient(client.id),
+          listRegistrosByClient(client.id).catch(() => []),
+          listEvolutionPhotosByClient(client.id).catch(() => []),
+          listProcedures(false).catch(() => []),
+          getResumoPorProduto().catch(() => []),
+          client.cpf ? getOtherClientWithSameCpf(client.cpf, client.id).catch(() => null) : Promise.resolve(null),
+        ]);
+        const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        renderPerfil(currentClient, events, canEditClient, rotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther);
       } catch (err) {
         console.error(err);
         toast(err?.message || "Erro ao liberar rotina");
@@ -751,8 +1148,19 @@ function bindPerfilEvents(client, canEdit) {
         });
         toast("Estado atualizado");
         currentClient = await getClientById(client.id);
-        const events = await getEventsByClient(client.id);
-        renderPerfil(currentClient, events, canEditClient);
+        const [events, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
+          getEventsByClient(client.id),
+          getSkincareRotinaByClient(client.id).catch(() => null),
+          getProtocolos(),
+          getProtocolosAplicadosByClient(client.id),
+          listRegistrosByClient(client.id).catch(() => []),
+          listEvolutionPhotosByClient(client.id).catch(() => []),
+          listProcedures(false).catch(() => []),
+          getResumoPorProduto().catch(() => []),
+          currentClient.cpf ? getOtherClientWithSameCpf(currentClient.cpf, client.id).catch(() => null) : Promise.resolve(null),
+        ]);
+        const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther);
       } catch (err) {
         console.error(err);
         toast(err?.message || "Erro ao atualizar estado");
@@ -761,6 +1169,9 @@ function bindPerfilEvents(client, canEdit) {
   });
 
   document.getElementById("btnRegistrarEvento")?.addEventListener("click", () => openEventModal(client));
+
+  document.getElementById("btnCompararFotosEvolucao")?.addEventListener("click", () => openCompararFotosModal(client.id));
+  document.getElementById("btnRelatorioEvolucao")?.addEventListener("click", () => openRelatorioEvolucaoModal(client));
 
   document.getElementById("btnEnviarLinkTermo")?.addEventListener("click", async () => {
     try {
@@ -773,7 +1184,9 @@ function bindPerfilEvents(client, canEdit) {
         prompt("Copie o link e envie ao cliente para assinar o termo:", urlTermo);
       }
     } catch (e) {
-      toast(e?.message || "Erro ao gerar link");
+      const msg = e?.message || "Erro ao gerar link";
+      const hint = (msg.includes("rota") || msg.includes("Servidor") || msg.includes("404")) ? " Tente novamente ou acesse Configurações." : "";
+      toast(msg + hint, "error");
     }
   });
 
@@ -807,7 +1220,7 @@ function bindPerfilEvents(client, canEdit) {
           closeModal();
           toast("Termo registrado (assinatura presencial).");
           currentClient = { ...currentClient, consent_terms_accepted_at: new Date().toISOString(), consent_image_use: imageUse, consent_terms_version: "v1", consent_signed_name: nome, consent_signature_method: "presencial_digital" };
-          renderPerfil(currentClient, events, canEdit, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, cachedEvolutionPhotos, cachedProceduresList, null);
+          renderPerfil(currentClient, events, canEdit, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, cachedEvolutionPhotos, cachedProceduresList, cachedProdutosEstoque, null);
         } catch (e) {
           toast(e?.message || "Erro ao salvar");
         }
@@ -842,7 +1255,7 @@ function bindPerfilEvents(client, canEdit) {
           closeModal();
           toast("Termo registrado (em papel).");
           currentClient = { ...currentClient, consent_terms_accepted_at: dateIso, consent_image_use: imageUse, consent_terms_version: "v1", consent_signature_method: "papel" };
-          renderPerfil(currentClient, events, canEdit, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, cachedEvolutionPhotos, cachedProceduresList, null);
+          renderPerfil(currentClient, events, canEdit, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, cachedEvolutionPhotos, cachedProceduresList, cachedProdutosEstoque, null);
         } catch (e) {
           toast(e?.message || "Erro ao salvar");
         }
@@ -906,6 +1319,12 @@ function openEditModal(client) {
     </select>
     <label>Observações</label>
     <textarea id="editNotes" rows="2" placeholder="Opcional">${escapeHtml(client.notes || "")}</textarea>
+    <div class="cliente-modelo-option">
+     <label><input type="checkbox" id="editIsPacienteModelo" ${client.is_paciente_modelo ? "checked" : ""}> Paciente modelo</label>
+     <p class="cliente-modelo-hint">Ex.: modelo de botox; ao agendar será possível aplicar o desconto definido abaixo.</p>
+     <label>Desconto modelo (%)</label>
+     <input type="number" id="editModelDiscountPct" min="0" max="100" step="0.5" value="${client.model_discount_pct != null ? client.model_discount_pct : ""}" placeholder="Ex.: 30">
+    </div>
   `,
     async () => {
       const name = document.getElementById("editName")?.value?.trim();
@@ -956,6 +1375,10 @@ function openEditModal(client) {
       }
 
       try {
+        const isPacienteModelo = document.getElementById("editIsPacienteModelo")?.checked ?? false;
+        const modelDiscountPctRaw = document.getElementById("editModelDiscountPct")?.value?.trim();
+        const model_discount_pct = (modelDiscountPctRaw !== "" && modelDiscountPctRaw != null) ? (parseFloat(modelDiscountPctRaw) || null) : null;
+
         const updates = {
           name,
           phone: phone || null,
@@ -963,6 +1386,8 @@ function openEditModal(client) {
           birth_date: birth_date || null,
           sex: sex || null,
           notes: notes || null,
+          is_paciente_modelo: !!isPacienteModelo,
+          model_discount_pct: model_discount_pct,
         };
         if (normalizedCpf !== undefined) updates.cpf = normalizedCpf || null;
 
@@ -992,8 +1417,19 @@ function openEditModal(client) {
         closeModal();
         toast("Cliente atualizado");
         currentClient = await getClientById(client.id);
-        const events = await getEventsByClient(client.id);
-        renderPerfil(currentClient, events, canEditClient);
+        const [events, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
+          getEventsByClient(client.id),
+          getSkincareRotinaByClient(client.id).catch(() => null),
+          getProtocolos(),
+          getProtocolosAplicadosByClient(client.id),
+          listRegistrosByClient(client.id).catch(() => []),
+          listEvolutionPhotosByClient(client.id).catch(() => []),
+          listProcedures(false).catch(() => []),
+          getResumoPorProduto().catch(() => []),
+          currentClient.cpf ? getOtherClientWithSameCpf(currentClient.cpf, client.id).catch(() => null) : Promise.resolve(null),
+        ]);
+        const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther);
       } catch (err) {
         console.error(err);
         toast(err?.message || "Erro ao atualizar cliente");

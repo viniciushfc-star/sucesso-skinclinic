@@ -4,7 +4,7 @@
  */
 
 import { lerNota } from "../services/ocr.service.js"
-import { listEntradas, createEntrada, getResumoPorProduto, getAcuraciaEstoque, registrarConsumoReal } from "../services/estoque-entradas.service.js"
+import { listEntradas, createEntrada, getResumoPorProduto, getAcuraciaEstoque, registrarConsumoReal, getProdutosProximosVencer, getProcedimentosQueUsamProduto } from "../services/estoque-entradas.service.js"
 import { analisarEstoque } from "../services/estoque.service.js"
 import { supabase } from "../core/supabase.js"
 import { getActiveOrg } from "../core/org.js"
@@ -16,6 +16,7 @@ export async function init() {
   bindUI()
   await renderList()
   await renderResumo()
+  await renderProximosVencer()
   await renderAcuracia()
 }
 
@@ -100,6 +101,45 @@ async function renderList() {
   }
 }
 
+async function renderProximosVencer() {
+  const wrap = document.getElementById("estoqueProximosVencerWrap")
+  const listEl = document.getElementById("estoqueProximosVencerList")
+  if (!wrap || !listEl) return
+
+  try {
+    const itens = await getProdutosProximosVencer(60)
+    if (itens.length === 0) {
+      wrap.classList.add("hidden")
+      listEl.innerHTML = ""
+      return
+    }
+    wrap.classList.remove("hidden")
+    const html = await Promise.all(
+      itens.map(async (r) => {
+        const dataFormatada = r.data_validade ? new Date(r.data_validade + "T12:00:00").toLocaleDateString("pt-BR") : "—"
+        const procs = await getProcedimentosQueUsamProduto(r.produto_nome)
+        const procsText = procs.length > 0
+          ? `Procedimentos que usam: ${procs.map((p) => p.procedure_name).join(", ")}. <span class="estoque-proximos-vencer-campanha">Use para campanhas.</span>`
+          : "<span class=\"estoque-proximos-vencer-sem-proc\">Nenhum procedimento vinculado ao nome deste produto.</span>"
+        return `
+          <div class="estoque-proximos-vencer-item">
+            <span class="estoque-proximos-vencer-produto">${escapeHtml(r.produto_nome)}</span>
+            <span class="estoque-proximos-vencer-validade">Vence: ${dataFormatada}</span>
+            <span class="estoque-proximos-vencer-qty">${r.quantidade} un.</span>
+            ${r.lote ? `<span class="estoque-proximos-vencer-lote">Lote ${escapeHtml(r.lote)}</span>` : ""}
+            <p class="estoque-proximos-vencer-procs">${procsText}</p>
+          </div>
+        `
+      })
+    )
+    listEl.innerHTML = html.join("")
+  } catch (e) {
+    console.warn("[ESTOQUE] Próximos a vencer:", e)
+    wrap.classList.add("hidden")
+    listEl.innerHTML = ""
+  }
+}
+
 async function renderResumo() {
   const wrap = document.getElementById("estoqueResumoWrap")
   const el = document.getElementById("estoqueResumo")
@@ -121,7 +161,7 @@ async function renderResumo() {
           <span class="estoque-resumo-produto">${prod}</span>
           <span class="estoque-resumo-saldo">Saldo: ${saldo}</span>
           <span class="estoque-resumo-custo">Custo médio: ${custo}</span>
-          <button type="button" class="btn-secondary btn-sm estoque-btn-avaliar" data-produto="${escapeAttr(r.produto_nome)}">Avaliar</button>
+          <button type="button" class="btn-secondary estoque-btn-avaliar" data-produto="${escapeAttr(r.produto_nome)}" title="Avaliar este produto (nota e comentário)">Avaliar produto</button>
         </div>
       `
     }).join("")
@@ -198,10 +238,10 @@ function openModalRegistrarConsumoReal() {
       "Registrar consumo real",
       `
       <p class="form-hint">Informe o que foi realmente consumido (ex.: após contagem). Isso alimenta o indicador de acurácia (previsto vs real).</p>
-      <label>Produto</label>
+      <label for="acuraciaRealProduto">Produto</label>
       <input type="text" id="acuraciaRealProduto" list="acuraciaRealProdutoList" placeholder="Nome do produto" required>
       <datalist id="acuraciaRealProdutoList">${opcoes}</datalist>
-      <label>Quantidade consumida (real)</label>
+      <label for="acuraciaRealQty">Quantidade consumida (real)</label>
       <input type="number" id="acuraciaRealQty" step="0.01" min="0.01" placeholder="Ex.: 2,5" required>
       `,
       async () => {
@@ -230,8 +270,8 @@ function openModalRegistrarConsumoReal() {
   }).catch(() => {
     openModal(
       "Registrar consumo real",
-      `<label>Produto</label><input type="text" id="acuraciaRealProduto" placeholder="Nome do produto" required>
-       <label>Quantidade</label><input type="number" id="acuraciaRealQty" step="0.01" min="0.01" required>`,
+      `<label for="acuraciaRealProduto">Produto</label><input type="text" id="acuraciaRealProduto" placeholder="Nome do produto" required>
+       <label for="acuraciaRealQty">Quantidade</label><input type="number" id="acuraciaRealQty" step="0.01" min="0.01" required>`,
       async () => {
         const produto = document.getElementById("acuraciaRealProduto")?.value?.trim()
         const qty = document.getElementById("acuraciaRealQty")?.value
@@ -269,9 +309,9 @@ function openModalAvaliarProduto(produtoNome) {
     `
     <p class="form-hint">Sua avaliação ajuda na decisão de compra e precificação.</p>
     <input type="hidden" id="avaliarProdutoNome" value="${escapeHtml(produtoNome)}">
-    <label>Produto</label>
+    <span class="form-label">Produto</span>
     <p id="avaliarProdutoLabel">${escapeHtml(produtoNome)}</p>
-    <label>Nota (1 a 5)</label>
+    <label for="avaliarProdutoNota">Nota (1 a 5)</label>
     <select id="avaliarProdutoNota">
       <option value="1">1 — Ruim</option>
       <option value="2">2</option>
@@ -279,7 +319,7 @@ function openModalAvaliarProduto(produtoNome) {
       <option value="4">4</option>
       <option value="5">5 — Ótimo</option>
     </select>
-    <label>Comentário (opcional)</label>
+    <label for="avaliarProdutoComentario">Comentário (opcional)</label>
     <textarea id="avaliarProdutoComentario" rows="2" placeholder="Ex.: textura boa, resultado rápido..."></textarea>
     `,
     async () => {
@@ -425,6 +465,8 @@ function openEntradaManual() {
     <input type="text" id="estoqueManualFornecedor" placeholder="Nome">
     <label>Data da entrada</label>
     <input type="date" id="estoqueManualData" value="${new Date().toISOString().slice(0, 10)}">
+    <label>Validade (opcional)</label>
+    <input type="date" id="estoqueManualValidade" placeholder="Data de validade do lote">
   `
 
   openModal(
@@ -437,6 +479,7 @@ function openEntradaManual() {
       const total = document.getElementById("estoqueManualTotal")?.value
       const fornecedor = document.getElementById("estoqueManualFornecedor")?.value?.trim() || null
       const data = document.getElementById("estoqueManualData")?.value || new Date().toISOString().slice(0, 10)
+      const dataValidade = document.getElementById("estoqueManualValidade")?.value?.trim() || null
       if (!produto) {
         toast("Informe o produto.")
         return
@@ -453,12 +496,14 @@ function openEntradaManual() {
           valor_total: total || null,
           fornecedor,
           data_entrada: data,
+          data_validade: dataValidade || undefined,
           origem: "manual"
         })
         closeModal()
         toast("Entrada salva.")
         await renderList()
         await renderResumo()
+        await renderProximosVencer()
       } catch (e) {
         toast(e.message || "Erro ao salvar.")
       }

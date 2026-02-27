@@ -9,13 +9,14 @@ import { toast }
 
 import { navigate }
   from "../core/spa.js";
+import { redirect } from "../core/base-path.js";
 
 export async function init() {
   const container = document.getElementById("view-onboarding");
 
   // Esta página não tem a view de onboarding (ex.: dashboard.html) → redireciona para index
   if (!container) {
-    window.location.href = "/index.html#onboarding";
+    redirect("/index.html#onboarding");
     return;
   }
 
@@ -79,7 +80,7 @@ btn.onclick = async () => {
     console.log("[ONBOARDING] organização criada, redirecionando para dashboard");
 
     // 2. redireciona para o dashboard (org já está ativa no localStorage)
-    window.location.href = "/index.html#dashboard";
+    redirect("/index.html#dashboard");
 
   } catch (err) {
     console.error("[ONBOARDING] erro ao criar org", err);
