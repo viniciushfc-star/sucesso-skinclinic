@@ -179,12 +179,13 @@ export async function protectPage() {
  * (ex.: token expirado, logout em outra aba). Chame uma vez no bootstrap do app.
  */
 export function setupSessionExpiredRedirect() {
-  const isLoginPage = () => {
-    const pathname = typeof window !== "undefined" ? window.location.pathname : ""
-    const base = getBase()
+  function isLoginPage() {
+    const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+    const base = getBase();
     return pathname === "/" || pathname === base || pathname === base + "/" ||
-      pathname.endsWith("/index.html") || pathname === base + "/index.html"
-  }  supabase.auth.onAuthStateChange((event, session) => {
+      pathname.endsWith("/index.html") || pathname === base + "/index.html";
+  }
+  supabase.auth.onAuthStateChange(function (event, session) {
     if (event === "SIGNED_OUT" || event === "TOKEN_REFRESH_FAILED") {
       clearSessionState();
       if (!isLoginPage()) {
@@ -193,7 +194,9 @@ export function setupSessionExpiredRedirect() {
       }
     }
   });
-}/**
+}
+
+/**
  * Útil após uma chamada à API/Supabase: se o erro for 401 ou PGRST301 (JWT expirado),
  * redireciona para login. Use em serviços que fazem fetch direto (ex.: /api/*).
  */

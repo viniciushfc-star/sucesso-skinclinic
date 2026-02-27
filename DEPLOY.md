@@ -42,6 +42,30 @@ O projeto já está preparado para a Vercel: `vercel.json` e `api/index.js` enca
 5. **Domínio customizado (opcional)**  
    Em **Settings → Domains** na Vercel, adicione seu domínio. Depois atualize `BASE_URL` e as Redirect URLs no Supabase para usar esse domínio.
 
+### Erros no site em produção (auth.js, favicon, ícone PWA)
+
+Se você vê no site publicado (ex.: **skinclinic-one.vercel.app**):
+
+- **`auth.js:187 Uncaught SyntaxError: Unexpected identifier 'supabase'`**
+- **404 em favicon.ico ou icons/icon-192.png**
+
+é porque a **Vercel está servindo uma versão antiga** do código. As correções já estão no seu repositório local; é preciso enviá-las e deixar a Vercel fazer um novo deploy.
+
+**O que fazer:**
+
+1. No terminal, na pasta do projeto:
+   ```bash
+   git status
+   git add -A
+   git commit -m "fix: auth.js sintaxe, manifest sem ícone, favicon"
+   git push origin main
+   ```
+   (Use o nome do branch que a Vercel usa, se for outro, ex.: `master`.)
+
+2. No [dashboard da Vercel](https://vercel.com/dashboard), abra o projeto e confira se um **novo deploy** foi disparado pelo push. Se não aparecer, use **Deployments → Redeploy** (ou "Clear cache and redeploy").
+
+3. Depois do deploy concluído, teste em **aba anônima** ou com cache desativado, para não carregar JS antigo.
+
 ---
 
 ## 1. Rodar o servidor Node (fora da Vercel)
