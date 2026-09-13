@@ -10,10 +10,10 @@ from "../ui/toast.js"
 import { gerarPdf }
 from "../utils/pdf.js"
 
-import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo } from "../services/financeiro.service.js"
+import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo, getFaturamentoPorUsuario, getReceitaPorProcedimento } from "../services/financeiro.service.js"
 import { getTodayLocal } from "../services/metrics.service.js"
 
-import { withOrg, getActiveOrg } from "../core/org.js"
+import { withOrg, getActiveOrg, getOrgMembers } from "../core/org.js"
 import { redirect } from "../core/base-path.js"
 
 import { listProcedures } from "../services/procedimentos.service.js"
@@ -72,7 +72,7 @@ export function init(){
  const openTab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null
  if (openTab) {
    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("financeiro_open_tab")
-   switchFinanceiroMainTab(openTab === "custo-fixo" ? "custo-fixo" : openTab === "dre" ? "dre" : "visao-geral")
+   switchFinanceiroMainTab(["custo-fixo", "dre", "contador"].includes(openTab) ? openTab : "visao-geral")
  } else {
    const viewEl = document.getElementById("view-financeiro")
    if (viewEl) viewEl.dataset.currentTab = "visao-geral"
@@ -273,6 +273,11 @@ function switchFinanceiroMainTab(tabId) {
     bindDreEvents()
     renderDrePanel()
   }
+  if (tabId === "contador") {
+    import("./financeiro-contador.views.js")
+      .then((m) => m.initContadorPanel && m.initContadorPanel())
+      .catch((err) => console.warn("[Financeiro] Contador:", err))
+  }
 }
 
 /** Último DRE carregado (para export CSV). */
@@ -334,6 +339,7 @@ async function renderDrePanel() {
       </div>
       <p class="financeiro-dre-periodo">Período: ${start} a ${end}. ${(dre.transacoes || []).length} lançamento(s).</p>
     `
+    await renderDreGerencial(start, end, fmt)
     if (detalheEl) {
       const rows = (dre.transacoes || []).slice(-50).reverse().map((t) => {
         const v = t.tipo === "entrada" ? (t.valor_recebido != null && t.valor_recebido !== "" ? Number(t.valor_recebido) : Number(t.valor) || 0) : Number(t.valor) || 0
@@ -349,6 +355,41 @@ async function renderDrePanel() {
     lastDreData = null
     resumoEl.innerHTML = "<p class=\"view-hint\">Erro ao carregar DRE. Tente outro período.</p>"
     if (detalheEl) detalheEl.innerHTML = ""
+  }
+}
+
+async function renderDreGerencial(start, end, fmt) {
+  const profEl = document.getElementById("financeiroDrePorProf")
+  const procEl = document.getElementById("financeiroDrePorProc")
+  try {
+    const [porUser, porProc, members] = await Promise.all([
+      getFaturamentoPorUsuario(start, end),
+      getReceitaPorProcedimento(start, end),
+      getOrgMembers().catch(() => [])
+    ])
+    const nameById = {}
+    ;(members || []).forEach((m, i) => {
+      nameById[m.user_id] = m.nome || m.email || m.role || `Profissional ${i + 1}`
+    })
+    if (profEl) {
+      profEl.innerHTML = porUser.length
+        ? `<h3 class="financeiro-dre-gerencial-title">Faturamento por profissional</h3>
+          <table class="financeiro-dre-tabela"><thead><tr><th>Profissional</th><th>Receita</th></tr></thead><tbody>
+          ${porUser.map((r) => `<tr><td>${(nameById[r.user_id] || r.user_id.slice(0, 8)).replace(/</g, "")}</td><td>${fmt(r.total)}</td></tr>`).join("")}
+          </tbody></table>
+          <p class="view-hint">Só entra lançamento vinculado a um agendamento (agenda_id) com profissional.</p>`
+        : `<h3 class="financeiro-dre-gerencial-title">Faturamento por profissional</h3><p class="view-hint">Nenhuma entrada com profissional no período. Ao dar baixa na agenda, o vínculo é criado.</p>`
+    }
+    if (procEl) {
+      procEl.innerHTML = porProc.length
+        ? `<h3 class="financeiro-dre-gerencial-title">Faturamento por procedimento</h3>
+          <table class="financeiro-dre-tabela"><thead><tr><th>Procedimento</th><th>Qtd</th><th>Receita</th></tr></thead><tbody>
+          ${porProc.map((r) => `<tr><td>${String(r.nome).replace(/</g, "")}</td><td>${r.qtd}</td><td>${fmt(r.total)}</td></tr>`).join("")}
+          </tbody></table>`
+        : `<h3 class="financeiro-dre-gerencial-title">Faturamento por procedimento</h3><p class="view-hint">Nenhuma entrada com procedimento vinculado no período.</p>`
+    }
+  } catch (err) {
+    console.warn("[Financeiro] DRE gerencial", err)
   }
 }
 

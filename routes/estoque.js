@@ -1,9 +1,18 @@
 ﻿import { askAI, summarizeGenericContext, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { estoque, consumo, user_id, org_id } = req.body || {};
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+  const { user, orgId } = auth;
+
+  const { estoque, consumo } = req.body || {};
 
   const estoqueArr = Array.isArray(estoque) ? estoque : [];
   const consumoArr = Array.isArray(consumo) ? consumo : [];
@@ -26,8 +35,8 @@ Retorne APENAS um JSON válido, sem markdown:
 
   try {
     const { content } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "estoque",
       question: prompt,
       complexity: COMPLEXITY.MEDIUM,

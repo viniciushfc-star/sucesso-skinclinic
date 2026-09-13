@@ -7,7 +7,7 @@ import { getTeam } from "../services/user.service.js"
 import { getFaturamentoPorUsuario } from "../services/financeiro.service.js"
 import { listAfazeres, getAfazeresResumoPorUsuario } from "../services/afazeres.service.js"
 import { getIndiceCuidado } from "../services/produto-avaliacoes.service.js"
-import { getConnectUrl, getCalendarConnectionsStatus } from "../services/google-calendar.service.js"
+import { getConnectUrl, startGoogleCalendarConnect, getCalendarConnectionsStatus } from "../services/google-calendar.service.js"
 import { getProcedureIdsByProfessional } from "../services/professional-procedures.service.js"
 import { listProcedures } from "../services/procedimentos.service.js"
 import { navigate } from "../core/spa.js"
@@ -124,7 +124,7 @@ export async function init() {
             <p><strong>E-mail:</strong> ${escapeHtml(member.email || "—")}</p>
             <p><strong>Função na empresa:</strong> ${escapeHtml(cargo)}</p>
             <p><strong>Status:</strong> ${escapeHtml(member.status || "—")}</p>
-            <p><strong>Google Agenda:</strong> ${connected ? "Conectada" : "Não conectada"} ${connectUrl && !connected ? ` · <a href="${connectUrl}" class="btn-link">Conectar</a>` : ""}</p>
+            <p><strong>Google Agenda:</strong> ${connected ? "Conectada" : "Não conectada"} ${connectUrl && !connected ? ` · <a href="${connectUrl}" class="btn-link" id="btnGoogleConnectProf">Conectar</a>` : ""}</p>
             ${procedimentosNomes.length ? `<p><strong>Procedimentos que realiza:</strong> ${procedimentosNomes.map((n) => escapeHtml(n)).join(", ")}</p>` : "<p><strong>Procedimentos:</strong> Não definidos. Ajuste em Configurações → Equipe.</p>"}
           </div>
         </div>
@@ -167,6 +167,17 @@ export async function init() {
 
     const btnVoltar = document.getElementById("btnVoltarEquipe")
     if (btnVoltar) btnVoltar.onclick = () => { sessionStorage.removeItem("profissionalPerfilId"); navigate("team") }
+    const btnGoogle = document.getElementById("btnGoogleConnectProf")
+    if (btnGoogle) {
+      btnGoogle.addEventListener("click", async (e) => {
+        e.preventDefault()
+        try {
+          await startGoogleCalendarConnect()
+        } catch (err) {
+          toast(err.message || "Erro ao conectar Google Agenda")
+        }
+      })
+    }
 
     container.querySelectorAll(".tab-btn").forEach((btn) => {
       btn.addEventListener("click", () => {

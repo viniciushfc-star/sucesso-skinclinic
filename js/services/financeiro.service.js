@@ -141,6 +141,42 @@ export async function getFaturamentoPorUsuario(startDate, endDate) {
 }
 
 /**
+ * Receita de entradas agrupada por procedimento (coluna procedure_id no financeiro).
+ */
+export async function getReceitaPorProcedimento(startDate, endDate) {
+  const { data, error } = await withOrg(
+    supabase
+      .from("financeiro")
+      .select("valor, valor_recebido, procedure_id")
+      .eq("tipo", "entrada")
+      .gte("data", startDate)
+      .lte("data", endDate)
+  )
+  if (error) return []
+  const byProc = {}
+  for (const e of data || []) {
+    const pid = e.procedure_id || "_sem"
+    const v = e.valor_recebido != null && e.valor_recebido !== "" ? Number(e.valor_recebido) : Number(e.valor) || 0
+    if (!byProc[pid]) byProc[pid] = { procedure_id: e.procedure_id, total: 0, qtd: 0 }
+    byProc[pid].total += v
+    byProc[pid].qtd += 1
+  }
+  const ids = Object.keys(byProc).filter((k) => k !== "_sem")
+  let names = {}
+  if (ids.length) {
+    const { data: procs } = await withOrg(supabase.from("procedures").select("id, name").in("id", ids))
+    for (const p of procs || []) names[p.id] = p.name
+  }
+  return Object.values(byProc)
+    .map((row) => ({
+      nome: row.procedure_id ? (names[row.procedure_id] || "Procedimento") : "Sem procedimento vinculado",
+      total: row.total,
+      qtd: row.qtd
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
+/**
  * DRE simplificado por período: receitas (entradas), despesas (saídas) e resultado.
  * @param {string} startDate - YYYY-MM-DD
  * @param {string} endDate - YYYY-MM-DD

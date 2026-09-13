@@ -1,9 +1,18 @@
 ﻿import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { caso_resumo, pergunta, artigo_contexto, tipo, user_id, org_id } = req.body || {};
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+  const { user, orgId } = auth;
+
+  const { caso_resumo, pergunta, artigo_contexto, tipo } = req.body || {};
   const perguntaText = typeof pergunta === "string" ? pergunta.trim() : "";
   if (!perguntaText) {
     return res.status(400).json({ error: "Envie sua pergunta." });
@@ -29,8 +38,8 @@ Responda em markdown, didático. Sugira busca (PubMed, Google Scholar) se fizer 
 
   try {
     const { content: resposta_ia } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "estudo-caso-pergunta",
       question: userContent,
       complexity: COMPLEXITY.MEDIUM,

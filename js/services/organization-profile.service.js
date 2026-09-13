@@ -20,10 +20,37 @@ const PROFILE_TAXAS = "taxa_transacao_pct, taxa_avista_debito_pct, taxa_avista_c
 const PROFILE_TAXAS_BANDEIRAS = "taxas_bandeiras";
 const PROFILE_PARCELAMENTO = "parcelamento_margem_minima_pct, parcelamento_max_parcelas";
 const PROFILE_MARGEM_COMISSAO = "margem_alvo_padrao_pct, comissao_profissional_padrao_pct";
+const PROFILE_CRM = "google_review_url, fidelidade_visitas";
 
 const PARCELADO_NULLS = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`taxa_parcelado_${i + 2}_pct`, null]));
 const TAXAS_EXTRA_NULLS = { taxa_transacao_pct: null, taxa_avista_debito_pct: null, taxa_avista_credito_pct: null };
-const ALL_DEFAULTS = { cidade: null, estado: null, logo_url: null, endereco: null, cnpj: null, telefone: null, cep: null, complemento: null, menu_anamnese_visible: false, brinde_aniversario_habilitado: false, nota_fiscal_emitir_url: null, taxa_avista_pct: null, taxa_parcelado_2_6_pct: null, taxa_parcelado_7_12_pct: null, taxas_bandeiras: null, parcelamento_margem_minima_pct: 80, parcelamento_max_parcelas: null, margem_alvo_padrao_pct: 40, comissao_profissional_padrao_pct: null, ...TAXAS_EXTRA_NULLS, ...PARCELADO_NULLS };
+const ALL_DEFAULTS = { cidade: null, estado: null, logo_url: null, endereco: null, cnpj: null, telefone: null, cep: null, complemento: null, menu_anamnese_visible: false, brinde_aniversario_habilitado: false, nota_fiscal_emitir_url: null, google_review_url: null, fidelidade_visitas: 10, taxa_avista_pct: null, taxa_parcelado_2_6_pct: null, taxa_parcelado_7_12_pct: null, taxas_bandeiras: null, parcelamento_margem_minima_pct: 80, parcelamento_max_parcelas: null, margem_alvo_padrao_pct: 40, comissao_profissional_padrao_pct: null, ...TAXAS_EXTRA_NULLS, ...PARCELADO_NULLS };
+
+function crmLocalKey(orgId) {
+  return `sc_crm_prefs:${orgId}`;
+}
+
+function mergeCrmLocal(orgId, result) {
+  try {
+    const local = JSON.parse(localStorage.getItem(crmLocalKey(orgId)) || "{}");
+    if (!result.google_review_url && local.google_review_url) result.google_review_url = local.google_review_url;
+    if (result.fidelidade_visitas == null && local.fidelidade_visitas) result.fidelidade_visitas = local.fidelidade_visitas;
+  } catch (_) {}
+  return result;
+}
+
+function saveCrmLocal(orgId, payload) {
+  try {
+    const prev = JSON.parse(localStorage.getItem(crmLocalKey(orgId)) || "{}");
+    localStorage.setItem(
+      crmLocalKey(orgId),
+      JSON.stringify({
+        google_review_url: payload.google_review_url ?? prev.google_review_url ?? "",
+        fidelidade_visitas: payload.fidelidade_visitas ?? prev.fidelidade_visitas ?? 10,
+      })
+    );
+  } catch (_) {}
+}
 
 /**
  * Retorna o perfil da organização ativa. Usa selects progressivos (mínimo primeiro) para evitar 400 quando colunas não existem.
@@ -58,8 +85,10 @@ export async function getOrganizationProfile() {
     if (d7) result = { ...result, ...d7 };
     const d8 = await trySelect(PROFILE_MARGEM_COMISSAO);
     if (d8) result = { ...result, ...d8 };
+    const d9 = await trySelect(PROFILE_CRM);
+    if (d9) result = { ...result, ...d9 };
 
-    return result;
+    return mergeCrmLocal(orgId, result);
   } catch (_) {
     return null;
   }
@@ -70,7 +99,7 @@ export async function getOrganizationProfile() {
  */
 export async function updateOrganizationProfile(payload) {
   const orgId = getOrgOrThrow();
-  const { name, cidade, estado, logo_url, endereco, cep, complemento, cnpj, telefone, menu_anamnese_visible, taxa_transacao_pct, taxa_avista_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct, brinde_aniversario_habilitado, nota_fiscal_emitir_url, taxas_bandeiras, parcelamento_margem_minima_pct, parcelamento_max_parcelas, margem_alvo_padrao_pct, comissao_profissional_padrao_pct } = payload;
+  const { name, cidade, estado, logo_url, endereco, cep, complemento, cnpj, telefone, menu_anamnese_visible, taxa_transacao_pct, taxa_avista_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct, brinde_aniversario_habilitado, nota_fiscal_emitir_url, google_review_url, fidelidade_visitas, taxas_bandeiras, parcelamento_margem_minima_pct, parcelamento_max_parcelas, margem_alvo_padrao_pct, comissao_profissional_padrao_pct } = payload;
   const update = {};
   if (name !== undefined) update.name = (name || "").trim();
   if (cidade !== undefined) update.cidade = (cidade || "").trim() || null;
@@ -100,6 +129,12 @@ export async function updateOrganizationProfile(payload) {
   if (parcelamento_max_parcelas !== undefined) update.parcelamento_max_parcelas = (parcelamento_max_parcelas === "" || parcelamento_max_parcelas == null) ? null : (Math.min(12, Math.max(1, parseInt(parcelamento_max_parcelas, 10))) || null);
   if (margem_alvo_padrao_pct !== undefined && margem_alvo_padrao_pct !== "") update.margem_alvo_padrao_pct = Number(margem_alvo_padrao_pct) || null;
   if (comissao_profissional_padrao_pct !== undefined && comissao_profissional_padrao_pct !== "") update.comissao_profissional_padrao_pct = Number(comissao_profissional_padrao_pct) || null;
+  if (google_review_url !== undefined) update.google_review_url = (google_review_url || "").trim() || null;
+  if (fidelidade_visitas !== undefined && fidelidade_visitas !== "") {
+    const n = parseInt(fidelidade_visitas, 10);
+    update.fidelidade_visitas = Number.isFinite(n) ? Math.min(50, Math.max(3, n)) : 10;
+  }
+  saveCrmLocal(orgId, { google_review_url: update.google_review_url, fidelidade_visitas: update.fidelidade_visitas });
 
   const { data, error } = await supabase
     .from("organizations")
@@ -111,6 +146,14 @@ export async function updateOrganizationProfile(payload) {
   if (!error) return data;
 
   const msg = (error.message || "") + (error.details ? String(error.details) : "");
+  if ((msg.includes("google_review_url") || msg.includes("fidelidade_visitas")) && ("google_review_url" in update || "fidelidade_visitas" in update)) {
+    delete update.google_review_url;
+    delete update.fidelidade_visitas;
+    if (Object.keys(update).length === 0) return mergeCrmLocal(orgId, (await getOrganizationProfile()) ?? {});
+    const { data: retCrm, error: errCrm } = await supabase.from("organizations").update(update).eq("id", orgId).select().single();
+    if (errCrm) throw errCrm;
+    return mergeCrmLocal(orgId, retCrm ?? {});
+  }
   const isMissingColumn =
     msg.includes("menu_anamnese_visible") || (msg.includes("column") && msg.toLowerCase().includes("does not exist"));
 

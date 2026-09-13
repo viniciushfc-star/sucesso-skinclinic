@@ -7,9 +7,18 @@ import {
   summarizeAgendaContext,
   COMPLEXITY,
 } from "../ai/core/index.js"
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js"
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end()
+
+  let auth
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" })
+  } catch (e) {
+    return sendAuthError(res, e)
+  }
+  const { user, orgId } = auth
 
   const supabaseUrl = process.env.SUPABASE_URL
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY
@@ -21,7 +30,7 @@ export default async function handler(req, res) {
     })
   }
 
-  const { pergunta, user_id, org_id, contextoNotificacao } = req.body || {}
+  const { pergunta, contextoNotificacao } = req.body || {}
   const perguntaText = (typeof pergunta === "string" ? pergunta : "").trim()
   if (!perguntaText) {
     return res.status(400).json({ resposta: "Envie uma pergunta." })
@@ -30,11 +39,10 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   try {
-    const filterBy = org_id ? { col: "org_id", val: org_id } : { col: "user_id", val: user_id }
-    const qOrg = org_id ? supabase.from("organizations").select("name,cidade,estado").eq("id", org_id).single() : Promise.resolve({ data: null })
-    const qClients = supabase.from("clients").select("id,name,phone,email,created_at").limit(100).eq(filterBy.col, filterBy.val)
-    const qFinanceiro = supabase.from("financeiro").select("id,descricao,valor,tipo,data,categoria,created_at").order("data", { ascending: false }).limit(100).eq(filterBy.col, filterBy.val)
-    const qAgenda = supabase.from("agenda").select("id,data,hora,procedimento,cliente_id,duration_minutes,created_at").order("data", { ascending: true }).limit(100).eq(filterBy.col, filterBy.val)
+    const qOrg = supabase.from("organizations").select("name,cidade,estado").eq("id", orgId).single()
+    const qClients = supabase.from("clients").select("id,name,phone,email,created_at").limit(100).eq("org_id", orgId)
+    const qFinanceiro = supabase.from("financeiro").select("id,descricao,valor,tipo,data,categoria,created_at").order("data", { ascending: false }).limit(100).eq("org_id", orgId)
+    const qAgenda = supabase.from("agenda").select("id,data,hora,procedimento,cliente_id,duration_minutes,created_at").order("data", { ascending: true }).limit(100).eq("org_id", orgId)
 
     const [orgRes, clientesRes, financeiroRes, agendaRes] = await Promise.all([qOrg, qClients, qFinanceiro, qAgenda])
     const orgProfile = orgRes.data || {}
@@ -80,8 +88,8 @@ ${ctxNotif}`
 
     const question = `DADOS:\n${contexto}\n\nPERGUNTA DO GESTOR:\n"${perguntaText}"\n\nResponda de forma clara e útil. Nunca decida por ele.`
     const { content } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "copiloto",
       question,
       complexity: COMPLEXITY.MEDIUM,

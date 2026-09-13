@@ -854,7 +854,10 @@ export async function init() {
       }).join("") + "</div>";
     }
     if (!body) body = "<span class=\"anamnese-empty-line\">—</span>";
-    return `<div class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span><label class="anamnese-compare-label"><input type="checkbox" class="anamnese-compare-checkbox" data-id="${escapeHtml(r.id)}"> Comparar</label></div>${body}</div>`;
+    const origemBadge = r.origem === "portal"
+      ? `<span class="anamnese-origem-portal">Preenchida pelo cliente (à distância)</span>`
+      : "";
+    return `<div class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span>${origemBadge}<label class="anamnese-compare-label"><input type="checkbox" class="anamnese-compare-checkbox" data-id="${escapeHtml(r.id)}"> Comparar</label></div>${body}</div>`;
   }
 
   function bindCompare(list) {

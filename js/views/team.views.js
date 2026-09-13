@@ -1,7 +1,7 @@
 import { getTeam } from "../services/user.service.js"
 import { createInvite } from "../services/invite.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
-import { getApiBase } from "../core/api-base.js"
+import { apiFetch } from "../core/api-fetch.js"
 import { toast } from "../ui/toast.js"
 import { openModal, closeModal, openConfirmModal } from "../ui/modal.js"
 import { audit } from "../services/audit.service.js"
@@ -17,6 +17,7 @@ import { getIndiceCuidado } from "../services/produto-avaliacoes.service.js"
 import { getFaturamentoPorUsuario } from "../services/financeiro.service.js"
 import {
   getConnectUrl,
+  startGoogleCalendarConnect,
   getCalendarConnectionsStatus,
   syncCalendar,
   disconnectCalendar,
@@ -316,14 +317,15 @@ function bindGoogleCalendarButtons() {
     })
   })
   document.querySelectorAll(".btnGoogleConnect").forEach((a) => {
-    a.addEventListener("click", (e) => {
-      const href = a.getAttribute("href")
-      if (href && href.startsWith("http")) {
-        e.preventDefault()
-        window.location.href = href
+    a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        await startGoogleCalendarConnect();
+      } catch (err) {
+        toast(err.message || "Erro ao conectar Google Agenda");
       }
-    })
-  })
+    });
+  });
 }
 
 
@@ -509,11 +511,9 @@ async function sendInvite() {
     await createInvite({ orgId, email, role });
     const profile = await getOrganizationProfile().catch(() => ({}));
     const orgName = profile?.name || "";
-    const base = getApiBase();
-    const res = await fetch(base + "/api/send-invite-email", {
+    const res = await apiFetch("/api/send-invite-email", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, role, orgName }),
+      json: { email, role, orgName },
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {

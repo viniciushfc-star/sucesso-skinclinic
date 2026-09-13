@@ -18,6 +18,13 @@ Se rodar o passo 5 **antes** do 3, o bloco que adiciona colunas em `analise_pele
 ## Rotina de skincare (portal)
 
 6. **supabase-skincare-rotina.sql** – tabela `skincare_rotinas`, RLS, RPC `get_skincare_rotina_by_token` (portal). Depende de `organizations` e `clients` (ou `clientes`).
+7. **supabase-anamnese-portal.sql** – anamnese preenchida pelo cliente no portal (`origem = portal`).
+8. **supabase-tabelas-base.sql** – cria `agenda`, `financeiro`, `client_records`, etc. se ainda não existirem.
+9. **supabase-portal-agendamento.sql** – cliente agenda, remarca e cancela pelo portal.
+10. **supabase-agenda-publica.sql** – link público `/agendar.html?org=` (Instagram/WhatsApp).
+11. **supabase-crm-waitlist.sql** – lista de espera, `google_review_url` e meta de fidelidade.
+12. **supabase-rodar-agora.sql** – atalho: lembrete + espera + colunas da agenda (se ainda não rodou 10 e 11).
+13. **supabase-fiscal-contador.sql** – pasta do contador, regime tributário e rascunhos de apuração.
 
 ## Outros (conforme necessidade)
 

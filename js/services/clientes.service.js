@@ -1,6 +1,7 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { getApiBase } from "../core/api-base.js";
+import { apiFetch } from "../core/api-fetch.js";
 import { getCache, setCache } from "../utils/cache.js";
 import { getLimits } from "./limits.service.js";
 
@@ -370,14 +371,9 @@ export async function createClientPortalSession(clientId) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Faça login para gerar o link");
 
-  const url = `${getApiBase()}/api/create-portal-session`;
-  const res = await fetch(url, {
+  const res = await apiFetch("/api/create-portal-session", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ org_id: orgId, client_id: clientId }),
+    json: { org_id: orgId, client_id: clientId },
   });
 
   const json = await res.json().catch(() => ({}));

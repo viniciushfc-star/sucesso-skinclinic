@@ -141,6 +141,11 @@ function bindUI() {
     }
   }
 
+  const btnEspera = document.getElementById("btnAgendaListaEspera")
+  if (btnEspera) {
+    btnEspera.onclick = () => navigate("crm")
+  }
+
   const filtroProf = document.getElementById("agendaFiltroProfissional")
   if (filtroProf && !filtroProf.dataset.bound) {
     filtroProf.dataset.bound = "1"
@@ -961,6 +966,7 @@ async function openSlotPanel(id){
     <button type="button" class="btn-primary agenda-panel__btn-profile" id="agendaPanelBtnProfile">Abrir perfil do cliente (e Anamnese)</button>
     <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado (protocolo)">Registrar protocolo</button>
     ${!temBaixa ? `<button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
+    <button type="button" class="btn-secondary" id="agendaPanelBtnReview">Pedir avaliação no Google</button>
      `
      }
      <button type="button" class="btn-secondary agenda-panel__btn-edit" id="agendaPanelBtnEdit">Editar</button>
@@ -1006,6 +1012,12 @@ async function openSlotPanel(id){
     closeSlotPanel()
     await openDarBaixaModal(item)
    }
+  }
+  const btnReview = document.getElementById("agendaPanelBtnReview")
+  if (btnReview && !isEvent) {
+    btnReview.onclick = async () => {
+      await pedirAvaliacaoGoogle(item)
+    }
   }
 
   const linkFinanceiro = agendaPanelEl.querySelector(".agenda-panel__link-financeiro")
@@ -1176,6 +1188,25 @@ async function openEditModal(id){
 
   console.error("[AGENDA] erro edit", err)
  }
+}
+
+async function pedirAvaliacaoGoogle(item, { silenciosoSeVazio = false } = {}) {
+  const profile = await getOrganizationProfile().catch(() => ({}))
+  const url = (profile?.google_review_url || "").trim()
+  if (!url) {
+    if (!silenciosoSeVazio) toast("Cadastre o link do Google em Empresa.")
+    return
+  }
+  const cliente = item.clientes || item.clients || {}
+  const nome = cliente.nome || cliente.name || ""
+  const tel = cliente.telefone || cliente.phone || ""
+  const msg = `Oi${nome ? `, ${nome}` : ""}! Obrigada pela visita. Se puder, avalia a gente no Google: ${url}`
+  if (!String(tel).replace(/\D/g, "").length) {
+    if (!silenciosoSeVazio) toast("Cliente sem telefone. Copie o link do Google em Empresa.")
+    return
+  }
+  await sendWhatsapp(tel, msg)
+  toast("Pedido de avaliação no WhatsApp.")
 }
 
 /** Modal "Dar baixa": valor vem do procedimento (agenda); acréscimo só se produto a mais / outro procedimento. Opção de descontar 1 sessão de pacote. */
@@ -1351,6 +1382,7 @@ async function submitDarBaixa(item) {
 
     closeModal()
     renderAgenda()
+    await pedirAvaliacaoGoogle(item, { silenciosoSeVazio: true })
   } catch (err) {
     console.error("[AGENDA] submitDarBaixa", err)
     toast(err?.message || "Erro ao registrar pagamento.")
@@ -1686,5 +1718,7 @@ async function enviarWhats(tel, appointmentId) {
       renderDayList(selectedDate);
     } catch (_) {}
   }
-  toast(result?.success ? "WhatsApp aberto. Envie a mensagem para o cliente." : "Verifique o número do cliente.");
+  toast(result?.via === "api"
+    ? "Lembrete enviado pelo WhatsApp da clínica."
+    : (result?.success ? "WhatsApp aberto. Envie a mensagem para o cliente." : "Verifique o número do cliente."));
 }

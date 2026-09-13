@@ -3,6 +3,7 @@ import { checkPermission } from "./permissions.js";
 import { getActiveOrg } from "./org.js";
 import { protectPage, logout, getSession, setupSessionExpiredRedirect } from "./auth.js";
 import { getBase, redirect, replace } from "./base-path.js";
+import { initPwa } from "./pwa-install.js";
 import { loadTheme, toggleTheme } from "../services/theme.service.js";
 
 /** Títulos exibidos no header ao trocar de view */
@@ -25,6 +26,7 @@ const VIEW_TITLES = {
   master: "Configurações",
   copiloto: "Copiloto",
   marketing: "Marketing",
+  crm: "CRM e fidelidade",
   "calendario-conteudo": "Calendário de conteúdo",
   estoque: "Estoque",
   ocr: "Notas fiscais",
@@ -123,6 +125,10 @@ const routes = {
   },
   marketing: {
     view: "marketing.views.js",
+    permission: "dashboard:view",
+  },
+  crm: {
+    view: "crm.views.js",
     permission: "dashboard:view",
   },
   "calendario-conteudo": {
@@ -254,7 +260,7 @@ async function init() {
   bindTutorialButton();
   bindSkipLink();
   bindApiErrorBanner();
-  registerPwaServiceWorker();
+  initPwa();
   updateThemeButtonIcon();
   /* Copilot FAB: inicializa cedo (só existe em dashboard.html) */
   if (document.getElementById("copilotFab")) {
@@ -432,12 +438,14 @@ async function initMarketingMenu() {
 
   let canMarketing = false;
   let canCalendario = false;
+  let canCrm = false;
   try {
     canMarketing = await checkPermission(routes.marketing?.permission || "dashboard:view");
     canCalendario = await checkPermission(routes["calendario-conteudo"]?.permission || "dashboard:view");
+    canCrm = await checkPermission(routes.crm?.permission || "dashboard:view");
   } catch (_) {}
 
-  if (!canMarketing && !canCalendario) {
+  if (!canMarketing && !canCalendario && !canCrm) {
     wrap.classList.add("menu-item-hidden");
     return;
   }
@@ -446,20 +454,25 @@ async function initMarketingMenu() {
 
   const marketingSub = submenu.querySelector("[data-view='marketing']")?.closest("li");
   const calendarioSub = submenu.querySelector("[data-view='calendario-conteudo']")?.closest("li");
+  const crmSub = submenu.querySelector("[data-view='crm']")?.closest("li");
   if (marketingSub) marketingSub.classList.toggle("menu-item-hidden", !canMarketing);
   if (calendarioSub) calendarioSub.classList.toggle("menu-item-hidden", !canCalendario);
+  if (crmSub) crmSub.classList.toggle("menu-item-hidden", !canCrm);
 
   submenu.classList.add("sidebar-submenu--collapsed");
+  submenu.classList.remove("sidebar-submenu--hidden");
 
-  if (canMarketing && canCalendario) {
+  const visible = [...submenu.querySelectorAll(":scope > li")].filter((li) => !li.classList.contains("menu-item-hidden"));
+
+  if (visible.length <= 1) {
+    const target = visible[0]?.querySelector("[data-view]")?.getAttribute("data-view") || "marketing";
+    btn.onclick = () => navigate(target);
+    submenu.classList.add("sidebar-submenu--hidden");
+  } else {
     btn.onclick = () => {
       submenu.classList.toggle("sidebar-submenu--collapsed");
       btn.setAttribute("aria-expanded", submenu.classList.contains("sidebar-submenu--collapsed") ? "false" : "true");
     };
-  } else {
-    const target = canMarketing ? "marketing" : "calendario-conteudo";
-    btn.onclick = () => navigate(target);
-    submenu.classList.add("sidebar-submenu--hidden");
   }
 }
 
@@ -590,7 +603,8 @@ async function renderRoute(route) {
     const viewEl = document.getElementById("view-financeiro");
     if (viewEl) {
       const tab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null;
-      viewEl.dataset.currentTab = (tab === "custo-fixo" ? "custo-fixo" : "visao-geral");
+      const allowed = ["visao-geral", "dre", "custo-fixo", "contador"];
+      viewEl.dataset.currentTab = allowed.includes(tab) ? tab : "visao-geral";
     }
   }
   setActive(route);
@@ -798,12 +812,9 @@ function bindApiErrorBanner() {
   if (retry) retry.addEventListener("click", (e) => { e.preventDefault(); updateAppIdentity(); });
 }
 
-/** Registra o Service Worker para PWA (instalável no celular/desktop). Só no dashboard. */
+/** PWA: registro do SW e botão Adicionar à tela (ver initPwa). */
 function registerPwaServiceWorker() {
-  if (typeof navigator?.serviceWorker === "undefined") return;
-  if (!window.location.pathname.includes("dashboard")) return;
-  const base = getBase();
-  navigator.serviceWorker.register(base + "/sw.js", { scope: base + "/" }).catch(() => {});
+  initPwa();
 }
 
 /* Skip link: ao clicar, foca o conteúdo principal (acessibilidade). */

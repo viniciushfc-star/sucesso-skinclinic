@@ -37,7 +37,8 @@ Configure no ambiente onde as rotas `/api/google-calendar/*` rodam (ex.: Vercel)
 | Variável | Obrigatório | Descrição |
 |----------|-------------|-----------|
 | `GOOGLE_CLIENT_ID` | Sim | ID do cliente OAuth (Google Cloud). |
-| `GOOGLE_CLIENT_SECRET` | Sim | Segredo do cliente OAuth. |
+| `GOOGLE_CLIENT_SECRET` | Sim | Segredo do cliente OAuth (também assina o `state` se `GOOGLE_OAUTH_STATE_SECRET` não existir). |
+| `GOOGLE_OAUTH_STATE_SECRET` | Não | Segredo só para HMAC do `state` OAuth. |
 | `BASE_URL` | Sim* | URL base do app (ex.: `https://app.seudominio.com`). Usado para montar `redirect_uri`. |
 | `SUPABASE_URL` | Sim | URL do projeto Supabase. |
 | `SUPABASE_SERVICE_KEY` | Sim | Chave service_role do Supabase (para gravar/ler `google_calendar_connections` e `external_calendar_blocks`). |
@@ -68,4 +69,6 @@ Isso cria a tabela e as políticas RLS.
 ## Segurança
 
 - O **refresh_token** fica apenas no backend (tabela no Supabase acessada com `SUPABASE_SERVICE_KEY`). O frontend nunca lê esse campo.
-- As rotas **sync**, **status** e **disconnect** exigem `Authorization: Bearer <jwt_do_usuario>` e checam se o usuário pertence à org.
+- **auth** exige JWT + membership; o `state` enviado ao Google é HMAC-SHA256 (`userId`, `orgId`, expiração ~15 min). `userId` na query não é autoridade.
+- **callback** não usa JWT (o Google redireciona o browser). Valida a assinatura do `state`, recusa formato antigo (JSON base64 sem HMAC) e confirma de novo a membership antes do upsert.
+- **sync**, **status** e **disconnect** exigem `Authorization: Bearer <jwt_do_usuario>` e checam se o usuário pertence à org.

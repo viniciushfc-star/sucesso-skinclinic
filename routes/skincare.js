@@ -1,9 +1,18 @@
 ﻿import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { analise, protocolo, user_id, org_id } = req.body || {};
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+  const { user, orgId } = auth;
+
+  const { analise, protocolo } = req.body || {};
 
   const prompt = `
 Com base na análise:
@@ -19,8 +28,8 @@ Retorne APENAS um JSON válido, sem markdown:
 
   try {
     const { content } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "skincare",
       question: prompt,
       complexity: COMPLEXITY.MEDIUM,

@@ -1,20 +1,11 @@
 ﻿/**
  * POST /api/create-portal-session
- * Cria link do portal do cliente (alternativa à RPC quando a API REST do Supabase retorna 404).
- * Body: { org_id, client_id }
- * Requer: Authorization: Bearer <supabase_jwt>
+ * Body: { org_id, client_id } — contexto; identidade vem do JWT.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { randomBytes } from "node:crypto";
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-const isProduction = process.env.NODE_ENV === "production";
-/** Em dev (NODE_ENV !== production) ou ALLOW_PORTAL_SESSION_DEV=1: ignora checagem de org (só exige JWT + cliente na org). */
-const skipOrgCheck = !isProduction || process.env.ALLOW_PORTAL_SESSION_DEV === "1";
+import { requireStaffAccess, sendAuthError, getAdminClient } from "../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -22,81 +13,33 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido" });
   }
 
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  if (!token) {
-    return res.status(401).json({ error: "Envie o token de sessão (Authorization: Bearer)" });
-  }
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return res.status(500).json({ error: "Supabase não configurado no servidor" });
-  }
-
-  if (!supabaseAnonKey) {
-    return res.status(500).json({
-      error: "Configure SUPABASE_ANON_KEY no .env (Supabase → Project Settings → API → anon public)",
+  const skipPermissao = process.env.ALLOW_PORTAL_SESSION_DEV === "1";
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, {
+      permission: skipPermissao ? undefined : "clientes:view",
     });
+    if (skipPermissao) {
+      console.warn("[create-portal-session] ALLOW_PORTAL_SESSION_DEV=1: permissão clientes:view não exigida");
+    }
+  } catch (e) {
+    return sendAuthError(res, e);
   }
 
-  const orgId = String(req.body?.org_id ?? "").trim();
+  const { orgId } = auth;
   const clientId = String(req.body?.client_id ?? "").trim();
-  if (!orgId || !clientId) {
+  if (!clientId) {
     return res.status(400).json({ error: "Envie org_id e client_id no body" });
   }
 
-  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
-  const { data: { user }, error: userError } = await supabaseAuth.auth.getUser(token);
-  if (userError || !user) {
-    console.warn("[create-portal-session] getUser falhou:", userError?.message || "sem user");
-    return res.status(401).json({
-      error: userError?.message || "Token inválido ou expirado. Confira se SUPABASE_ANON_KEY está no .env (chave anon do projeto).",
-    });
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  let hasAccess = false;
-  let membership = null;
-  if (skipOrgCheck) {
-    hasAccess = true;
-    if (!isProduction) console.warn("[create-portal-session] Dev: checagem de organização ignorada");
-  } else {
-    const { data: membershipData } = await supabase
-      .from("organization_users")
-      .select("org_id")
-      .eq("user_id", user.id)
-      .eq("org_id", orgId)
-      .maybeSingle();
-    membership = membershipData;
-    hasAccess = !!membership;
-    if (!hasAccess) {
-      const { data: org } = await supabase
-        .from("organizations")
-        .select("id")
-        .eq("id", orgId)
-        .eq("owner_id", user.id)
-        .maybeSingle();
-      hasAccess = !!org;
-    }
-  }
-
-  if (!hasAccess) {
-    const debug = process.env.NODE_ENV !== "production"
-      ? { membership: !!membership, hint: "Confira no Supabase: organization_users tem (user_id, org_id)? organizations.owner_id = seu user_id? Ou em dev use ALLOW_PORTAL_SESSION_DEV=1 no .env" }
-      : undefined;
-    console.warn("[create-portal-session] 403", { userId: user.id, orgId, membership: !!membership });
-    return res.status(403).json({
-      error: "Você não tem permissão nesta organização. Selecione a clínica no seletor de organização e tente de novo.",
-      ...(debug && { debug }),
-    });
-  }
+  const supabase = getAdminClient();
 
   const { data: client } = await supabase
     .from("clients")
     .select("id")
     .eq("id", clientId)
     .eq("org_id", orgId)
-    .single();
+    .maybeSingle();
 
   if (!client) {
     return res.status(404).json({ error: "Cliente não encontrado" });
@@ -122,7 +65,7 @@ export default async function handler(req, res) {
 
   if (insertErr) {
     console.error("[create-portal-session]", insertErr);
-    return res.status(500).json({ error: insertErr.message || "Erro ao criar sessão" });
+    return res.status(500).json({ error: "Erro ao criar sessão" });
   }
 
   const baseUrl = process.env.BASE_URL || (req.headers.origin || "").replace(/\/$/, "") || "http://localhost:3000";
@@ -130,4 +73,3 @@ export default async function handler(req, res) {
 
   return res.status(200).json({ token: newToken, url });
 }
-

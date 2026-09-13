@@ -222,6 +222,27 @@ export async function getSkincareRotinaByToken() {
  * Não exige sessão do portal; qualquer pessoa com o link pode confirmar.
  * @returns {{ ok: boolean, error?: string }}
  */
+export async function submitAnamneseByToken({ funcao_slug, ficha, observacoes }) {
+  const token = getToken();
+  if (!token) throw new Error("Sessão inválida. Acesse pelo link enviado.");
+  const { data, error } = await supabase.rpc("submit_anamnese_by_token", {
+    p_token: token,
+    p_funcao_slug: funcao_slug || "rosto_pele",
+    p_ficha: ficha || {},
+    p_observacoes: observacoes || ""
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function listAnamnesePortalByToken() {
+  const token = getToken();
+  if (!token) throw new Error("Sessão inválida. Acesse pelo link enviado.");
+  const { data, error } = await supabase.rpc("list_anamnese_portal_by_token", { p_token: token });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function confirmarHorarioByToken(confirmToken) {
   if (!confirmToken || !String(confirmToken).trim()) {
     return { ok: false, error: "Link inválido." };

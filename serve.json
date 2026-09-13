@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/onboarding", "destination": "/onboarding.html" },
+    { "source": "/agendar", "destination": "/agendar.html" },
     { "source": "/onboarding/**", "destination": "/onboarding.html" },
     { "source": "/accept-invite", "destination": "/index.html" },
     { "source": "/accept-invite/**", "destination": "/index.html" },

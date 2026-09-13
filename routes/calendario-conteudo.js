@@ -6,6 +6,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { isCronAuthorized, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -20,13 +21,25 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Use ?action=processar-agendados" });
   }
 
+  let orgFiltro = null;
+  if (!isCronAuthorized(req)) {
+    try {
+      const auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+      orgFiltro = auth.orgId;
+    } catch (e) {
+      return sendAuthError(res, e);
+    }
+  }
+
   try {
     const now = new Date().toISOString();
-    const { data: vencidos, error: errList } = await supabase
+    let q = supabase
       .from("conteudo_calendario")
       .select("id, org_id, titulo, conteudo")
       .eq("status", "agendado")
       .lte("agendado_para", now);
+    if (orgFiltro) q = q.eq("org_id", orgFiltro);
+    const { data: vencidos, error: errList } = await q;
 
     if (errList) throw errList;
     const items = vencidos || [];
@@ -52,7 +65,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, processados: items.length });
   } catch (err) {
     console.error("[CALENDARIO-API]", err);
-    return res.status(500).json({ error: err.message || "Erro ao processar agendados" });
+    return res.status(500).json({ error: "Erro ao processar agendados" });
   }
 }
 

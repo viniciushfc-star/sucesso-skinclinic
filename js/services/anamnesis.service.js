@@ -78,7 +78,7 @@ export function suggestFuncaoFromProcedimento(procedimentoNome) {
 export async function listRegistrosByClientAndFuncao(clientId, funcaoId) {
   if (!clientId || !funcaoId) return [];
   const orgId = getOrgOrThrow();
-  const cols = "id, conteudo, ficha, fotos, conduta_tratamento, agenda_id, author_id, created_at";
+  const cols = "id, conteudo, ficha, fotos, conduta_tratamento, agenda_id, author_id, created_at, origem";
   const { data, error } = await withOrg(
     supabase
       .from("anamnesis_registros")
@@ -89,19 +89,22 @@ export async function listRegistrosByClientAndFuncao(clientId, funcaoId) {
       .order("created_at", { ascending: false })
   );
   if (error) {
-    const colMissing = (error.code === "42703" || error.message?.includes("does not exist")) && String(error.message || "").includes("resultado_resumo");
+    const msg = String(error.message || "");
+    const missingOrigem = (error.code === "42703" || msg.includes("does not exist")) && msg.includes("origem");
+    const colsSafe = missingOrigem ? cols.replace(", origem", "") : cols;
+    const colMissing = (error.code === "42703" || msg.includes("does not exist")) && (msg.includes("resultado_resumo") || missingOrigem);
     if (colMissing) {
       const { data: fallback, error: err2 } = await withOrg(
         supabase
           .from("anamnesis_registros")
-          .select(cols)
+          .select(colsSafe)
           .eq("org_id", orgId)
           .eq("client_id", clientId)
           .eq("funcao_id", funcaoId)
           .order("created_at", { ascending: false })
       );
       if (err2) throw err2;
-      return (fallback ?? []).map((r) => ({ ...r, resultado_resumo: r.ficha?.resultado_resumo ?? null }));
+      return (fallback ?? []).map((r) => ({ ...r, resultado_resumo: r.ficha?.resultado_resumo ?? null, origem: r.origem || "clinica" }));
     }
     throw error;
   }

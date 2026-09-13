@@ -1,11 +1,10 @@
 ﻿/**
- * Remove a conexão Google Calendar do usuário.
+ * Remove a conexão Google Calendar.
  * POST /api/google-calendar/disconnect
- * Body: { userId, orgId }
- * Requer Authorization: Bearer <supabase_jwt> (usuário da org).
+ * Body: { orgId, userId? } — userId do body só vale se for o JWT ou se o role for master.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { requireStaffAccess, sendAuthError, getAdminClient } from "../../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -13,50 +12,36 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido" });
   }
 
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.replace(/^Bearer\s+/i, "");
-  if (!token) {
-    return res.status(401).json({ error: "Authorization Bearer obrigatório" });
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
   }
 
-  const supabaseAnon = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
-  );
-  const { data: { user }, error: userError } = await supabaseAnon.auth.getUser(token);
-  if (userError || !user) {
-    return res.status(401).json({ error: "Token inválido ou expirado" });
+  const userIdParam = String(req.body?.userId || req.body?.user_id || "").trim();
+  const targetUserId =
+    !userIdParam || userIdParam === auth.user.id
+      ? auth.user.id
+      : auth.membership?.role === "master"
+        ? userIdParam
+        : null;
+
+  if (!targetUserId) {
+    return res.status(403).json({ error: "Sem permissão" });
   }
 
-  const orgId = req.body?.orgId || "";
-  const userIdParam = req.body?.userId || "";
-
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY
-  );
-
-  const { data: membership } = await supabase
-    .from("organization_users")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .eq("org_id", orgId)
-    .single();
-
-  if (!membership || !orgId) {
-    return res.status(403).json({ error: "Sem permissão para esta organização" });
-  }
-
+  const supabase = getAdminClient();
   const { error } = await supabase
     .from("google_calendar_connections")
     .delete()
-    .eq("org_id", orgId)
-    .eq("user_id", userIdParam);
+    .eq("org_id", auth.orgId)
+    .eq("user_id", targetUserId);
 
   if (error) {
-    return res.status(500).json({ error: error.message });
+    console.error("[google-calendar/disconnect]", error);
+    return res.status(500).json({ error: "Erro interno" });
   }
 
   return res.status(200).json({ ok: true });
 }
-

@@ -62,6 +62,7 @@
           <ul class="sidebar-submenu" id="financeiroSubmenu">
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="visao-geral" title="Visão geral"><span class="sidebar-icon">📊</span><span class="sidebar-label">Visão geral</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="dre" title="DRE e relatórios"><span class="sidebar-icon">📈</span><span class="sidebar-label">DRE</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="contador" title="Pasta e CSV para o contador"><span class="sidebar-icon">📁</span><span class="sidebar-label">Contador</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
           </ul>
         </li>
@@ -74,6 +75,7 @@
           <ul class="sidebar-submenu" id="marketingSubmenu">
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="marketing" title="Sugestões e métricas"><span class="sidebar-icon">📢</span><span class="sidebar-label">Sugestões</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="calendario-conteudo" title="Calendário de conteúdo"><span class="sidebar-icon">📆</span><span class="sidebar-label">Calendário</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="crm" title="Reativar inativos, fidelidade, lista de espera e Google"><span class="sidebar-icon">💛</span><span class="sidebar-label">CRM e fidelidade</span></button></li>
           </ul>
         </li>
         <li><button type="button" class="sidebar-item" data-view="estoque" title="Estoque"><span class="sidebar-icon">📦</span><span class="sidebar-label">Estoque</span></button></li>
@@ -91,7 +93,7 @@
 
     <div class="sidebar-footer">
       <button type="button" class="sidebar-item" id="btnTutorialIniciar" title="Passo a passo para conhecer o app">📖 <span class="sidebar-label">Tutorial</span></button>
-      <button type="button" class="sidebar-item" id="btnTheme" title="Tema">🌙</button>
+      <button type="button" class="sidebar-item hidden" id="btnInstallPwa" data-pwa-install title="Instalar o app neste aparelho">Instalar app</button>
       <button type="button" class="sidebar-item sidebar-item-logout" id="btnLogout" title="Sair">🚪 <span class="sidebar-label">Sair</span></button>
       <p class="sidebar-powered" id="sidebarPowered" aria-hidden="true">Powered by <strong>SkinClinic</strong></p>
     </div>
@@ -311,6 +313,13 @@
           <h2>Cadastro da empresa</h2>
           <p class="empresa-lead">Informações da clínica usadas em todo o sistema e na identidade visual.</p>
         </div>
+        <div class="empresa-card" id="empresaLinkAgendaCard">
+          <h3 class="empresa-card-title">Link para o cliente agendar sozinho</h3>
+          <p class="view-hint">Mande no Instagram, WhatsApp Status ou bio. A pessoa escolhe horário sem precisar de cadastro prévio. Rode o SQL <code>supabase-agenda-publica.sql</code> no Supabase uma vez.</p>
+          <input type="text" id="empresaLinkAgenda" readonly>
+          <button type="button" class="btn-primary" id="empresaBtnCopiarAgenda">Copiar link</button>
+          <button type="button" class="btn-secondary" id="empresaBtnWhatsAgenda">Mandar no WhatsApp</button>
+        </div>
         <div id="empresaResumo" class="empresa-resumo hidden">
           <div class="empresa-resumo-content"></div>
           <button type="button" id="empresaBtnEditar" class="btn-primary">Editar cadastro</button>
@@ -393,7 +402,18 @@
                 <span class="empresa-toggle-text">Incluir brinde no texto de aniversário</span>
               </label>
             </div>
-            <p class="empresa-preferences-note">Anamnese continua acessível pelo perfil do cliente e pela agenda. Brinde: o texto sugerido em Agenda → Aniversariantes passa a incluir oferta; a empresa decide se oferece.</p>
+            <label for="empresaGoogleReviewUrl">Link para avaliar no Google</label>
+            <input type="url" id="empresaGoogleReviewUrl" placeholder="https://g.page/r/… ou busca da clínica no Maps">
+            <label for="empresaFidelidadeVisitas">Fidelidade: cortesia na visita número</label>
+            <input type="number" id="empresaFidelidadeVisitas" min="3" max="50" value="10">
+            <p class="empresa-preferences-note">Anamnese continua acessível pelo perfil do cliente e pela agenda. Brinde: o texto sugerido em Agenda → Aniversariantes passa a incluir oferta; a empresa decide se oferece. Google e fidelidade alimentam Marketing → CRM.</p>
+          </section>
+          <section class="empresa-card" aria-labelledby="empresa-whatsapp-title">
+            <h3 id="empresa-whatsapp-title" class="empresa-card-title">WhatsApp automático (o que o Brasil exige)</h3>
+            <p class="view-hint">O app já envia lembrete sozinho uma vez por dia se a Vercel tiver <code>CRON_SECRET</code>, <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_KEY</code> e (WhatsApp e/ou Resend). Sem WhatsApp da Meta, o botão abaixo ainda abre o status — o envio cai no WhatsApp Web nos outros botões do app.</p>
+            <p id="empresaIntegracoesStatus" class="view-hint">Checando integrações…</p>
+            <button type="button" class="btn-secondary" id="empresaBtnStatusIntegracoes">Atualizar status</button>
+            <button type="button" class="btn-primary" id="empresaBtnLembretesAgora">Enviar lembretes desta clínica agora</button>
           </section>
           <div class="empresa-form-actions">
             <button type="submit" id="empresaBtnSalvar" class="btn-primary">Salvar</button>
@@ -522,6 +542,7 @@
               <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
               <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
               <a href="#" id="btnModeloAgenda" class="agenda-toolbar-action" title="Modelo CSV">Modelo</a>
+              <button type="button" id="btnAgendaListaEspera" class="agenda-toolbar-action" title="Lista de espera">Espera</button>
             </div>
           </header>
         <div class="agenda-layout">
@@ -636,6 +657,7 @@
           <div class="financeiro-main-tabs" role="tablist" aria-label="Abas do Financeiro">
             <button type="button" class="financeiro-main-tab is-active" data-tab="visao-geral" role="tab">Visão geral</button>
             <button type="button" class="financeiro-main-tab" data-tab="dre" role="tab">DRE</button>
+            <button type="button" class="financeiro-main-tab" data-tab="contador" role="tab">Contador e fiscal</button>
             <button type="button" class="financeiro-main-tab" data-tab="custo-fixo" role="tab">Custo fixo</button>
           </div>
         </div>
@@ -776,7 +798,7 @@
           </div>
         </div>
         <div id="financeiroDrePanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="dre" aria-label="DRE — Demonstrativo de Resultados">
-          <p class="view-lead view-financeiro-tab-lead">Demonstrativo de Resultados do Exercício por período. Receitas (entradas), despesas (saídas) e resultado. Exporte em CSV para análise.</p>
+      <p class="view-lead view-financeiro-tab-lead">Demonstrativo por período, mais faturamento por profissional e por procedimento. Exporte o detalhe em CSV.</p>
           <div class="financeiro-dre-controls">
             <label for="financeiroDreInicio">De</label>
             <input type="date" id="financeiroDreInicio" class="financeiro-dre-input" aria-label="Data inicial">
@@ -786,7 +808,48 @@
             <button type="button" id="btnFinanceiroDreExportCsv" class="btn-primary">Exportar CSV</button>
           </div>
           <div id="financeiroDreResumo" class="financeiro-dre-resumo" aria-live="polite"></div>
+          <div id="financeiroDrePorProf" class="financeiro-dre-por" aria-label="Faturamento por profissional"></div>
+          <div id="financeiroDrePorProc" class="financeiro-dre-por" aria-label="Faturamento por procedimento"></div>
           <div id="financeiroDreDetalhe" class="financeiro-dre-detalhe"></div>
+        </div>
+        <div id="financeiroContadorPanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="contador" aria-label="Contador e fiscal">
+          <p class="view-lead view-financeiro-tab-lead">Pacote para o escritório: CSV do mês, pasta de documentos e estimativa de imposto. Não substitui o contador até vocês assumirem a apuração de verdade.</p>
+          <p id="fiscalInternaHint" class="view-hint"></p>
+          <div class="view-card">
+            <h3 class="view-card-title">Regime e competência</h3>
+            <label for="fiscalRegime">Regime tributário</label>
+            <select id="fiscalRegime"></select>
+            <label for="fiscalAliquota">Alíquota do Simples (%) — deixe vazio para usar a tabela Anexo III</label>
+            <input type="number" id="fiscalAliquota" min="0" max="33" step="0.01" placeholder="Ex.: 6">
+            <label for="fiscalCompetencia">Competência</label>
+            <input type="month" id="fiscalCompetencia">
+            <button type="button" class="btn-primary" id="fiscalBtnSalvarRegime">Salvar regime</button>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Apuração (estimativa)</h3>
+            <div id="fiscalApuracaoResumo"></div>
+            <button type="button" class="btn-secondary" id="fiscalBtnApurar">Recalcular</button>
+            <button type="button" class="btn-primary" id="fiscalBtnGuardarApuracao">Guardar rascunho do mês</button>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">O que mandar ao contador</h3>
+            <button type="button" class="btn-primary" id="fiscalBtnCsv">Baixar CSV do mês</button>
+            <button type="button" class="btn-secondary" id="fiscalBtnPdfClientes">PDF por cliente</button>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Pasta de documentação</h3>
+            <p class="view-hint">Contrato, CNPJ, DAS, extrato, procuração. Cole o link do arquivo (Drive) — a estrutura já é a da contabilidade interna.</p>
+            <form id="fiscalFormDoc" class="crm-form-espera">
+              <label for="fiscalDocTipo">Tipo</label>
+              <select id="fiscalDocTipo"></select>
+              <label for="fiscalDocTitulo">Título</label>
+              <input type="text" id="fiscalDocTitulo" required placeholder="Ex.: DAS março 2026">
+              <label for="fiscalDocUrl">Link do arquivo</label>
+              <input type="url" id="fiscalDocUrl" placeholder="https://drive.google.com/…">
+              <button type="submit" class="btn-primary">Guardar na pasta</button>
+            </form>
+            <div id="fiscalPastaLista" class="crm-list"></div>
+          </div>
         </div>
         <div id="financeiroCustoFixoPanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="custo-fixo" aria-label="Custo fixo — organizar custos da clínica">
           <p class="view-lead view-financeiro-tab-lead financeiro-custo-fixo-placeholder">Organize aluguel, luz, internet e outros gastos recorrentes. Marque os itens, informe o valor e crie os lançamentos no Financeiro.</p>
@@ -1049,6 +1112,55 @@
         <p class="view-hint marketing-metricas-hint">A resposta inclui métricas de tráfego pago (CPL, CPA, ROAS): o que são e como aplicar. Leia o item 3 da resposta para interpretar.</p>
         <pre id="resultadoMarketing"></pre>
         <button type="button" id="btnMarketingParaCalendario" class="btn-secondary" style="margin-top:0.5rem;">Adicionar sugestão ao calendário</button>
+      </section>
+
+      <section id="view-crm" class="view hidden">
+        <div id="crmRoot">
+          <div class="view-header">
+            <h2>CRM e fidelidade</h2>
+            <p class="view-lead">O que Clinicorp e Phorest usam para a clínica indicar o sistema: trazer quem sumiu, premiar quem volta e pedir Google depois do atendimento.</p>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Quem não volta</h3>
+            <p class="view-hint">Lista quem não agenda há X dias. Um toque abre o WhatsApp com o link público de horários.</p>
+            <label for="crmDiasInativo">Dias sem retorno</label>
+            <input type="number" id="crmDiasInativo" min="21" max="365" value="60">
+            <button type="button" class="btn-primary" id="crmBtnInativos">Atualizar lista</button>
+            <div id="crmListaInativos" class="crm-list"></div>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Fidelidade (Nª visita)</h3>
+            <p class="view-hint">Conta atendimentos na agenda. Meta padrão 10 — altere em Empresa. Não é clube com cartão; é o gesto que a dona consegue explicar para a amiga.</p>
+            <div id="crmListaFidelidade" class="crm-list"></div>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Aniversários da semana</h3>
+            <div id="crmListaAniversario" class="crm-list"></div>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Pedir avaliação no Google</h3>
+            <p class="view-hint" id="crmReviewUrlHint"></p>
+            <button type="button" class="btn-secondary" id="crmBtnReviewLote">Pedir para quem mais veio</button>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Lista de espera</h3>
+            <p class="view-hint">Quando a agenda lotar, a pessoa entra aqui. Ao abrir vaga, avise no WhatsApp. Precisa do SQL supabase-crm-waitlist.sql.</p>
+            <form id="crmFormEspera" class="crm-form-espera">
+              <label for="crmEsperaCliente">Cliente cadastrado</label>
+              <select id="crmEsperaCliente"></select>
+              <label for="crmEsperaNome">Nome</label>
+              <input type="text" id="crmEsperaNome" placeholder="Nome de quem espera" required>
+              <label for="crmEsperaPhone">WhatsApp</label>
+              <input type="tel" id="crmEsperaPhone" placeholder="11 99999-0000">
+              <label for="crmEsperaProc">Procedimento</label>
+              <input type="text" id="crmEsperaProc" placeholder="Ex.: limpeza de pele">
+              <label for="crmEsperaData">Preferência de dia</label>
+              <input type="date" id="crmEsperaData">
+              <button type="submit" class="btn-primary">Colocar na espera</button>
+            </form>
+            <div id="crmListaEspera" class="crm-list"></div>
+          </div>
+        </div>
       </section>
 
       <section id="view-calendario-conteudo" class="view hidden">
@@ -1356,8 +1468,15 @@
           <p class="view-lead">Dúvidas frequentes, atalhos para as telas e como usar o sistema no dia a dia. Use o tutorial para um passo a passo guiado.</p>
         </div>
         <div class="view-card">
+          <h3 class="view-card-title">Indicar o SkinClinic (o que faz o app crescer)</h3>
+          <p>Quem indica não é review de loja: é a dona da clínica mandando para a amiga. Copie a mensagem e envie no WhatsApp.</p>
+          <textarea id="indicarSkinClinicTexto" rows="4" readonly></textarea>
+          <button type="button" class="btn-primary" id="btnCopiarIndicarSkinClinic">Copiar texto</button>
+          <button type="button" class="btn-secondary" id="btnWhatsIndicarSkinClinic">Abrir WhatsApp</button>
+        </div>
+        <div class="view-card">
           <p class="para-clinicas-tutorial-wrap">
-            <button type="button" id="btnTutorialRecomecar" class="btn-secondary">📖 Iniciar ou refazer o tutorial</button>
+            <button type="button" id="btnTutorialRecomecar" class="btn-secondary">Iniciar ou refazer o tutorial</button>
             <span class="para-clinicas-tutorial-hint">Passo a passo para conhecer o app; também no menu lateral.</span>
           </p>
           <p class="para-clinicas-suporte">Precisa de suporte? Entre em contato pelo e-mail ou canal indicado no seu contrato. Para dúvidas de uso, consulte a FAQ abaixo e os atalhos para cada tela.</p>

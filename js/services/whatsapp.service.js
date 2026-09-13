@@ -1,10 +1,8 @@
-import { supabase } from "../core/supabase.js"
+import { supabase } from "../core/supabase.js";
+import { apiFetch } from "../core/api-fetch.js";
 
 /**
- * Abre o WhatsApp (Web ou app) com o número do cliente e a mensagem pronta — melhor canal para aproximar clínica e cliente.
- * A mensagem pode conter link de confirmação de horário (portal.html?confirmToken=xxx).
- * Em ambiente com janela (navegador), abre wa.me; opcionalmente grava em whatsapp_logs para histórico.
- * Para envio automático (sem abrir janela), use uma API (Meta Cloud API ou BSP) e chame-a a partir de um backend/Edge Function.
+ * Tenta envio pela Cloud API; se não estiver configurada, abre o WhatsApp (wa.me).
  */
 export async function sendWhatsapp(telefone, mensagem) {
   const tel = String(telefone ?? "").replace(/\D/g, "");
@@ -15,8 +13,33 @@ export async function sendWhatsapp(telefone, mensagem) {
     return { success: false };
   }
 
-  // Brasil: 55 + DDD + 8 ou 9 dígitos
   const numeroCompleto = tel.length <= 11 ? "55" + tel : tel;
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const jwt = sessionData?.session?.access_token;
+    if (jwt) {
+      const res = await apiFetch("/api/whatsapp-send", {
+        method: "POST",
+        json: { phone: numeroCompleto, message: msg }
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.sent) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          await supabase.from("whatsapp_logs").insert({
+            user_id: user?.id ?? null,
+            telefone: numeroCompleto,
+            mensagem: msg,
+            status: "enviado_api"
+          });
+        } catch (_) {}
+        return { success: true, via: "api" };
+      }
+    }
+  } catch (err) {
+    console.warn("[WHATSAPP] API indisponível, usando wa.me", err);
+  }
 
   if (typeof window !== "undefined" && window.open) {
     const url = `https://wa.me/${numeroCompleto}?text=${encodeURIComponent(msg)}`;
@@ -29,11 +52,9 @@ export async function sendWhatsapp(telefone, mensagem) {
       user_id: user?.id ?? null,
       telefone: numeroCompleto,
       mensagem: msg,
-      status: "aberto_wa",
+      status: "aberto_wa"
     });
-  } catch (err) {
-    console.warn("[WHATSAPP] insert log falhou (tabela whatsapp_logs pode não existir)", err);
-  }
+  } catch (_) {}
 
-  return { success: true };
+  return { success: true, via: "wa" };
 }

@@ -1,9 +1,11 @@
 /**
  * Callback OAuth Google Calendar: troca code por tokens e grava na tabela.
  * GET /api/google-calendar/callback?code=xxx&state=xxx
+ * O state deve ser HMAC assinado em /auth (userId/orgId não são autoridade se forjados).
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { getAdminClient } from "../../lib/api-auth.js";
+import { verifySignedOAuthState } from "../../lib/oauth-state.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -27,20 +29,33 @@ export default async function handler(req, res) {
     return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=code_or_state_missing`);
   }
 
-  let userId, orgId;
-  try {
-    const state = JSON.parse(Buffer.from(stateRaw, "base64url").toString("utf8"));
-    userId = state.userId;
-    orgId = state.orgId;
-  } catch (_) {
+  const claims = verifySignedOAuthState(String(stateRaw));
+  if (!claims) {
     return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=invalid_state`);
   }
+  const { userId, orgId } = claims;
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = `${baseUrl}/api/google-calendar/callback`;
 
   if (!clientId || !clientSecret) {
+    return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=server_config`);
+  }
+
+  try {
+    const admin = getAdminClient();
+    const { data: membership } = await admin
+      .from("organization_users")
+      .select("org_id")
+      .eq("user_id", userId)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (!membership) {
+      return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=invalid_state`);
+    }
+  } catch (err) {
+    console.error("[google-calendar callback] membership", err?.message || err);
     return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=server_config`);
   }
 
@@ -59,8 +74,7 @@ export default async function handler(req, res) {
   });
 
   if (!tokenRes.ok) {
-    const err = await tokenRes.text();
-    console.error("[google-calendar callback] token exchange failed", err);
+    console.error("[google-calendar callback] token exchange failed", tokenRes.status);
     return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=token_failed`);
   }
 
@@ -70,11 +84,7 @@ export default async function handler(req, res) {
     return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=no_refresh_token`);
   }
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY
-  );
-
+  const supabase = getAdminClient();
   const { error } = await supabase.from("google_calendar_connections").upsert(
     {
       org_id: orgId,
@@ -87,10 +97,9 @@ export default async function handler(req, res) {
   );
 
   if (error) {
-    console.error("[google-calendar callback] upsert failed", error);
+    console.error("[google-calendar callback] upsert failed");
     return res.redirect(302, `${dashboardUrl}?google_calendar=error&message=db_failed`);
   }
 
   return res.redirect(302, `${dashboardUrl}?google_calendar=connected`);
 }
-

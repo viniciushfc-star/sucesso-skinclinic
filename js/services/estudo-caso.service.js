@@ -5,7 +5,7 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
-import { getApiBase } from "../core/api-base.js";
+import { apiFetch } from "../core/api-fetch.js";
 
 function getOrgId() {
   const orgId = getActiveOrg();
@@ -120,10 +120,9 @@ export async function addPerguntaEstudoCaso(estudoCasoId, pergunta, artigoContex
   if (!estudoCasoId || !pergunta || !pergunta.trim()) throw new Error("Caso e pergunta são obrigatórios.");
   const caso = await getEstudoCasoById(estudoCasoId);
   if (!caso) throw new Error("Caso não encontrado.");
-  const res = await fetch(`${getApiBase()}/api/estudo-caso-pergunta`, {
+  const res = await apiFetch("/api/estudo-caso-pergunta", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    json: {
       caso_resumo: {
         tipo_pele: caso.tipo_pele,
         fototipo: caso.fototipo,
@@ -136,7 +135,7 @@ export async function addPerguntaEstudoCaso(estudoCasoId, pergunta, artigoContex
       pergunta: pergunta.trim(),
       artigo_contexto: artigoContexto && artigoContexto.trim() ? artigoContexto.trim() : null,
       tipo,
-    }),
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -163,13 +162,12 @@ export async function addPerguntaEstudoCaso(estudoCasoId, pergunta, artigoContex
 /** Esclarecer dúvida após leitura de artigo (não precisa estar vinculado a um caso). */
 export async function esclarecerDuvida(textoArtigoOuTema, duvida) {
   if (!duvida || !duvida.trim()) throw new Error("Descreva sua dúvida.");
-  const res = await fetch(`${getApiBase()}/api/estudo-caso-esclarecer`, {
+  const res = await apiFetch("/api/estudo-caso-esclarecer", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    json: {
       texto_artigo_ou_tema: (textoArtigoOuTema || "").trim() || null,
       duvida: duvida.trim(),
-    }),
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

@@ -1,5 +1,6 @@
 ﻿import { createClient } from "@supabase/supabase-js";
 import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -9,17 +10,25 @@ const supabase = createClient(
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { nicho, cidade, ticket, procedimentos, org_id, user_id } = req.body || {};
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+  const { user, orgId } = auth;
+
+  const { nicho, cidade, ticket, procedimentos } = req.body || {};
   const dados = { nicho, cidade, ticket, procedimentos };
 
   let contextoReal = "";
-  if (org_id) {
+  if (orgId) {
     try {
       const [orgRes, planosRes, proceduresRes, agendaRes] = await Promise.all([
-        supabase.from("organizations").select("name,cidade,estado").eq("id", org_id).single(),
-        supabase.from("planos").select("id,name,price_range,active").eq("org_id", org_id).limit(20),
-        supabase.from("procedures").select("id,name,duration_minutes").eq("org_id", org_id).limit(30),
-        supabase.from("agenda").select("id,data").eq("org_id", org_id).gte("data", new Date().toISOString().slice(0, 10)).limit(100),
+        supabase.from("organizations").select("name,cidade,estado").eq("id", orgId).single(),
+        supabase.from("planos").select("id,name,price_range,active").eq("org_id", orgId).limit(20),
+        supabase.from("procedures").select("id,name,duration_minutes").eq("org_id", orgId).limit(30),
+        supabase.from("agenda").select("id,data").eq("org_id", orgId).gte("data", new Date().toISOString().slice(0, 10)).limit(100),
       ]);
       const org = orgRes.data || {};
       const planos = (planosRes.data || []).slice(0, 5);
@@ -58,8 +67,8 @@ Mantenha útil e curto. Não decida nada pelo gestor.
 
   try {
     const { content } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "marketing",
       question: prompt,
       complexity: COMPLEXITY.MEDIUM,

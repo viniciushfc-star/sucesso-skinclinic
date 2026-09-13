@@ -27,7 +27,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Webhook-Secret, X-Webhook-Transactions-Secret");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Webhook-Secret, X-Webhook-Transactions-Secret, X-Cron-Secret");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -40,7 +40,7 @@ function wrap(handler) {
   return (req, res, next) => {
     Promise.resolve(handler(req, res)).catch((err) => {
       console.error("[API]", err?.message || err);
-      if (!res.headersSent) res.status(500).json({ error: err?.message || "Erro interno" });
+      if (!res.headersSent) res.status(500).json({ error: "Erro interno" });
     });
   };
 }
@@ -76,9 +76,13 @@ const postRoutes = [
   ["/api/webhook-transacoes", "./routes/webhook-transacoes.js"],
   ["/api/create-portal-session", "./routes/create-portal-session.js"],
   ["/api/send-invite-email", "./routes/send-invite-email.js"],
+  ["/api/lembretes-auto", "./routes/lembretes-auto.js"],
+  ["/api/whatsapp-send", "./routes/whatsapp-send.js"],
 ];
 
 const getRoutes = [
+  ["/api/lembretes-auto", "./routes/lembretes-auto.js"],
+  ["/api/integracoes-status", "./routes/integracoes-status.js"],
   ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
   ["/api/google-calendar/auth", "./routes/google-calendar/auth.js"],
   ["/api/google-calendar/callback", "./routes/google-calendar/callback.js"],
@@ -121,6 +125,9 @@ app.get("/accept-invite", (req, res) => res.sendFile(path.join(__dirname, "index
 app.get("/accept-invite/*", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.get("/select-org", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.get("/select-org/*", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+
+app.get("/agendar", (req, res) => res.sendFile(path.join(__dirname, "agendar.html")));
+app.get("/agendar.html", (req, res) => res.sendFile(path.join(__dirname, "agendar.html")));
 
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.get("/reset", (req, res) => res.sendFile(path.join(__dirname, "reset.html")));

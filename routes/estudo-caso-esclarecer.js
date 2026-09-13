@@ -1,9 +1,18 @@
 ﻿import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { texto_artigo_ou_tema, duvida, user_id, org_id } = req.body || {};
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+  const { user, orgId } = auth;
+
+  const { texto_artigo_ou_tema, duvida } = req.body || {};
   const duvidaText = typeof duvida === "string" ? duvida.trim() : "";
   if (!duvidaText) {
     return res.status(400).json({ error: "Descreva sua dúvida." });
@@ -18,8 +27,8 @@ Responda em markdown, didático. Sugira onde buscar mais (PubMed, Scholar, guide
 
   try {
     const { content: resposta } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "estudo-caso-esclarecer",
       question: prompt,
       complexity: COMPLEXITY.MEDIUM,

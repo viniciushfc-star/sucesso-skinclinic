@@ -3,6 +3,7 @@ from "./client-portal.service.js";
 
 import { toast }
 from "./ui/toast.client.js";
+import { initPwa } from "../core/pwa-install.js";
 
 const routes = {
   "completar-cadastro": {
@@ -19,6 +20,12 @@ const routes = {
   },
   "analise-pele": {
     view: () => import("./analise-pele.client.js")
+  },
+  anamnese: {
+    view: () => import("./anamnese.client.js")
+  },
+  agenda: {
+    view: () => import("./agenda.client.js")
   },
   "skincare-rotina": {
     view: () => import("./skincare-rotina.client.js")
@@ -129,6 +136,8 @@ window.addEventListener(
   window.location.hash.replace("#","")
  )
 );
+
+initPwa();
 
 /* =========================
    START

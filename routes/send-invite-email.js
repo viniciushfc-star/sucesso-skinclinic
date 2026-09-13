@@ -5,6 +5,8 @@
  * Requer RESEND_API_KEY no .env (e-mail de envio pode ser configurado ou usar onboarding@resend.dev em dev).
  */
 
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
+
 const RESEND_API_URL = "https://api.resend.com/emails";
 const FROM_EMAIL = process.env.INVITE_EMAIL_FROM || "SkinClinic <onboarding@resend.dev>";
 
@@ -17,6 +19,12 @@ function getAppUrl() {
 export default async function sendInviteEmail(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Método não permitido" });
+  }
+
+  try {
+    await requireStaffAccess(req, { permission: "team:invite" });
+  } catch (e) {
+    return sendAuthError(res, e);
   }
 
   const { email, role, orgName } = req.body || {};
@@ -71,16 +79,12 @@ export default async function sendInviteEmail(req, res) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error("[send-invite-email] Resend error", response.status, data);
-      return res.status(500).json({
-        error: "Falha ao enviar e-mail",
-        sent: false,
-        detail: data.message || data,
-      });
+    return res.status(500).json({ error: "Falha ao enviar e-mail", sent: false });
     }
     return res.status(200).json({ ok: true, sent: true, id: data.id });
   } catch (err) {
     console.error("[send-invite-email]", err);
-    return res.status(500).json({ error: err?.message || "Erro ao enviar e-mail", sent: false });
+    return res.status(500).json({ error: "Erro ao enviar e-mail", sent: false });
   }
 }
 

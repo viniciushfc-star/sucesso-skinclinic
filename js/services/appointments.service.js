@@ -98,7 +98,7 @@ export async function listAppointmentsByDate(date, professionalId = null) {
   const { data, error } = await finalQ;
 
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).filter((a) => !a.cancelled_at);
 }
 
 /**
@@ -120,7 +120,7 @@ export async function listAppointmentsByMonth(year, month, professionalId = null
 
   let q = supabase
     .from("agenda")
-    .select("data")
+    .select("data, cancelled_at")
     .eq("org_id", orgId)
     .gte("data", firstDay)
     .lte("data", lastDayStr);
@@ -128,7 +128,7 @@ export async function listAppointmentsByMonth(year, month, professionalId = null
 
   let { data, error } = await q;
 
-  if (error && error.code === "PGRST200") {
+  if (error) {
     let q2 = supabase
       .from("agenda")
       .select("data")
@@ -137,12 +137,11 @@ export async function listAppointmentsByMonth(year, month, professionalId = null
       .lte("data", lastDayStr);
     if (professionalId) q2 = q2.eq("user_id", professionalId);
     const fallback = await q2;
-    data = fallback.data;
-    error = fallback.error;
+    if (fallback.error) throw fallback.error;
+    return fallback.data ?? [];
   }
 
-  if (error) throw error;
-  return data ?? [];
+  return (data ?? []).filter((a) => !a.cancelled_at);
 }
 
 /**

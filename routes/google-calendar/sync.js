@@ -5,7 +5,7 @@
  * Requer Authorization: Bearer <supabase_jwt> (usuário da org).
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { requireStaffAccess, sendAuthError, getAdminClient } from "../../lib/api-auth.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
@@ -16,57 +16,43 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido" });
   }
 
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.replace(/^Bearer\s+/i, "");
-  if (!token) {
-    return res.status(401).json({ error: "Authorization Bearer obrigatório" });
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
   }
 
-  const supabaseAnon = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
-  );
-  const { data: { user }, error: userError } = await supabaseAnon.auth.getUser(token);
-  if (userError || !user) {
-    return res.status(401).json({ error: "Token inválido ou expirado" });
+  const orgId = auth.orgId;
+  const userIdParam = req.body?.userId || req.body?.user_id || null;
+  const isMaster = auth.membership?.role === "master";
+
+  if (userIdParam && String(userIdParam) !== String(auth.user.id) && !isMaster) {
+    return res.status(403).json({ error: "Sem permissão" });
   }
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY
-  );
-
-  const orgId = req.body?.orgId || "";
-  const userIdParam = req.body?.userId || null;
-
-  const { data: membership } = await supabase
-    .from("organization_users")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .eq("org_id", orgId)
-    .single();
-
-  if (!membership || !orgId) {
-    return res.status(403).json({ error: "Sem permissão para esta organização" });
-  }
+  const supabase = getAdminClient();
 
   let connections;
   if (userIdParam) {
+    const targetId = isMaster ? userIdParam : auth.user.id;
     const { data: conn, error: connErr } = await supabase
       .from("google_calendar_connections")
       .select("id, user_id, refresh_token, calendar_id")
       .eq("org_id", orgId)
-      .eq("user_id", userIdParam)
+      .eq("user_id", targetId)
       .single();
     if (connErr || !conn) {
       return res.status(404).json({ error: "Conexão Google não encontrada para este usuário" });
     }
     connections = [conn];
   } else {
-    const { data: list } = await supabase
+    let q = supabase
       .from("google_calendar_connections")
       .select("id, user_id, refresh_token, calendar_id")
       .eq("org_id", orgId);
+    if (!isMaster) q = q.eq("user_id", auth.user.id);
+    const { data: list } = await q;
     connections = list || [];
   }
 

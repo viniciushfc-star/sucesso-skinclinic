@@ -1,20 +1,13 @@
-import { getApiBase } from "../core/api-base.js";
+import { apiFetch } from "../core/api-fetch.js";
 
 /**
  * Pergunta ao Copilot (IA contextual da clínica).
- * @param {Object} payload
- * @param {string} payload.pergunta - Pergunta do usuário
- * @param {string} payload.user_id - ID do usuário
- * @param {Object} [payload.contextoNotificacao] - Contexto opcional da notificação que originou a pergunta
- * @param {string} [payload.contextoNotificacao.titulo] - Título da notificação
- * @param {string} [payload.contextoNotificacao.mensagem] - Mensagem da notificação
  */
 export async function perguntarCopiloto(payload) {
   try {
-    const r = await fetch(`${getApiBase()}/api/copiloto`, {
+    const r = await apiFetch("/api/copiloto", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      json: payload,
     });
     const ct = r.headers.get("content-type") || "";
     if (!ct.includes("application/json")) {
@@ -25,7 +18,7 @@ export async function perguntarCopiloto(payload) {
     }
     const data = await r.json();
     if (!r.ok) {
-      return { resposta: data?.message || "Erro ao consultar o Copilot. Tente novamente." };
+      return { resposta: data?.error || data?.message || "Erro ao consultar o Copilot. Tente novamente." };
     }
     return data;
   } catch (err) {

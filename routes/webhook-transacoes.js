@@ -11,17 +11,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const SECRET = process.env.WEBHOOK_TRANSACTIONS_SECRET || "";
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Método não permitido" });
   }
 
+  const SECRET = process.env.WEBHOOK_TRANSACTIONS_SECRET || "";
   const incomingSecret = req.headers["x-webhook-secret"] || req.headers["x-webhook-transactions-secret"] || "";
-  if (SECRET && SECRET !== incomingSecret) {
-    return res.status(401).json({ error: "Webhook não autorizado" });
+  if (!SECRET) {
+    console.error("[webhook-transacoes] WEBHOOK_TRANSACTIONS_SECRET não configurado");
+    return res.status(401).json({ error: "Não autenticado" });
+  }
+  if (SECRET !== incomingSecret) {
+    return res.status(401).json({ error: "Não autenticado" });
   }
 
   const { account_id: accountId, transactions: rawTransactions } = req.body || {};
@@ -84,7 +87,7 @@ export default async function handler(req, res) {
   const { error: errInsert } = await supabase.from("financeiro").insert(rows);
   if (errInsert) {
     console.error("[webhook-transacoes] insert error", errInsert);
-    return res.status(500).json({ error: "Erro ao gravar transações", details: errInsert.message });
+    return res.status(500).json({ error: "Erro ao gravar transações" });
   }
 
   await supabase

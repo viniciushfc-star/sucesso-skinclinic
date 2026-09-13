@@ -1,5 +1,6 @@
 ﻿import vision from "@google-cloud/vision";
 import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 const client = new vision.ImageAnnotatorClient({
   keyFilename: "google-key.json",
@@ -11,6 +12,12 @@ const client = new vision.ImageAnnotatorClient({
  */
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
+
+  try {
+    await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
 
   const { imageBase64, parseOnly } = req.body;
 

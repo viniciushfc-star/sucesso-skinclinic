@@ -85,10 +85,18 @@ function renderDashboard(
   </section>
 
   <section class="client-actions">
+   <button id="btnAgendaPortal" class="btn-agenda-portal">
+    Agendar ou remarcar
+   </button>
+   <p class="client-action-hint">Escolha um horário livre. A clínica vê na agenda.</p>
+   <button id="btnAnamnesePortal" class="btn-anamnese-portal">
+    Anamnese à distância
+   </button>
+   <p class="client-action-hint">Ficha de saúde para a clínica receber antes da consulta. O profissional confirma no atendimento.</p>
    <button id="btnAnalisePele" class="btn-analise-pele">
     Análise de pele
    </button>
-   <p class="client-action-hint">Pré-anamnese: organize suas queixas e prepare o cuidado com um profissional. Não é diagnóstico; o profissional valida.</p>
+   <p class="client-action-hint">Pré-anamnese com fotos: organize suas queixas. Não é diagnóstico; o profissional valida.</p>
    ${hasSkincareRotina ? `
    <button id="btnSkincareRotina" class="btn-skincare-rotina">
     Minha rotina de skincare
@@ -157,6 +165,12 @@ function formatContent(r){
 ========================= */
 
 function bindActions() {
+  document.getElementById("btnAgendaPortal")?.addEventListener("click", () => {
+    window.location.hash = "#agenda";
+  });
+  document.getElementById("btnAnamnesePortal")?.addEventListener("click", () => {
+    window.location.hash = "#anamnese";
+  });
   document.getElementById("btnAnalisePele")?.addEventListener("click", () => {
     window.location.hash = "#analise-pele";
   });

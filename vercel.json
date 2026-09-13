@@ -5,6 +5,12 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/api" }
   ],
+  "crons": [
+    {
+      "path": "/api/lembretes-auto",
+      "schedule": "0 11 * * *"
+    }
+  ],
   "functions": {
     "api/index.js": {
       "memory": 1024,

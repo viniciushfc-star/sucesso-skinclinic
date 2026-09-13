@@ -1,9 +1,18 @@
 ﻿import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { imagens, dados, user_id, org_id } = req.body || {};
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+  const { user, orgId } = auth;
+
+  const { imagens, dados } = req.body || {};
   const imagensArr = Array.isArray(imagens) ? imagens : [];
 
   const textPart = `
@@ -25,8 +34,8 @@ ${JSON.stringify(dados || {})}
 
   try {
     const { content: reply } = await askAI({
-      userId: user_id,
-      orgId: org_id,
+      userId: user.id,
+      orgId,
       feature: "pele",
       messages: [{ role: "user", content }],
       complexity: COMPLEXITY.RARE,

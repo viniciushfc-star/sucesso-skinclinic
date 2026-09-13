@@ -20,7 +20,8 @@ O portal é uma **SPA separada** (`portal.html`) que o cliente acessa sempre por
 | `#completar-cadastro` | `completar-cadastro.client.js` | Formulário para cliente completar dados + aceitar termo |
 | `#termo-consent` | `termo-consent.client.js` | Só assinar termo (link com `?mode=consent`) |
 | `#dashboard` | `dashboard.client.js` | Painel principal: tratamento, orientações, ações |
-| `#analise-pele` | `analise-pele.client.js` | Análise de pele por IA (fotos + respostas) |
+| `#anamnese` | `anamnese.client.js` | Ficha de anamnese à distância (rosto, capilar ou corporal) |
+| `#agenda` | `agenda.client.js` | Agendar, remarcar e cancelar horário |
 | `#skincare-rotina` | `skincare-rotina.client.js` | Rotina de skincare liberada pela clínica |
 | `#mensagens` | `mensagens.client.views.js` | Mensagens/relatos do cliente |
 

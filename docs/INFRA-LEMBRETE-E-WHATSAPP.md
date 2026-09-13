@@ -49,7 +49,18 @@ O objetivo: **a cada X horas** (ex.: uma vez por dia), um job busca os agendamen
 - Essa URL é um **endpoint** do seu backend (Node, PHP, etc.) ou uma **Edge Function** do Supabase exposta como HTTP.
 - O endpoint faz a mesma lógica: buscar agendamentos, enviar lembrete, atualizar `reminder_sent_at`.
 
-**Resumo infra:** você precisa de **um job recorrente** (pg_cron ou cron externo) que chame **uma função/serviço** que lê a agenda, envia a mensagem e marca o envio.
+### Opção C: Vercel Cron (já no projeto)
+
+No `vercel.json` o job chama `GET /api/lembretes-auto` todo dia (`0 11 * * *` = por volta das 8h em Brasília, limite do plano Hobby: 1 vez/dia).
+
+Na Vercel → Project → Settings → Environment Variables:
+
+- `CRON_SECRET` (nome obrigatório; a Vercel manda `Authorization: Bearer …`)
+- `SUPABASE_URL` e `SUPABASE_SERVICE_KEY`
+- `WHATSAPP_TOKEN` e `WHATSAPP_PHONE_ID` (Meta Cloud API)
+- opcional: `RESEND_API_KEY`, `BASE_URL=https://skinclinic-one.vercel.app`
+
+Depois do deploy, em **Empresa** use “Atualizar status” e “Enviar lembretes desta clínica agora”.
 
 ---
 

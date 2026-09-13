@@ -4,5 +4,18 @@
  */
 
 export async function init() {
-  /* Nada a fazer: links data-view no HTML são tratados pelo spa.js */
+  const ta = document.getElementById("indicarSkinClinicTexto");
+  const texto =
+    "Estou usando o SkinClinic na clínica: a cliente agenda pelo link, a gente vê margem real da maquininha e registra o que foi aplicado no procedimento. Se quiser eu te mostro. https://skinclinic-one.vercel.app";
+  if (ta) ta.value = texto;
+  document.getElementById("btnCopiarIndicarSkinClinic")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch (_) {
+      ta?.select();
+    }
+  });
+  document.getElementById("btnWhatsIndicarSkinClinic")?.addEventListener("click", () => {
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+  });
 }

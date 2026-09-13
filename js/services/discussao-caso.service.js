@@ -1,17 +1,15 @@
-import { getApiBase } from "../core/api-base.js";
+import { apiFetch } from "../core/api-fetch.js";
 
 /**
- * Pedido de opinião da IA sobre um caso — discussão + procedimentos sugeridos + referências para estudo.
- * Não substitui o profissional; prepara para alinhar procedimentos a cada caso.
+ * Pedido de opinião da IA sobre um caso.
  */
 export async function pedirOpiniaoCaso(caso) {
   const texto = typeof caso === "string" ? caso.trim() : "";
   if (!texto) throw new Error("Descreva o caso para pedir opinião.");
 
-  const res = await fetch(`${getApiBase()}/api/discussao-caso`, {
+  const res = await apiFetch("/api/discussao-caso", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ caso: texto }),
+    json: { caso: texto },
   });
 
   if (!res.ok) {

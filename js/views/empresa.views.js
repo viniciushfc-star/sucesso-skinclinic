@@ -8,6 +8,7 @@ import { listSalas, createSala, updateSala, desativarSala } from "../services/sa
 import { buscarCep, maskCepInput, fillAddressFields } from "../utils/cep.service.js";
 import { toast } from "../ui/toast.js";
 import { getActiveOrg } from "../core/org.js";
+import { apiFetch } from "../core/api-fetch.js";
 import { openModal, closeModal, openConfirmModal } from "../ui/modal.js";
 import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
 
@@ -41,6 +42,26 @@ export async function init() {
 
   if (!form || !btnSalvar) return;
 
+  const orgIdForLink = getActiveOrg();
+  const linkAgendaEl = document.getElementById("empresaLinkAgenda");
+  if (linkAgendaEl && orgIdForLink) {
+    const bookingUrl = `${window.location.origin}/agendar.html?org=${encodeURIComponent(orgIdForLink)}`;
+    linkAgendaEl.value = bookingUrl;
+    document.getElementById("empresaBtnCopiarAgenda")?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(bookingUrl);
+        toast("Link copiado. Cole no Instagram ou WhatsApp.");
+      } catch (_) {
+        linkAgendaEl.select();
+        toast("Selecione o link e copie.");
+      }
+    });
+    document.getElementById("empresaBtnWhatsAgenda")?.addEventListener("click", () => {
+      const t = `Olá! Para agendar na clínica, use este link: ${bookingUrl}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, "_blank", "noopener");
+    });
+  }
+
   function getProfileForResumo() {
     return {
       name: nome?.value?.trim() || "",
@@ -54,7 +75,9 @@ export async function init() {
       telefone: telefone?.value?.trim() || "",
       menu_anamnese_visible: empresaMenuAnamnese?.checked ?? false,
       brinde_aniversario_habilitado: empresaBrindeAniversario?.checked ?? false,
-      nota_fiscal_emitir_url: empresaNotaFiscalEmitirUrl?.value?.trim() || ""
+      nota_fiscal_emitir_url: empresaNotaFiscalEmitirUrl?.value?.trim() || "",
+      google_review_url: document.getElementById("empresaGoogleReviewUrl")?.value?.trim() || "",
+      fidelidade_visitas: document.getElementById("empresaFidelidadeVisitas")?.value || 10
     };
   }
 
@@ -81,6 +104,8 @@ export async function init() {
         <h3 class="empresa-resumo-card-title">Preferências</h3>
         <p class="empresa-resumo-line"><strong>Anamnese no menu</strong> ${p.menu_anamnese_visible ? "Sim" : "Não"}</p>
         <p class="empresa-resumo-line"><strong>Brinde aniversário</strong> ${p.brinde_aniversario_habilitado ? "Sim" : "Não"}</p>
+        ${linha("Google (avaliações)", p.google_review_url || "—")}
+        ${linha("Fidelidade (visita nº)", String(p.fidelidade_visitas || 10))}
       </div>`;
   }
 
@@ -193,6 +218,10 @@ export async function init() {
     if (empresaMenuAnamnese) empresaMenuAnamnese.checked = !!profile.menu_anamnese_visible;
     if (empresaBrindeAniversario) empresaBrindeAniversario.checked = !!profile.brinde_aniversario_habilitado;
     if (empresaNotaFiscalEmitirUrl) empresaNotaFiscalEmitirUrl.value = profile.nota_fiscal_emitir_url || "";
+    const empresaGoogleReviewUrl = document.getElementById("empresaGoogleReviewUrl");
+    const empresaFidelidadeVisitas = document.getElementById("empresaFidelidadeVisitas");
+    if (empresaGoogleReviewUrl) empresaGoogleReviewUrl.value = profile.google_review_url || "";
+    if (empresaFidelidadeVisitas) empresaFidelidadeVisitas.value = profile.fidelidade_visitas || 10;
     if (profile.logo_url && empresaLogoPreview) {
       empresaLogoPreview.innerHTML = `<img src="${escapeHtml(profile.logo_url)}" alt="Logo atual" class="empresa-logo-preview-img">`;
     }
@@ -384,7 +413,9 @@ export async function init() {
         telefone: telefone?.value?.trim(),
         menu_anamnese_visible: menuAnamnese,
         brinde_aniversario_habilitado: brindeAniversario,
-        nota_fiscal_emitir_url: empresaNotaFiscalEmitirUrl?.value?.trim() || null
+        nota_fiscal_emitir_url: empresaNotaFiscalEmitirUrl?.value?.trim() || null,
+        google_review_url: document.getElementById("empresaGoogleReviewUrl")?.value?.trim() || "",
+        fidelidade_visitas: document.getElementById("empresaFidelidadeVisitas")?.value || 10
       });
       toast("Cadastro da empresa atualizado.");
       const menuWrap = document.getElementById("menuWrapAnamnese");
@@ -399,6 +430,62 @@ export async function init() {
       btnSalvar.disabled = false;
     }
   });
+
+  bindIntegracoes(orgId);
+}
+
+function linhaStatus(ok, sim, nao) {
+  return ok ? sim : nao;
+}
+
+async function bindIntegracoes(orgId) {
+  const statusEl = document.getElementById("empresaIntegracoesStatus");
+  const btnStatus = document.getElementById("empresaBtnStatusIntegracoes");
+  const btnRun = document.getElementById("empresaBtnLembretesAgora");
+  if (!statusEl) return;
+
+  async function refreshStatus() {
+    statusEl.textContent = "Checando o servidor…";
+    try {
+      const res = await apiFetch("/api/integracoes-status");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        statusEl.textContent = json.error || "Servidor não respondeu. No PC: npm start. Na Vercel: variáveis de ambiente.";
+        return;
+      }
+      statusEl.innerHTML = [
+        linhaStatus(json.supabase_admin, "Banco (servidor): ok.", "Falta SUPABASE_URL / SERVICE_KEY na Vercel."),
+        linhaStatus(json.cron_secret, "Cron: CRON_SECRET definido (lembrete diário ~8h Brasília).", "Falta CRON_SECRET na Vercel — o job diário não autentica."),
+        linhaStatus(json.whatsapp, "WhatsApp Cloud API: ligado.", "WhatsApp API: desligado (ainda abre o app no celular)."),
+        linhaStatus(json.resend, "E-mail Resend: ligado.", "E-mail automático: desligado."),
+      ].join(" ");
+    } catch (_) {
+      statusEl.textContent = "Não alcançou a API. Confira se o app está no ar.";
+    }
+  }
+
+  btnStatus?.addEventListener("click", refreshStatus);
+  btnRun?.addEventListener("click", async () => {
+    btnRun.disabled = true;
+    try {
+      const res = await apiFetch(`/api/lembretes-auto?org=${encodeURIComponent(orgId)}`, {
+        method: "POST",
+        json: { org: orgId },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(json.error || "Não enviou. Confira as variáveis na Vercel.");
+        return;
+      }
+      toast(`Lembretes: ${json.sent || 0} enviado(s) de ${json.scanned || 0} agendamento(s) hoje/amanhã.`);
+    } catch (_) {
+      toast("Falha de rede ao disparar lembretes.");
+    } finally {
+      btnRun.disabled = false;
+    }
+  });
+
+  await refreshStatus();
 }
 
 function escapeHtml(s) {

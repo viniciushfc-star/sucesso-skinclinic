@@ -1,8 +1,11 @@
 /**
  * Inicia o fluxo OAuth do Google Calendar.
- * GET /api/google-calendar/auth?userId=xxx&orgId=xxx
- * Redireciona para Google; após autorização, o usuário volta em /api/google-calendar/callback.
+ * GET /api/google-calendar/auth?orgId=xxx
+ * Requer Authorization: Bearer. userId da query é ignorado.
  */
+
+import { requireStaffAccess, sendAuthError } from "../../lib/api-auth.js";
+import { createSignedOAuthState, getOAuthStateSecret } from "../../lib/oauth-state.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
@@ -13,12 +16,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido" });
   }
 
-  const userId = req.query.userId || "";
-  const orgId = req.query.orgId || "";
-  if (!userId || !orgId) {
-    return res.status(400).json({
-      error: "Envie userId e orgId na query.",
-    });
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+  } catch (e) {
+    return sendAuthError(res, e);
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -35,8 +37,20 @@ export default async function handler(req, res) {
     });
   }
 
+  if (!getOAuthStateSecret()) {
+    return res.status(400).json({
+      error: "Configure GOOGLE_CLIENT_SECRET (ou GOOGLE_OAUTH_STATE_SECRET) no servidor.",
+    });
+  }
+
   const redirectUri = `${baseUrl}/api/google-calendar/callback`;
-  const state = Buffer.from(JSON.stringify({ userId, orgId }), "utf8").toString("base64url");
+  let state;
+  try {
+    state = createSignedOAuthState({ userId: auth.user.id, orgId: auth.orgId });
+  } catch (err) {
+    console.error("[google-calendar/auth] state", err?.message || err);
+    return res.status(500).json({ error: "Erro interno" });
+  }
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -48,6 +62,6 @@ export default async function handler(req, res) {
     prompt: "consent",
   });
 
-  res.redirect(302, `${GOOGLE_AUTH_URL}?${params.toString()}`);
+  const url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
+  return res.status(200).json({ url });
 }
-

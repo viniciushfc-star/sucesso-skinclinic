@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agendar — SkinClinic</title>
+  <meta name="theme-color" content="#16213e" />
+  <link rel="stylesheet" href="./js/css/style.css" />
+  <style>
+    body { overflow: auto; min-height: 100vh; }
+    .agendar-page { max-width: 28rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; background: #fff; min-height: 100vh; }
+    .agendar-page h1 { font-size: 1.35rem; margin: 0.5rem 0; }
+    .agendar-page label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
+    .agendar-page input, .agendar-page select { width: 100%; padding: 0.55rem; margin-top: 0.25rem; }
+    .agendar-slots { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0; }
+    .agendar-slot { padding: 0.4rem 0.65rem; border: 1px solid #cbd5e1; background: #fff; border-radius: 8px; cursor: pointer; }
+    .agendar-hint { color: #64748b; font-size: 0.9rem; }
+    .agendar-logo { max-height: 56px; }
+    .agendar-ok { padding: 1rem; background: #ecfdf5; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div id="agendarApp" class="agendar-page">Carregando…</div>
+  <script type="module" src="./js/public/agendar.js"></script>
+</body>
+</html>

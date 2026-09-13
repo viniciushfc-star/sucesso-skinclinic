@@ -47,6 +47,9 @@ export default async function handler(req, res) {
 
   try {
     const { token, consentimento_imagens, menor_responsavel, imagens, respostas } = req.body || {};
+    if (req.body?.client_id || req.body?.org_id) {
+      console.warn("[ANALISE-PELE] client_id/org_id do body ignorados; usando sessão do token");
+    }
 
     if (!token || !consentimento_imagens) {
       return res.status(400).json({
@@ -139,7 +142,7 @@ export default async function handler(req, res) {
     if (insertError) {
       console.error("[ANALISE-PELE] RPC submit_analise_pele:", insertError);
       return res.status(500).json({
-        error: insertError.message || "Erro ao salvar a análise. Tente novamente.",
+        error: "Erro ao salvar a análise. Tente novamente.",
       });
     }
 
@@ -153,7 +156,7 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("[ANALISE-PELE]", err);
     return res.status(500).json({
-      error: err.message || "Erro ao processar a análise. Tente novamente.",
+      error: "Erro ao processar a análise. Tente novamente.",
     });
   }
 }
