@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test:auth": "node --test scripts/test-p0-01-auth.js"
+    "test:auth": "node --test scripts/test-p0-01-auth.js",
+    "test:p002": "node --test scripts/test-p0-02-analise-pele.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

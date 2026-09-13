@@ -163,9 +163,15 @@ $$;
 
 COMMENT ON FUNCTION public.submit_analise_pele IS 'Portal: cliente submete análise de pele (após consentimento). Valida token e insere com client_id/org_id da sessão.';
 
--- Cliente lê suas próprias análises (por token)
+-- Cliente lê suas próprias análises (por token). Sem ia_preliminar / sem imagens.
+-- Se a função já existir com SETOF analise_pele, rode supabase-analise-pele-p0-02-privacidade.sql (faz DROP).
 CREATE OR REPLACE FUNCTION public.get_analises_pele_by_token(p_token text)
-RETURNS SETOF public.analise_pele
+RETURNS TABLE (
+  id uuid,
+  status text,
+  created_at timestamptz,
+  texto_validado text
+)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
@@ -177,17 +183,27 @@ BEGIN
   SELECT s.client_id, s.org_id INTO v_client_id, v_org_id
   FROM get_client_session_by_token(p_token) AS s(client_id uuid, org_id uuid, expires_at timestamptz, registration_completed_at timestamptz)
   LIMIT 1;
-  IF v_client_id IS NULL THEN
+  IF v_client_id IS NULL OR v_org_id IS NULL THEN
     RAISE EXCEPTION 'Sessão inválida ou expirada';
   END IF;
   RETURN QUERY
-  SELECT a.* FROM public.analise_pele a
-  WHERE a.client_id = v_client_id AND a.org_id = v_org_id
+  SELECT
+    a.id,
+    a.status,
+    a.created_at,
+    CASE
+      WHEN a.status IN ('validated', 'incorporated') THEN a.texto_validado
+      ELSE NULL
+    END
+  FROM public.analise_pele a
+  WHERE a.client_id = v_client_id
+    AND a.org_id = v_org_id
   ORDER BY a.created_at DESC;
 END;
 $$;
 
-COMMENT ON FUNCTION public.get_analises_pele_by_token IS 'Portal: cliente lista suas análises de pele (por token).';
+COMMENT ON FUNCTION public.get_analises_pele_by_token(text) IS 'Portal: lista análises do cliente da sessão. Sem ia_preliminar, sem imagens, texto_validado só após validação.';
 
--- Storage: criar bucket "analise-pele-fotos" no Supabase Dashboard > Storage (público ou com RLS por org).
--- Política sugerida: membros da org podem ler; inserção via API com service key ou RLS por org_id no path.
+GRANT EXECUTE ON FUNCTION public.get_analises_pele_by_token(text) TO anon, authenticated;
+
+-- Storage: bucket privado "analise-pele-fotos". Rode supabase-analise-pele-p0-02-privacidade.sql.

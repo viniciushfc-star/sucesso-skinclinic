@@ -269,7 +269,9 @@ async function renderListaAnalises() {
     const items = list.length
       ? list.map((a) => {
           const statusLabel = a.status === "pending_validation" ? "Aguardando validação" : a.status === "validated" || a.status === "incorporated" ? "Validada pela clínica" : a.status;
-          const devolutiva = (a.texto_validado || "").trim();
+          const devolutiva = (a.status === "validated" || a.status === "incorporated")
+            ? (a.texto_validado || "").trim()
+            : "";
           const temDevolutiva = devolutiva.length > 0;
           return `
         <div class="analise-pele-item ${temDevolutiva ? "analise-pele-item--com-devolutiva" : ""}">
@@ -278,6 +280,7 @@ async function renderListaAnalises() {
             <span class="analise-pele-status">${statusLabel}</span>
           </div>
           ${temDevolutiva ? `<div class="analise-pele-devolutiva">${devolutiva.split("\n").map((p) => `<p>${escapeHtml(p)}</p>`).join("")}</div>` : ""}
+          ${!temDevolutiva && (a.status === "pending_validation" || !a.status) ? '<p class="analise-pele-aguardando">Aguardando validação da clínica.</p>' : ""}
           ${!temDevolutiva && (a.status === "validated" || a.status === "incorporated") ? '<p class="analise-pele-sem-texto">Devolutiva disponível em contato com a clínica.</p>' : ""}
         </div>
       `;

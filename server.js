@@ -72,6 +72,8 @@ const postRoutes = [
   ["/api/pele", "./routes/pele.js"],
   ["/api/skincare", "./routes/skincare.js"],
   ["/api/analise-pele", "./routes/analise-pele.js"],
+  ["/api/analise-pele-fotos", "./routes/analise-pele-fotos.js"],
+  ["/api/analise-pele-portal-list", "./routes/analise-pele-portal-list.js"],
   ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
   ["/api/webhook-transacoes", "./routes/webhook-transacoes.js"],
   ["/api/create-portal-session", "./routes/create-portal-session.js"],

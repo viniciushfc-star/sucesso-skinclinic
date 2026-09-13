@@ -172,9 +172,15 @@ function getToken() {
 export async function getAnalisesPeleByToken() {
   const token = getToken();
   if (!token) throw new Error("Sessão inválida. Acesse pelo link enviado.");
-  const { data, error } = await supabase.rpc("get_analises_pele_by_token", { p_token: token });
-  if (error) throw error;
-  return data ?? [];
+  const { getApiBase } = await import("../core/api-base.js");
+  const res = await fetch(`${getApiBase()}/api/analise-pele-portal-list`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Erro ao carregar análises.");
+  return json.analises ?? [];
 }
 
 /**

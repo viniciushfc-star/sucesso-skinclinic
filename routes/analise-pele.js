@@ -7,13 +7,14 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { askAI, COMPLEXITY } from "../ai/core/index.js";
+import { ANALISE_PELE_BUCKET } from "../lib/analise-pele-storage.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const BUCKET = "analise-pele-fotos";
+const BUCKET = ANALISE_PELE_BUCKET;
 
 const PROMPT_CANON = `
 Você é uma camada de organização e explicação para pré-anamnese de pele, inspirada no uso responsável de IA em clínicas. Você NÃO é dermatologista virtual, NÃO diagnostica, NÃO prescreve, NÃO promete resultado.
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
         "Não foi possível gerar análise visual desta vez. Suas respostas foram registradas e um profissional poderá entrar em contato para validar e complementar.";
     }
 
-    let imagensUrls = [];
+    let imagensPaths = [];
     try {
       const pathPrefix = `${org_id}/${client_id}/${Date.now()}`;
       for (let i = 0; i < arrImages.length; i++) {
@@ -119,12 +120,13 @@ export default async function handler(req, res) {
           .from(BUCKET)
           .upload(path, buf, { contentType: "image/jpeg", upsert: true });
         if (!uploadError) {
-          const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-          imagensUrls.push(urlData?.publicUrl || path);
+          imagensPaths.push(path);
+        } else {
+          console.warn("[ANALISE-PELE] upload falhou");
         }
       }
     } catch (storageErr) {
-      console.warn("[ANALISE-PELE] Storage upload failed (bucket pode não existir):", storageErr.message);
+      console.warn("[ANALISE-PELE] Storage upload failed");
     }
 
     const { data: insertResult, error: insertError } = await supabase.rpc(
@@ -133,7 +135,7 @@ export default async function handler(req, res) {
         p_token: token,
         p_consentimento_imagens: true,
         p_menor_responsavel: menor_responsavel || null,
-        p_imagens: imagensUrls,
+        p_imagens: imagensPaths,
         p_respostas: respostasObj,
         p_ia_preliminar: ia_preliminar,
       }
@@ -150,8 +152,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       id,
-      ia_preliminar,
-      message: "Análise registrada. Um profissional validará e você receberá o retorno em breve.",
+      status: "aguardando_validacao",
+      message: "Análise registrada. Um profissional fará a validação.",
     });
   } catch (err) {
     console.error("[ANALISE-PELE]", err);

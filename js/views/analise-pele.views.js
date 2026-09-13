@@ -10,6 +10,8 @@ import {
   incorporarAnalisePeleNaAnamnese,
 } from "../services/analise-pele.service.js";
 import { toast } from "../ui/toast.js";
+import { apiFetch } from "../core/api-fetch.js";
+import { extractAnalisePeleObjectPath } from "../../lib/analise-pele-storage.js";
 
 const listaEl = document.getElementById("analisePeleLista");
 const detalheEl = document.getElementById("analisePeleDetalhe");
@@ -68,15 +70,31 @@ async function openDetalhe(id) {
 
   try {
     const a = await getAnalisePeleById(id);
+    let signedByPath = {};
+    try {
+      const fotoRes = await apiFetch("/api/analise-pele-fotos", {
+        method: "POST",
+        json: { analise_id: id },
+      });
+      const fotoJson = await fotoRes.json().catch(() => ({}));
+      if (fotoRes.ok && Array.isArray(fotoJson.urls)) {
+        for (const item of fotoJson.urls) {
+          if (item?.path && item?.url) signedByPath[item.path] = item.url;
+        }
+      }
+    } catch (_) {}
     const clienteNome = a.clients?.name || "Cliente";
     const imagensHtml =
       Array.isArray(a.imagens) && a.imagens.length > 0
         ? a.imagens
-            .map(
-              (url) =>
-                `<img src="${escapeHtml(url)}" alt="Foto" class="analise-pele-img" loading="lazy">`
-            )
-            .join("")
+            .map((ref) => {
+              const path = extractAnalisePeleObjectPath(ref);
+              const url = (path && signedByPath[path]) || signedByPath[String(ref || "")] || "";
+              if (!url) return "";
+              return `<img src="${escapeHtml(url)}" alt="Foto" class="analise-pele-img" loading="lazy">`;
+            })
+            .filter(Boolean)
+            .join("") || "<p>Fotos privadas. Não foi possível gerar o acesso temporário.</p>"
         : "<p>Sem fotos.</p>";
     const respostasHtml =
       a.respostas && typeof a.respostas === "object"
