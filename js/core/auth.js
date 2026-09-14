@@ -9,6 +9,53 @@ function log(type, msg, data = null) {
   console[type](`[AUTH] ${msg}`, data || "")
 }
 
+/** Mensagem em português a partir de erro do Auth (Supabase) — nunca genérica demais. */
+export function authErrorMessage(err, fallback = "Não foi possível concluir. Tente de novo.") {
+  const code = String(err?.code || err?.error_code || "")
+  const raw = String(err?.message || err?.error_description || err?.msg || "").trim()
+  const s = `${raw} ${code}`.toLowerCase()
+
+  if (s.includes("campos obrigatórios")) {
+    return "Preencha nome, CPF, e-mail e senha."
+  }
+  if (s.includes("senhas não conferem") || s.includes("senhas nao conferem")) {
+    return "As senhas não são iguais."
+  }
+  if (
+    code === "email_exists" ||
+    s.includes("already registered") ||
+    s.includes("user already") ||
+    s.includes("email already")
+  ) {
+    return "Este e-mail já tem conta. Entre com a senha ou use “Esqueci minha senha”."
+  }
+  if (code === "weak_password" || (s.includes("password") && (s.includes("least") || s.includes("6 character") || s.includes("too short") || s.includes("weak")))) {
+    return "A senha precisa ter pelo menos 6 caracteres."
+  }
+  if (code === "email_address_invalid" || s.includes("invalid email") || s.includes("unable to validate email")) {
+    return "E-mail inválido. Confira o endereço."
+  }
+  if (s.includes("signups not allowed") || s.includes("signup is disabled") || s.includes("sign up is disabled")) {
+    return "O cadastro público está desligado. Peça um convite à clínica ou ative Signups no Supabase Auth."
+  }
+  if (s.includes("rate") || s.includes("over_email") || s.includes("too many")) {
+    return "Muitas tentativas. Aguarde um minuto e tente de novo."
+  }
+  if (s.includes("database error") || s.includes("saving new user") || s.includes("error saving")) {
+    return "O banco recusou o usuário novo (geralmente trigger de perfil). No Supabase: Authentication → veja o erro, e SQL do profiles."
+  }
+  if (s.includes("redirect") && (s.includes("not allowed") || s.includes("whitelist") || s.includes("allow"))) {
+    return "URL de retorno não autorizada. Em Authentication → URL Configuration, inclua https://skinclinic-one.vercel.app"
+  }
+  if (s.includes("failed to fetch") || s.includes("networkerror") || s.includes("load failed")) {
+    return "Falha de conexão com o servidor de login. Verifique a internet."
+  }
+  if (raw && raw.length < 180 && !raw.startsWith("{")) {
+    return raw
+  }
+  return fallback
+}
+
 /* ======================
    LOGIN COM EMAIL
 ====================== */
@@ -82,14 +129,23 @@ export async function registerEmail(name, cpf, email, password) {
       throw new Error("Campos obrigatórios")
     }
 
+    const origin = typeof window !== "undefined" ? window.location.origin : ""
     const { data, error } =
       await supabase.auth.signUp({
-        email,
+        email: String(email).trim(),
         password,
-        options: { data: { name, cpf } }
+        options: {
+          data: { name: String(name).trim(), cpf: String(cpf).trim() },
+          emailRedirectTo: origin ? `${origin}/auth-callback.html` : undefined,
+        }
       })
 
     if (error) throw error
+
+    const identities = data?.user?.identities
+    if (data?.user && Array.isArray(identities) && identities.length === 0) {
+      throw new Error("Este e-mail já tem conta. Entre com a senha ou use “Esqueci minha senha”.")
+    }
 
     log("info", "Usuário criado", data.user?.id)
     return data

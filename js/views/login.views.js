@@ -1,7 +1,7 @@
 /* =========================
    IMPORTS
 ========================= */
-import { loginEmail, loginGoogle, registerEmail }
+import { loginEmail, loginGoogle, registerEmail, authErrorMessage }
   from "../core/auth.js";
 
 import { bootstrapAfterLogin }
@@ -156,22 +156,47 @@ function bindRegister() {
   formRegister.addEventListener("submit", async (e) => {
     e.preventDefault();
 
+    const msgEl = document.getElementById("registerMsg");
+    if (msgEl) {
+      msgEl.textContent = "";
+      msgEl.style.color = "";
+    }
+
     try {
       showLoader();
+
+      const pass = (regPasswordInput.value || "").trim();
+      const confirm = (regConfirmInput.value || "").trim();
+      if (pass !== confirm) {
+        throw new Error("Senhas não conferem");
+      }
+      if (pass.length < 6) {
+        throw new Error("A senha precisa ter pelo menos 6 caracteres.");
+      }
 
       await registerEmail(
         nameInput.value,
         cpfInput.value,
         regEmailInput.value,
-        regPasswordInput.value
+        pass
       );
 
-      toast("Conta criada! Verifique seu email.");
+      const ok = "Conta criada. Se o projeto exigir confirmação, abra o e-mail (e o spam) antes de entrar.";
+      toast(ok, "success", 6000);
+      if (msgEl) {
+        msgEl.style.color = "#15803d";
+        msgEl.textContent = ok;
+      }
       modal.classList.add("hidden");
 
     } catch (err) {
       console.error("[REGISTER]", err);
-      toast("Erro ao cadastrar");
+      const msg = authErrorMessage(err, "Não foi possível criar a conta.");
+      toast(msg, "error", 8000);
+      if (msgEl) {
+        msgEl.style.color = "#b91c1c";
+        msgEl.textContent = msg;
+      }
     } finally {
       hideLoader();
     }
