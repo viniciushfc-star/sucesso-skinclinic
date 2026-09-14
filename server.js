@@ -8,6 +8,7 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import { corsOriginFor, isBlockedStaticPath } from "./lib/http-security.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -16,14 +17,18 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-/* CORS: permitir o próprio frontend (mesma origem não precisa; útil se front rodar em outra porta) */
+/* CORS: allowlist. Origin não listada não recebe ACAO. */
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  const allowed = corsOriginFor(req.headers.origin);
+  if (allowed) {
+    res.setHeader("Access-Control-Allow-Origin", allowed);
+    res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Webhook-Secret, X-Webhook-Transactions-Secret, X-Cron-Secret");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -96,8 +101,14 @@ function registerRoutes() {
   return routesPromise;
 }
 
-/* Servir arquivos estáticos (frontend) */
-app.use(express.static(__dirname, { index: false }));
+/* Servir arquivos estáticos (frontend). Bloqueia rotas/servidor/.env. */
+app.use((req, res, next) => {
+  if (req.method === "GET" && isBlockedStaticPath(req.path)) {
+    return res.status(404).end();
+  }
+  next();
+});
+app.use(express.static(__dirname, { index: false, dotfiles: "deny" }));
 
 /* Rewrites estilo serve.json para SPA */
 app.get("/onboarding", (req, res) => res.sendFile(path.join(__dirname, "onboarding.html")));

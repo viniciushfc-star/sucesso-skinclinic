@@ -87,7 +87,7 @@ export default async function handler(req, res) {
         }),
       ];
       const { content: reply } = await askAI({
-        userId: null,
+        userId: `org:${org_id}`,
         orgId: org_id,
         feature: "analise-pele",
         messages: [{ role: "user", content }],

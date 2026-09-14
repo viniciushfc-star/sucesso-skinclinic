@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   let auth;
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -41,7 +41,7 @@ Retorne APENAS um JSON válido, sem markdown:
     res.json({ content: content || "{}", role: "assistant" });
   } catch (err) {
     console.error("[PROTOCOLO]", err);
-    res.status(500).json({ content: "{}", role: "assistant", error: err.message });
+    res.status(500).json({ content: "{}", role: "assistant", error: "Erro interno" });
   }
 }
 

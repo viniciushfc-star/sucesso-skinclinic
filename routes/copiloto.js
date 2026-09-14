@@ -14,7 +14,7 @@ export default async function handler(req, res) {
 
   let auth
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" })
+    auth = await requireStaffAccess(req, { permission: "ia:copilot" })
   } catch (e) {
     return sendAuthError(res, e)
   }
@@ -115,24 +115,22 @@ ${ctxNotif}`
     const msg = raw.toLowerCase()
     const status = err?.status ?? err?.statusCode ?? err?.error?.status
     const code = (err?.code ?? err?.error?.code ?? "").toString().toLowerCase()
-    const hint = raw.slice(0, 300).replace(/\n/g, " ").trim()
-    const detalhe = hint ? `\n\nDetalhe técnico: ${hint}` : ""
 
     if (status === 401 || msg.includes("incorrect api key") || msg.includes("invalid api key") || msg.includes("authentication")) {
-      return res.status(200).json({ resposta: "Chave da OpenAI inválida ou expirada. Verifique OPENAI_KEY no .env em platform.openai.com/api-keys." + detalhe })
+      return res.status(200).json({ resposta: "Não foi possível consultar o Copiloto. Verifique a configuração do servidor." })
     }
     if (code === "insufficient_quota" || msg.includes("insufficient_quota") || msg.includes("you exceeded your current quota")) {
       return res.status(200).json({
-        resposta: "Sua conta OpenAI está sem créditos. Adicione forma de pagamento em platform.openai.com → Billing." + detalhe
+        resposta: "O Copiloto está indisponível no momento por limite da conta de IA."
       })
     }
     if (status === 429 || code === "rate_limit_exceeded" || msg.includes("rate limit exceeded")) {
       return res.status(200).json({
-        resposta: "Muitas requisições no momento. Tente em 1–2 minutos." + detalhe
+        resposta: "Muitas requisições no momento. Tente em 1–2 minutos."
       })
     }
     return res.status(200).json({
-      resposta: "Erro ao consultar o Copilot." + (detalhe || " (sem detalhe)")
+      resposta: "Erro ao consultar o Copilot."
     })
   }
 }

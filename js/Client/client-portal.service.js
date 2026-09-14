@@ -27,11 +27,14 @@ export async function initClientSession(token) {
   }
 
   try {
-    await supabase.rpc("set_config", {
-      key: "app.client_token",
-      value: token,
-      is_local: true
-    });
+    await Promise.race([
+      supabase.rpc("set_config", {
+        key: "app.client_token",
+        value: token,
+        is_local: true
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("set_config timeout")), 2500)),
+    ]);
   } catch (_) {}
 
   return row;

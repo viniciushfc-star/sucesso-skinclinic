@@ -19,7 +19,11 @@ export const ROLE_PERMISSIONS = {
     "auditoria:acknowledge",
     "planos:view",
     "backup:view",
-    "backup:restore"
+    "backup:restore",
+    "whatsapp:send",
+    "ia:copilot",
+    "ia:assist",
+    "estoque:view"
   ],
 
   funcionario: [
@@ -63,6 +67,11 @@ export const PERMISSIONS = [
   // Backup
   { key: "backup:view", label: "Ver e baixar backup" },
   { key: "backup:restore", label: "Restaurar backup" },
+
+  { key: "whatsapp:send", label: "Enviar WhatsApp pela API" },
+  { key: "ia:copilot", label: "Usar Copiloto de IA" },
+  { key: "ia:assist", label: "Usar IA auxiliar (preço, pele, skincare, OCR, protocolo)" },
+  { key: "estoque:view", label: "Ver estoque (IA/sugestões)" },
 
   // Auditoria (master e gestor)
   { key: "logs:view", label: "Ver logs de auditoria (legado)" },

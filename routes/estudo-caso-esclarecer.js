@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   let auth;
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -41,7 +41,7 @@ Responda em markdown, didático. Sugira onde buscar mais (PubMed, Scholar, guide
     res.status(200).json({ resposta: resposta ?? "", role: "assistant" });
   } catch (err) {
     console.error("[estudo-caso-esclarecer]", err);
-    res.status(500).json({ error: err.message || "Erro ao esclarecer." });
+    res.status(500).json({ error: "Erro interno" });
   }
 }
 

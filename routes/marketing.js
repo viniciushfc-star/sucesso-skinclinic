@@ -12,7 +12,7 @@ export default async function handler(req, res) {
 
   let auth;
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }

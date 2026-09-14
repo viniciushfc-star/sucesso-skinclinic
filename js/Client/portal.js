@@ -68,8 +68,10 @@ async function bootstrap() {
   }
 
   const token = params.get("token");
+  const appEl = document.getElementById("app");
   if (!token) {
     toast("Acesso inválido");
+    if (appEl) appEl.innerHTML = "<p>Acesso inválido. Use o link enviado pela clínica.</p>";
     return;
   }
 
@@ -89,6 +91,7 @@ async function bootstrap() {
   } catch (err) {
     console.error("[CLIENT PORTAL] bootstrap error", err);
     toast("Sessão expirada ou inválida");
+    if (appEl) appEl.innerHTML = "<p>Sessão expirada ou inválida. Solicite um novo link à clínica.</p>";
   }
 }
 

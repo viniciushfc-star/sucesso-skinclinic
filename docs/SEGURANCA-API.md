@@ -38,13 +38,18 @@ O `role` vem de `organization_users.role` no banco, não do frontend.
 Mesma lógica conceitual de `js/core/permissions.js`:
 
 1. Override em `organization_user_permissions` (se existir)
-2. Senão, `ROLE_PERMISSIONS` em `js/core/permissions.map.js`
+2. Erro nessa consulta → **FAIL-CLOSED** (500, não usa a role)
+3. Senão, `ROLE_PERMISSIONS` em `js/core/permissions.map.js`
 
 Exemplos:
 
-- APIs de IA / OCR / estoque: `dashboard:view`
-- `create-portal-session`: `clientes:view`
+- Copiloto: `ia:copilot` (gestor/master; funcionário não)
+- Preço/pele/skincare/OCR/protocolo/estoque IA: `ia:assist`
+- WhatsApp API: `whatsapp:send`
+- `create-portal-session`: `clientes:manage`
 - `send-invite-email`: `team:invite`
+
+Master tem `*` **dentro da própria org**.
 
 Permissão de menu no frontend **não** substitui este check.
 
@@ -74,7 +79,9 @@ Exige header `x-webhook-secret` (ou `x-webhook-transactions-secret`) igual a `WE
 
 Se o secret **não estiver configurado**, a rota recusa (401). Não fica aberta.
 
-Idempotência do webhook: **não implementada nesta etapa** (tarefa separada).
+Comparação do secret: hash + `timingSafeEqual` (`lib/http-security.js`).
+
+Idempotência: coluna `financeiro.webhook_event_id` + unique index (`supabase-p0-rls-isolamento.sql`). Sem a coluna, o insert cai no fallback (ainda pode duplicar). Retry com o mesmo id após a migration retorna `duplicado: true`.
 
 ## 9. Isolamento multi-tenant
 
@@ -92,9 +99,9 @@ JWT + membership (e permission indicada):
 
 - `POST /api/copiloto`, `/preco`, `/marketing`, `/protocolo`, `/pele`, `/skincare`, `/skincare-ai`
 - `POST /api/estoque`, `/ocr`, `/estudo-caso-pergunta`, `/estudo-caso-esclarecer`, `/discussao-caso`
-- `POST /api/create-portal-session` (`clientes:view`)
+- `POST /api/create-portal-session` (`clientes:manage`)
 - `POST /api/send-invite-email` (`team:invite`)
-- `POST /api/whatsapp-send`
+- `POST /api/whatsapp-send` (`whatsapp:send`)
 - `GET /api/integracoes-status` (JWT + qualquer membership)
 - `GET|POST /api/lembretes-auto` (JWT+org **ou** `CRON_SECRET`)
 - `GET|POST /api/calendario-conteudo?action=processar-agendados` (JWT+org **ou** cron)
@@ -114,15 +121,13 @@ HTML estático (`/`, `/dashboard.html`, `/portal.html`, etc.) não é API.
 
 ## CORS
 
-`server.js` ecoa qualquer `Origin` presente.
+Allowlist em `lib/http-security.js`: produção `https://skinclinic-one.vercel.app`, localhost:3000, `BASE_URL` e `ALLOWED_ORIGINS` (csv). Origin fora da lista **não** recebe `Access-Control-Allow-Origin`.
 
-**PENDÊNCIA: definir allowlist oficial de origins.** No repositório há indício de produção em `https://skinclinic-one.vercel.app`, mas não há lista fechada (custom domain, preview Vercel, localhost). Não foi inventada allowlist nesta correção.
+Headers extras: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`. CSP completa: P1.
 
-## Rate limit (proposta, não implementada)
+## Rate limit
 
-Endpoints de IA geram custo OpenAI e **não** têm rate limit nesta tarefa.
-
-Proposta mínima: mapa em memória `userId+rota` com teto (ex. 20 req/min) em `lib/api-auth.js`, sem nova dependência. Não implementar agora.
+Budget de IA e rate limit em `Map` in-memory: **não** são suficientes em serverless (reinício zera; instâncias não compartilham). Documentado como P1. Cache de IA só ocorre com `orgId` na chave.
 
 ## Frontend
 

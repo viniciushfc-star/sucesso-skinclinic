@@ -14,7 +14,7 @@ export default async function whatsappSend(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
 
   try {
-    await requireStaffAccess(req, { permission: "dashboard:view" });
+    await requireStaffAccess(req, { permission: "whatsapp:send" });
   } catch (e) {
     return sendAuthError(res, e);
   }

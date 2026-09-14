@@ -13,9 +13,11 @@ import {
   permissionAllowedByRoleForTest,
   authenticateRequest,
   ApiAuthError,
+  applyPermissionDecision,
 } from "../lib/api-auth.js";
 import webhookHandler from "../routes/webhook-transacoes.js";
 import { createSignedOAuthState, verifySignedOAuthState } from "../lib/oauth-state.js";
+import { secretsEqual, corsOriginFor, isBlockedStaticPath } from "../lib/http-security.js";
 
 function mockRes() {
   const r = {
@@ -56,6 +58,10 @@ describe("P0-01 helpers", () => {
     assert.equal(permissionAllowedByRoleForTest("staff", "dashboard:view"), true);
     assert.equal(permissionAllowedByRoleForTest("gestor", "team:invite"), true);
     assert.equal(permissionAllowedByRoleForTest("funcionario", "team:invite"), false);
+    assert.equal(permissionAllowedByRoleForTest("funcionario", "whatsapp:send"), false);
+    assert.equal(permissionAllowedByRoleForTest("funcionario", "ia:copilot"), false);
+    assert.equal(permissionAllowedByRoleForTest("gestor", "whatsapp:send"), true);
+    assert.equal(permissionAllowedByRoleForTest("gestor", "ia:copilot"), true);
   });
 
   it("cron sem CRON_SECRET não autoriza", () => {
@@ -149,5 +155,42 @@ describe("P1 OAuth state assinado", () => {
   it("rejeita secret diferente", () => {
     const state = createSignedOAuthState({ userId: "u-a", orgId: "org-a" }, secret);
     assert.equal(verifySignedOAuthState(state, "outro-secret"), null);
+  });
+});
+
+describe("P0 fail-closed e CORS", () => {
+  it("consulta de permission com erro → 500, não cai na role", () => {
+    assert.throws(
+      () => applyPermissionDecision(null, { message: "db down" }, "gestor", "financeiro:view"),
+      (err) => err instanceof ApiAuthError && err.status === 500
+    );
+  });
+
+  it("DENY override → 403 mesmo para gestor", () => {
+    assert.throws(
+      () => applyPermissionDecision({ allowed: false }, null, "gestor", "financeiro:view"),
+      (err) => err instanceof ApiAuthError && err.status === 403
+    );
+  });
+
+  it("ALLOW override → true mesmo se role não tiver a perm", () => {
+    assert.equal(applyPermissionDecision({ allowed: true }, null, "funcionario", "financeiro:view"), true);
+  });
+
+  it("secretsEqual aceita iguais e rejeita diferentes", () => {
+    assert.equal(secretsEqual("abc", "abc"), true);
+    assert.equal(secretsEqual("abc", "abd"), false);
+  });
+
+  it("CORS não ecoa origin arbitrário", () => {
+    assert.equal(corsOriginFor("https://evil.example"), null);
+    assert.equal(corsOriginFor("https://skinclinic-one.vercel.app"), "https://skinclinic-one.vercel.app");
+  });
+
+  it("não serve routes/, .env nem google-key.json", () => {
+    assert.equal(isBlockedStaticPath("/routes/copiloto.js"), true);
+    assert.equal(isBlockedStaticPath("/.env"), true);
+    assert.equal(isBlockedStaticPath("/google-key.json"), true);
+    assert.equal(isBlockedStaticPath("/js/core/auth.js"), false);
   });
 });

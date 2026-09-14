@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   let auth;
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   const { custos, protocolo, mercado } = req.body || {};
 
   const custosArr = Array.isArray(custos) ? custos : [];
-  const resumoCustos = summarizeGeneric(custosArr, "valor", 5);
+  const resumoCustos = summarizeGenericContext(custosArr, "valor", 5);
   const payload = {
     custos: custosArr.length > 10 ? resumoCustos : custos,
     protocolo: protocolo || {},
@@ -53,7 +53,7 @@ Retorne APENAS um JSON válido, sem markdown:
     res.json(message);
   } catch (err) {
     console.error("[PRECO]", err);
-    res.status(500).json({ content: "", role: "assistant", error: err.message });
+    res.status(500).json({ content: "", role: "assistant", error: "Erro interno" });
   }
 }
 

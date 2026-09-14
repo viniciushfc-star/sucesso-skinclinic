@@ -1,0 +1,5 @@
+-- Security patches applied going forward. Older one-off scripts remain in supabase/*.sql.
+-- Apply in timestamp order in the SQL Editor if the CLI is not used.
+--
+-- 20260914120000_p0_rls_isolamento.sql  — isolamento membership / financeiro / convite
+-- 20260914153000_p1_portal_ia_calendar.sql — RPC portal, calendário, ai_usage_events

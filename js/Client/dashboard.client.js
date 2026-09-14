@@ -38,6 +38,8 @@ export async function init(){
   toast(
    "Erro ao carregar informações"
   );
+  app.innerHTML =
+   "<p>Não foi possível carregar o portal. Tente o link de novo ou peça um novo à clínica.</p>";
  }
 }
 

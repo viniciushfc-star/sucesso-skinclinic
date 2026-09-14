@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   let auth;
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -52,7 +52,7 @@ Responda em markdown, direto e em bullets:
     res.status(200).json({ content: content ?? "", role: "assistant" });
   } catch (err) {
     console.error("[discussao-caso]", err);
-    res.status(500).json({ error: err.message || "Erro ao pedir opinião da IA." });
+    res.status(500).json({ error: "Erro interno" });
   }
 }
 

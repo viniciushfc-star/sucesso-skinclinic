@@ -5,6 +5,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { secretsEqual } from "../lib/http-security.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -23,7 +24,7 @@ export default async function handler(req, res) {
     console.error("[webhook-transacoes] WEBHOOK_TRANSACTIONS_SECRET não configurado");
     return res.status(401).json({ error: "Não autenticado" });
   }
-  if (SECRET !== incomingSecret) {
+  if (!secretsEqual(SECRET, incomingSecret)) {
     return res.status(401).json({ error: "Não autenticado" });
   }
 
@@ -44,7 +45,6 @@ export default async function handler(req, res) {
   if (errConta || !conta) {
     return res.status(404).json({
       error: "Conta vinculada não encontrada ou inativa",
-      hint: "Verifique o account_id (external_account_id da conta vinculada).",
     });
   }
 
@@ -64,6 +64,7 @@ export default async function handler(req, res) {
       const tipo = type === "credit" || type === "entrada" || type === "c" || amount > 0 ? "entrada" : "saida";
       const valor = Math.abs(amount);
       if (!date || !Number.isFinite(valor) || valor <= 0) return null;
+      const eventId = String(t.id || t.transaction_id || t.external_id || "").trim().slice(0, 120);
       return {
         org_id: conta.org_id,
         user_id: userId,
@@ -76,6 +77,7 @@ export default async function handler(req, res) {
         conta_origem: conta.nome_exibicao,
         categoria_saida: null,
         procedure_id: null,
+        webhook_event_id: eventId || `${accountId}:${date}:${valor}:${description}`.slice(0, 180),
       };
     })
     .filter(Boolean);
@@ -86,8 +88,26 @@ export default async function handler(req, res) {
 
   const { error: errInsert } = await supabase.from("financeiro").insert(rows);
   if (errInsert) {
-    console.error("[webhook-transacoes] insert error", errInsert);
-    return res.status(500).json({ error: "Erro ao gravar transações" });
+    if (errInsert.code === "23505") {
+      return res.status(200).json({
+        ok: true,
+        conta: conta.nome_exibicao,
+        recebidas: rawTransactions.length,
+        gravadas: 0,
+        duplicado: true,
+      });
+    }
+    if (errInsert.message && /webhook_event_id/i.test(errInsert.message)) {
+      const fallback = rows.map(({ webhook_event_id, ...rest }) => rest);
+      const { error: err2 } = await supabase.from("financeiro").insert(fallback);
+      if (err2) {
+        console.error("[webhook-transacoes] insert error", err2);
+        return res.status(500).json({ error: "Erro ao gravar transações" });
+      }
+    } else {
+      console.error("[webhook-transacoes] insert error", errInsert);
+      return res.status(500).json({ error: "Erro ao gravar transações" });
+    }
   }
 
   await supabase

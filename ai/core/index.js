@@ -14,6 +14,7 @@ import { enforceTokenLimit } from "./limits.js";
 import { enforceBudget, getUserBudgetStatus } from "./budget.js";
 import { cacheOrExecute } from "./cache.js";
 import { logAICost } from "./cost.js";
+import { hydrateMonthCostFromDb } from "../../lib/openai-cost.js";
 
 export { canCallAI, tryDeterministicAnswer } from "./decision.js";
 export { summarizeContext, summarizeTransactionsContext, summarizeClientsContext, summarizeAgendaContext, summarizeGenericContext } from "./summarizer.js";
@@ -79,7 +80,9 @@ export async function askAI(opts) {
   const prompt = question + (contextStr ? `\n\nContexto (resumido):\n${contextStr}` : "");
 
   // 3) Orçamento
-  const budget = enforceBudget(userId);
+  const budgetKey = userId || (orgId ? `org:${orgId}` : null);
+  await hydrateMonthCostFromDb(budgetKey);
+  const budget = enforceBudget(budgetKey);
   if (!budget.allow) {
     throw new Error(budget.message || "Orçamento de IA esgotado.");
   }
@@ -98,9 +101,10 @@ export async function askAI(opts) {
     ? customMessages
     : [{ role: "user", content: prompt }];
 
-  const cacheKey = skipCache || cacheTtlMs <= 0
-    ? null
-    : { feature, prompt: prompt.slice(0, 2000), complexity: effectiveComplexity, outputType };
+  const cacheKey =
+    skipCache || cacheTtlMs <= 0 || !orgId
+      ? null
+      : { orgId, feature, prompt: prompt.slice(0, 2000), complexity: effectiveComplexity, outputType };
 
   const modelName = selectModel(effectiveComplexity);
   const execute = async () => {
@@ -131,7 +135,7 @@ export async function askAI(opts) {
   // 8) Log obrigatório (único ponto de registro para dashboards)
   if (result.usage && (userId || orgId)) {
     logAICost({
-      userId,
+      userId: budgetKey,
       orgId,
       feature,
       model: modelName,

@@ -13,8 +13,9 @@ const client = new vision.ImageAnnotatorClient({
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
+  let auth;
   try {
-    await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -45,6 +46,8 @@ export default async function handler(req, res) {
 { "fornecedor": "nome ou null", "data": "YYYY-MM-DD ou null", "itens": [ { "produto_nome": "string", "quantidade": number, "valor_unitario": number ou null, "valor_total": number ou null, "lote": "string ou null" } ] }
 Use null quando não conseguir identificar. Quantidades e valores em números.`;
       const { content } = await askAI({
+        userId: auth.user.id,
+        orgId: auth.orgId,
         feature: "ocr",
         question: text.slice(0, 8000),
         complexity: COMPLEXITY.SIMPLE,

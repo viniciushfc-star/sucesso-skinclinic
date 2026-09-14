@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   let auth;
   try {
-    auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+    auth = await requireStaffAccess(req, { permission: "ia:assist" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -21,9 +21,9 @@ ${JSON.stringify(analise || {})}
 E protocolo:
 ${JSON.stringify(protocolo || {})}
 
-Crie um plano de skincare domiciliar: rotina manhã, rotina noite, cuidados semanais, alertas. NÃO prescreva medicamentos.
+Crie um RASCUNHO de skincare domiciliar para o profissional revisar: rotina manhã, rotina noite, cuidados semanais, alertas. NÃO prescreva medicamentos. NÃO trate isto como plano liberado ao cliente.
 Retorne APENAS um JSON válido, sem markdown:
-{ "manha": [], "noite": [], "semanal": [], "alertas": [] }
+{ "manha": [], "noite": [], "semanal": [], "alertas": [], "status": "rascunho" }
 `;
 
   try {
@@ -35,13 +35,13 @@ Retorne APENAS um JSON válido, sem markdown:
       complexity: COMPLEXITY.MEDIUM,
       checks: {},
       outputType: "analysis",
-      systemInstruction: "Você é especialista em estética. Retorne somente o JSON solicitado.",
+      systemInstruction: "Você gera rascunho para o profissional validar. Não libera conteúdo ao cliente. Retorne somente o JSON solicitado.",
       extraCreateOptions: { response_format: { type: "json_object" } },
     });
     res.json({ content: content || "{}", role: "assistant" });
   } catch (err) {
     console.error("[SKINCARE]", err);
-    res.status(500).json({ content: "{}", role: "assistant", error: err.message });
+    res.status(500).json({ content: "{}", role: "assistant", error: "Erro interno" });
   }
 }
 

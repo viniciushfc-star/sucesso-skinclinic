@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   let auth;
   try {
     auth = await requireStaffAccess(req, {
-      permission: skipPermissao ? undefined : "clientes:view",
+      permission: skipPermissao ? undefined : "clientes:manage",
     });
     if (skipPermissao) {
       console.warn("[create-portal-session] ALLOW_PORTAL_SESSION_DEV=1: permissão clientes:view não exigida");
