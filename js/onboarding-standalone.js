@@ -10,6 +10,7 @@ import {
   clearActiveOrg,
 } from "./core/org.js";
 import { redirect } from "./core/base-path.js";
+import { userFacingError } from "./core/errors.js";
 
 const form = document.getElementById("onboardingForm");
 const input = document.getElementById("orgName");
@@ -64,7 +65,7 @@ async function init() {
       redirect("/dashboard.html");
     } catch (err) {
       console.error("[ONBOARDING]", err);
-      showError(err.message || "Erro ao criar clínica. Tente de novo.");
+      showError(userFacingError(err, "Erro ao criar clínica. Tente de novo."));
       if (btn) btn.disabled = false;
     }
   });

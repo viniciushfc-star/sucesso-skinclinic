@@ -214,7 +214,7 @@ function bindGoogle() {
       await loginGoogle();
     } catch (err) {
       console.error("[GOOGLE]", err);
-      toast("Erro ao conectar com Google");
+      toast(authErrorMessage(err, "Não foi possível conectar com o Google."), "error");
     }
   };
 }

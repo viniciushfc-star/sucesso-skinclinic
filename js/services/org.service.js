@@ -12,7 +12,7 @@ export async function createOrganization(name, ownerId) {
 
   if (error) {
     console.error("[ORG-SERVICE] Erro ao criar organização", error);
-    throw error;
+    throw new Error(error.message || "Não foi possível criar a clínica.");
   }
 
   return data;
@@ -32,7 +32,7 @@ export async function linkUserAsMaster(orgId, userId) {
 
   if (error) {
     console.error("[ORG-SERVICE] Erro ao vincular usuário", error);
-    throw error;
+    throw new Error(error.message || "Não foi possível vincular você à clínica.");
   }
 }
 
@@ -47,17 +47,14 @@ export async function linkUserToOrganization({ orgId, userId, role }) {
       user_id: userId,
       role: role || "staff"
     });
-  if (error) throw error;
+  if (error) throw new Error(error.message || "Não foi possível entrar na clínica.");
 }
 
-/* =========================
-   CONVITE: marcar convite como aceito (organization_invites)
-========================= */
 export async function markInviteAsAccepted(inviteId) {
   if (!inviteId) return;
   const { error } = await supabase
     .from("organization_invites")
     .update({ status: "accepted" })
     .eq("id", inviteId);
-  if (error) throw error;
+  if (error) throw new Error(error.message || "Não foi possível confirmar o convite.");
 }

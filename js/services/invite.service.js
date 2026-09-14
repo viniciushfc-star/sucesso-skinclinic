@@ -15,7 +15,7 @@ export async function createInvite({ orgId, email, role }) {
 
   if (error) {
     console.error("[INVITE-SERVICE] Erro ao criar convite", error);
-    throw error;
+    throw new Error(error.message || "Não foi possível criar o convite.");
   }
 }
 
@@ -32,7 +32,7 @@ export async function getInviteByEmail(email) {
 
   if (error) {
     console.error("[INVITE-SERVICE] Erro ao buscar convite", error);
-    throw error;
+    throw new Error(error.message || "Não foi possível buscar o convite.");
   }
   if (!data) return null;
   return {

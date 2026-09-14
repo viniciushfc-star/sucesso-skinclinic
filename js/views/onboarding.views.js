@@ -10,6 +10,7 @@ import { toast }
 import { navigate }
   from "../core/spa.js";
 import { redirect } from "../core/base-path.js";
+import { userFacingError } from "../core/errors.js";
 
 export async function init() {
   const container = document.getElementById("view-onboarding");
@@ -84,7 +85,7 @@ btn.onclick = async () => {
 
   } catch (err) {
     console.error("[ONBOARDING] erro ao criar org", err);
-    alert("Erro ao criar clínica");
+    alert(userFacingError(err, "Não foi possível criar a clínica."));
   }
 };
 }

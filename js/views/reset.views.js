@@ -1,4 +1,4 @@
-import { sendReset }
+import { sendReset, authErrorMessage }
 from "../core/auth.js"
 
 import { toast }
@@ -70,7 +70,7 @@ form.addEventListener("submit", async (e) => {
 
   } catch (err) {
     log("error", "Erro reset", err);
-    showMessage("Erro ao enviar email");
+    showMessage(authErrorMessage(err, "Não foi possível enviar o e-mail."));
 
   } finally {
     setLoading(false);

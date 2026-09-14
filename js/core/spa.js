@@ -573,7 +573,9 @@ if (!route || typeof route !== "string") {
   try {
     allowed = await checkPermission(config.permission);
   } catch (err) {
-    console.warn("[SPA] Permissão ainda não pronta");
+    console.warn("[SPA] Permissão ainda não pronta", err);
+    const { toast } = await import("../ui/toast.js").catch(() => ({ toast: null }));
+    toast?.(err?.message || "Não foi possível verificar sua permissão. Recarregue a página.");
     return;
   }
 
@@ -645,6 +647,14 @@ async function carregarView(viewName) {
     }
   } catch (err) {
     console.error("Erro ao carregar view:", err?.message || err, "(view:", viewName, "| arquivo:", config?.view + ")");
+    const host = document.getElementById(`view-${viewName}`) || document.getElementById("mainContent");
+    if (host) {
+      const p = document.createElement("p");
+      p.setAttribute("role", "alert");
+      p.style.color = "#b91c1c";
+      p.textContent = `Não foi possível abrir esta tela (${viewName}). Recarregue com Ctrl+F5. ${err?.message || ""}`;
+      host.prepend(p);
+    }
   }
 }
 
