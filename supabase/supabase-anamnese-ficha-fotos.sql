@@ -33,6 +33,7 @@ ALTER TABLE public.anamnesis_registros ALTER COLUMN conteudo SET DEFAULT '';
 -- Inserir apenas se a org não tiver; o app chama ensureDefaultFuncoes com esses slugs.
 -- Não alteramos registros existentes; o app usa listFuncoes que já retorna da tabela.
 
--- 4) Bucket para fotos da anamnese (rodar no Supabase Dashboard > Storage se não existir)
--- Criar bucket "anamnese-fotos" (público ou privado com RLS por org).
--- Política sugerida: usuários autenticados da org podem inserir/ler em objetos onde nome começa com org_id.
+-- 4) Bucket público anamnese-fotos (o app usa getPublicUrl)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('anamnese-fotos', 'anamnese-fotos', true)
+ON CONFLICT (id) DO NOTHING;

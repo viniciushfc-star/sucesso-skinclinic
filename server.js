@@ -7,13 +7,9 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-function toFileUrl(p) {
-  return pathToFileURL(p).href;
-}
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -45,76 +41,59 @@ function wrap(handler) {
   };
 }
 
-/* Carrega e registra uma rota da pasta api/ */
-async function useApi(method, pathName, modulePath) {
+/**
+ * import("./arquivo.js") com string LITERAL: o bundler da Vercel inclui o arquivo
+ * na função. import(path.resolve(...)) é dinâmico e as rotas somem no deploy
+ * (só /api/health, definido acima, continuava respondendo).
+ */
+async function useApi(method, pathName, load) {
   try {
-    const fullPath = path.resolve(__dirname, modulePath);
-    const mod = await import(toFileUrl(fullPath));
+    const mod = await load();
     const handler = mod.default;
     if (handler) app[method](pathName, wrap(handler));
+    else console.warn("[server] Rota sem export default:", pathName);
   } catch (e) {
     console.warn("[server] Rota não carregada:", pathName, e.message);
-    if (pathName === "/api/create-portal-session") console.warn("[server] Dica: confira .env (SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY) e se o arquivo api/create-portal-session.js existe.");
   }
 }
 
-/* Rotas POST (APIs de IA e serviços) — em routes/ para Vercel Hobby (máx. 12 funções em api/) */
-const postRoutes = [
-  ["/api/copiloto", "./routes/copiloto.js"],
-  ["/api/preco", "./routes/preco.js"],
-  ["/api/marketing", "./routes/marketing.js"],
-  ["/api/ocr", "./routes/ocr.js"],
-  ["/api/estoque", "./routes/estoque.js"],
-  ["/api/estudo-caso-pergunta", "./routes/estudo-caso-pergunta.js"],
-  ["/api/estudo-caso-esclarecer", "./routes/estudo-caso-esclarecer.js"],
-  ["/api/discussao-caso", "./routes/discussao-caso.js"],
-  ["/api/protocolo", "./routes/protocolo.js"],
-  ["/api/pele", "./routes/pele.js"],
-  ["/api/skincare", "./routes/skincare.js"],
-  ["/api/analise-pele", "./routes/analise-pele.js"],
-  ["/api/analise-pele-fotos", "./routes/analise-pele-fotos.js"],
-  ["/api/analise-pele-portal-list", "./routes/analise-pele-portal-list.js"],
-  ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
-  ["/api/webhook-transacoes", "./routes/webhook-transacoes.js"],
-  ["/api/create-portal-session", "./routes/create-portal-session.js"],
-  ["/api/send-invite-email", "./routes/send-invite-email.js"],
-  ["/api/lembretes-auto", "./routes/lembretes-auto.js"],
-  ["/api/whatsapp-send", "./routes/whatsapp-send.js"],
-];
+let routesPromise;
 
-const getRoutes = [
-  ["/api/lembretes-auto", "./routes/lembretes-auto.js"],
-  ["/api/integracoes-status", "./routes/integracoes-status.js"],
-  ["/api/calendario-conteudo", "./routes/calendario-conteudo.js"],
-  ["/api/google-calendar/auth", "./routes/google-calendar/auth.js"],
-  ["/api/google-calendar/callback", "./routes/google-calendar/callback.js"],
-  ["/api/google-calendar/status", "./routes/google-calendar/status.js"],
-];
+async function registerRoutesOnce() {
+  await useApi("post", "/api/copiloto", () => import("./routes/copiloto.js"));
+  await useApi("post", "/api/preco", () => import("./routes/preco.js"));
+  await useApi("post", "/api/marketing", () => import("./routes/marketing.js"));
+  await useApi("post", "/api/ocr", () => import("./routes/ocr.js"));
+  await useApi("post", "/api/estoque", () => import("./routes/estoque.js"));
+  await useApi("post", "/api/estudo-caso-pergunta", () => import("./routes/estudo-caso-pergunta.js"));
+  await useApi("post", "/api/estudo-caso-esclarecer", () => import("./routes/estudo-caso-esclarecer.js"));
+  await useApi("post", "/api/discussao-caso", () => import("./routes/discussao-caso.js"));
+  await useApi("post", "/api/protocolo", () => import("./routes/protocolo.js"));
+  await useApi("post", "/api/pele", () => import("./routes/pele.js"));
+  await useApi("post", "/api/skincare", () => import("./routes/skincare.js"));
+  await useApi("post", "/api/skincare-ai", () => import("./routes/skincare.js"));
+  await useApi("post", "/api/analise-pele", () => import("./routes/analise-pele.js"));
+  await useApi("post", "/api/analise-pele-fotos", () => import("./routes/analise-pele-fotos.js"));
+  await useApi("post", "/api/analise-pele-portal-list", () => import("./routes/analise-pele-portal-list.js"));
+  await useApi("post", "/api/calendario-conteudo", () => import("./routes/calendario-conteudo.js"));
+  await useApi("post", "/api/webhook-transacoes", () => import("./routes/webhook-transacoes.js"));
+  await useApi("post", "/api/create-portal-session", () => import("./routes/create-portal-session.js"));
+  await useApi("post", "/api/send-invite-email", () => import("./routes/send-invite-email.js"));
+  await useApi("post", "/api/lembretes-auto", () => import("./routes/lembretes-auto.js"));
+  await useApi("post", "/api/whatsapp-send", () => import("./routes/whatsapp-send.js"));
+  await useApi("get", "/api/lembretes-auto", () => import("./routes/lembretes-auto.js"));
+  await useApi("get", "/api/integracoes-status", () => import("./routes/integracoes-status.js"));
+  await useApi("get", "/api/calendario-conteudo", () => import("./routes/calendario-conteudo.js"));
+  await useApi("get", "/api/google-calendar/auth", () => import("./routes/google-calendar/auth.js"));
+  await useApi("get", "/api/google-calendar/callback", () => import("./routes/google-calendar/callback.js"));
+  await useApi("get", "/api/google-calendar/status", () => import("./routes/google-calendar/status.js"));
+  await useApi("post", "/api/google-calendar/sync", () => import("./routes/google-calendar/sync.js"));
+  await useApi("post", "/api/google-calendar/disconnect", () => import("./routes/google-calendar/disconnect.js"));
+}
 
-const otherPostRoutes = [
-  ["/api/google-calendar/sync", "./routes/google-calendar/sync.js"],
-  ["/api/google-calendar/disconnect", "./routes/google-calendar/disconnect.js"],
-];
-
-/* Registro assíncrono das rotas */
-async function registerRoutes() {
-  for (const [pathName, modulePath] of postRoutes) {
-    await useApi("post", pathName, modulePath);
-  }
-  for (const [pathName, modulePath] of getRoutes) {
-    await useApi("get", pathName, modulePath);
-  }
-  for (const [pathName, modulePath] of otherPostRoutes) {
-    await useApi("post", pathName, modulePath);
-  }
-  /* Frontend chama /api/skincare-ai; mesmo handler que /api/skincare */
-  try {
-    const fullPath = path.resolve(__dirname, "./routes/skincare.js");
-    const mod = await import(toFileUrl(fullPath));
-    if (mod.default) app.post("/api/skincare-ai", wrap(mod.default));
-  } catch (e) {
-    console.warn("[server] /api/skincare-ai não carregado:", e.message);
-  }
+function registerRoutes() {
+  if (!routesPromise) routesPromise = registerRoutesOnce();
+  return routesPromise;
 }
 
 /* Servir arquivos estáticos (frontend) */

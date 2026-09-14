@@ -5,13 +5,10 @@
 
 import { app, registerRoutes } from "../server.js";
 
-let routesReady = false;
+const ready = registerRoutes();
 
 export default async function handler(req, res) {
-  if (!routesReady) {
-    await registerRoutes();
-    routesReady = true;
-  }
+  await ready;
   return new Promise((resolve) => {
     const onEnd = () => {
       res.off("finish", onEnd);

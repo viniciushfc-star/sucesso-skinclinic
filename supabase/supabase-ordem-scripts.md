@@ -27,6 +27,10 @@ Se rodar o passo 5 **antes** do 3, o bloco que adiciona colunas em `analise_pele
 12. **supabase-rodar-agora.sql** – atalho: lembrete + espera + colunas da agenda (se ainda não rodou 10 e 11).
 13. **supabase-fiscal-contador.sql** – pasta do contador, regime tributário e rascunhos de apuração.
 
+## Diagnóstico (somente leitura)
+
+- **supabase-diagnostico-compatibilidade.sql** — lista o que o app espera vs o que existe (OK / FALTA / ATENCAO). Não altera dados.
+
 ## Outros (conforme necessidade)
 
 - **supabase-menu-settings.sql** – visibilidade do menu Anamnese

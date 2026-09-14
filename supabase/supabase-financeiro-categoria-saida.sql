@@ -4,6 +4,8 @@
 -- Execute no Supabase: SQL Editor -> New query -> Cole e Run
 -- ============================================================
 
+ALTER TABLE public.financeiro ADD COLUMN IF NOT EXISTS categoria text;
+
 DO $migrate$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'financeiro') THEN
