@@ -29,6 +29,7 @@ Se rodar o passo 5 **antes** do 3, o bloco que adiciona colunas em `analise_pele
 
 14. **supabase-p0-rls-isolamento.sql** – fecha self-join em `organization_users`, RLS de `financeiro`, convite do próprio e-mail.
 15. **supabase-p1-portal-ia-calendario.sql** – RPC do portal sem SETOF, last_used/revoked, calendário só do dono, tabela `ai_usage_events`.
+16. **supabase-fix-invites-org-fk.sql** – FK `organization_invites.org_id` → `organizations` (erro PGRST200 no schema cache).
 
 A pasta `supabase/migrations/` replica P0/P1 em ordem de timestamp (fonte nova de patches de segurança).
 

@@ -1,14 +1,11 @@
 import { supabase } from "../core/supabase.js";
 
-/* =========================
-   CREATE INVITE
-========================= */
 export async function createInvite({ orgId, email, role }) {
   const { error } = await supabase
     .from("organization_invites")
     .insert({
       org_id: orgId,
-      email,
+      email: String(email || "").trim().toLowerCase(),
       role,
       status: "pending"
     });
@@ -19,15 +16,20 @@ export async function createInvite({ orgId, email, role }) {
   }
 }
 
-/* =========================
-   GET INVITE BY EMAIL
-========================= */
+/**
+ * Convite pendente do e-mail. Sem embed organizations() (exige FK no schema cache).
+ */
 export async function getInviteByEmail(email) {
+  const needle = String(email || "").trim();
+  if (!needle) return null;
+
   const { data, error } = await supabase
     .from("organization_invites")
-    .select("*, organizations(name)")
-    .eq("email", email)
+    .select("id, org_id, email, role, status, created_at")
     .eq("status", "pending")
+    .ilike("email", needle)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {
@@ -35,9 +37,19 @@ export async function getInviteByEmail(email) {
     throw new Error(error.message || "Não foi possível buscar o convite.");
   }
   if (!data) return null;
+
+  let organization_name = "Clínica";
+  if (data.org_id) {
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", data.org_id)
+      .maybeSingle();
+    if (org?.name) organization_name = org.name;
+  }
+
   return {
     ...data,
-    org_id: data.org_id ?? data.organization_id,
-    organization_name: data.organizations?.name ?? data.organization_name ?? "Clínica",
+    organization_name,
   };
 }
