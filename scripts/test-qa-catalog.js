@@ -6,8 +6,8 @@ describe("catálogo QA SkinClinic", () => {
   const cases = buildCatalog();
   const stats = catalogStats(cases);
 
-  it("tem pelo menos 600 tipos distintos", () => {
-    assert.ok(stats.total >= 600, `só ${stats.total} casos`);
+  it("tem pelo menos 1200 tipos distintos", () => {
+    assert.ok(stats.total >= 1200, `só ${stats.total} casos`);
   });
 
   it("ids únicos", () => {
@@ -29,6 +29,6 @@ describe("catálogo QA SkinClinic", () => {
 
   it("tem bateria anônima executável na Vercel", () => {
     const live = cases.filter((c) => ["anon", "anon-light", "cors", "anon-header"].includes(c.live));
-    assert.ok(live.length >= 400, `só ${live.length} probes anônimos`);
+    assert.ok(live.length >= 700, `só ${live.length} probes anônimos`);
   });
 });

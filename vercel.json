@@ -2,8 +2,22 @@
   "version": 2,
   "buildCommand": "npm install",
   "outputDirectory": ".",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api" }
+  "routes": [
+    { "src": "^/routes(?:/.*)?$", "status": 404 },
+    { "src": "^/lib(?:/.*)?$", "status": 404 },
+    { "src": "^/ai(?:/.*)?$", "status": 404 },
+    { "src": "^/supabase(?:/.*)?$", "status": 404 },
+    { "src": "^/scripts(?:/.*)?$", "status": 404 },
+    { "src": "^/node_modules(?:/.*)?$", "status": 404 },
+    { "src": "^/\\.git(?:/.*)?$", "status": 404 },
+    { "src": "^/server\\.js$", "status": 404 },
+    { "src": "^/api/index\\.js$", "status": 404 },
+    { "src": "^/package(-lock)?\\.json$", "status": 404 },
+    { "src": "^/vercel\\.json$", "status": 404 },
+    { "src": "^/google-key\\.json$", "status": 404 },
+    { "src": "^/\\.env(?:\\..+)?$", "status": 404 },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/api" }
   ],
   "crons": [
     {

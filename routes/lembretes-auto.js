@@ -97,7 +97,13 @@ export default async function lembretesAuto(req, res) {
     }
   }
 
-  const admin = getAdmin();
+  let admin;
+  try {
+    admin = getAdmin();
+  } catch (e) {
+    console.error("[lembretes-auto] admin", e?.message || e);
+    return res.status(500).json({ error: "Erro interno" });
+  }
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

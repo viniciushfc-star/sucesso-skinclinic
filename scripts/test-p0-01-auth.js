@@ -14,6 +14,7 @@ import {
   authenticateRequest,
   ApiAuthError,
   applyPermissionDecision,
+  isMissingPermissionCatalog,
 } from "../lib/api-auth.js";
 import webhookHandler from "../routes/webhook-transacoes.js";
 import { createSignedOAuthState, verifySignedOAuthState } from "../lib/oauth-state.js";
@@ -187,10 +188,19 @@ describe("P0 fail-closed e CORS", () => {
     assert.equal(corsOriginFor("https://skinclinic-one.vercel.app"), "https://skinclinic-one.vercel.app");
   });
 
-  it("não serve routes/, .env nem google-key.json", () => {
+  it("não serve routes/, lib/, .env nem google-key.json", () => {
     assert.equal(isBlockedStaticPath("/routes/copiloto.js"), true);
+    assert.equal(isBlockedStaticPath("/lib/api-auth.js"), true);
+    assert.equal(isBlockedStaticPath("/ai/core/index.js"), true);
+    assert.equal(isBlockedStaticPath("/vercel.json"), true);
     assert.equal(isBlockedStaticPath("/.env"), true);
     assert.equal(isBlockedStaticPath("/google-key.json"), true);
     assert.equal(isBlockedStaticPath("/js/core/auth.js"), false);
+  });
+
+  it("tabela de permissão ausente não é fail-closed 500", () => {
+    assert.equal(isMissingPermissionCatalog({ code: "42P01", message: "relation does not exist" }), true);
+    assert.equal(isMissingPermissionCatalog({ code: "PGRST205", message: "Could not find the table" }), true);
+    assert.equal(isMissingPermissionCatalog({ message: "db down" }), false);
   });
 });

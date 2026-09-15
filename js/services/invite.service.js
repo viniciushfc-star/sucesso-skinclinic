@@ -1,5 +1,15 @@
 import { supabase } from "../core/supabase.js";
 
+function newInviteToken() {
+  const bytes = new Uint8Array(24);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function createInvite({ orgId, email, role }) {
   const { error } = await supabase
     .from("organization_invites")
@@ -7,7 +17,8 @@ export async function createInvite({ orgId, email, role }) {
       org_id: orgId,
       email: String(email || "").trim().toLowerCase(),
       role,
-      status: "pending"
+      status: "pending",
+      token: newInviteToken(),
     });
 
   if (error) {

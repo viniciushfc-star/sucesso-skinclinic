@@ -11,32 +11,98 @@ export const PAGES = [
   "/",
   "/index.html",
   "/dashboard.html",
+  "/dashboard",
   "/portal.html",
   "/reset.html",
+  "/reset",
   "/new-password.html",
   "/onboarding.html",
+  "/onboarding",
+  "/onboarding/index.html",
   "/auth-callback.html",
   "/agendar.html",
+  "/agendar",
   "/agenda.html",
   "/accept-invite.html",
+  "/accept-invite",
   "/create-org.html",
+  "/select-org",
   "/manifest.json",
+  "/sw.js",
+  "/js/css/style.css",
+  "/js/css/onboarding.css",
 ];
 
 export const BLOCKED = [
   "/routes/copiloto.js",
   "/routes/preco.js",
+  "/routes/google-calendar/auth.js",
   "/server.js",
   "/api/index.js",
   "/.env",
   "/.env.local",
+  "/.env.example",
   "/google-key.json",
   "/package.json",
   "/package-lock.json",
+  "/vercel.json",
+  "/lib/api-auth.js",
+  "/ai/core/index.js",
   "/supabase/supabase-p0-rls-isolamento.sql",
   "/scripts/test-p0-01-auth.js",
+  "/scripts/qa/catalog.js",
+  "/scripts/qa/provision-test-users.js",
   "/node_modules/express/package.json",
+  "/.git/HEAD",
+  "/.git/config",
 ];
+
+/** Rotas que não existem de propósito: não podem 5xx nem vazar admin. */
+export const PHANTOM = [
+  "/api",
+  "/api/",
+  "/api/admin",
+  "/api/users",
+  "/api/login",
+  "/api/logout",
+  "/api/graphql",
+  "/api/v1/clients",
+  "/api/v2/health",
+  "/api/internal",
+  "/api/debug",
+  "/api/config",
+  "/api/secrets",
+  "/api/env",
+  "/api/me",
+  "/api/organizations",
+  "/api/clients",
+  "/api/agenda",
+  "/api/financeiro",
+  "/api/backup",
+  "/api/export",
+  "/api/team",
+  "/api/invites",
+  "/api/portal",
+  "/api/auth",
+  "/api/session",
+  "/api/openai",
+  "/api/stripe",
+  "/api/pagamento",
+  "/api/webhooks",
+  "/api/cron",
+  "/api/reset-password",
+  "/api/upload",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/favicon.ico",
+  "/.well-known/security.txt",
+  "/wp-admin",
+  "/phpinfo.php",
+  "/actuator/health",
+  "/server-status",
+];
+
+export const HTTP_VERBS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"];
 
 export const POST_APIS = [
   "/api/copiloto",
@@ -106,6 +172,10 @@ export const VIEWS = [
   "documentos-termos",
   "modelos-mensagem",
   "para-clinicas",
+  "select-org",
+  "onboarding",
+  "accept-invite",
+  "login",
 ];
 
 /** Permissão de API (backend). funcionario não tem ia/whatsapp/portal. */
@@ -133,6 +203,7 @@ export const API_PERM = {
 
 const FAKE_ORG = "00000000-0000-4000-8000-000000000099";
 const FAKE_USER = "11111111-1111-4111-8111-111111111111";
+const ORG_CTX = String(process.env.QA_ORG_ID || "").trim() || FAKE_ORG;
 
 const FUZZ_BODIES = [
   { name: "vazio", body: "" },
@@ -272,7 +343,12 @@ export function buildCatalog() {
       live: "anon",
       method: "GET",
       path: api,
-      expectStatus: api === "/api/health" ? [200] : [200, 400, 401, 403, 404, 405],
+      expectStatus:
+        api === "/api/health"
+          ? [200]
+          : api.includes("callback")
+            ? [200, 301, 302, 303, 307, 400, 401, 403, 404, 405]
+            : [200, 400, 401, 403, 404, 405],
     });
   }
 
@@ -401,7 +477,7 @@ export function buildCatalog() {
         role,
         method: "POST",
         path: api,
-        json: { org_id: FAKE_ORG },
+        json: { org_id: ORG_CTX },
         expectForbidden: !allowed,
         skipUnlessLive: /copiloto|preco|marketing|ocr|estoque|estudo|discussao|protocolo|pele|skincare|whatsapp|create-portal|send-invite|google-calendar/.test(api),
       });
@@ -469,6 +545,147 @@ export function buildCatalog() {
       title,
       live: "manual-or-ui",
     });
+  }
+
+  const safeNo5xx = [200, 201, 204, 301, 302, 303, 304, 307, 308, 400, 401, 403, 404, 405, 409, 410, 413, 415, 422, 429];
+
+  for (let i = 0; i < PHANTOM.length; i++) {
+    const path = PHANTOM[i];
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
+      add({
+        id: `phantom-${method.toLowerCase()}-${i}-${slug(path) || "root"}`,
+        family: "rotas-fantasma",
+        title: `${method} ${path} (rota inexistente) não 5xx`,
+        live: "anon",
+        method,
+        path,
+        json: method === "GET" || method === "HEAD" || method === "OPTIONS" ? undefined : {},
+        expectStatus: safeNo5xx,
+      });
+    }
+  }
+
+  const methodTargets = [...new Set([...POST_APIS, ...GET_APIS])];
+  for (const api of methodTargets) {
+    for (const method of HTTP_VERBS) {
+      if (method === "GET" && GET_APIS.includes(api)) continue;
+      if (method === "POST" && POST_APIS.includes(api)) continue;
+      if (method === "GET" && POST_APIS.includes(api)) continue;
+      add({
+        id: `verb-${method.toLowerCase()}-${slug(api)}`,
+        family: "api-metodo",
+        title: `${method} ${api} método atípico`,
+        live: "anon",
+        method,
+        path: api,
+        json: method === "GET" || method === "HEAD" || method === "OPTIONS" ? undefined : {},
+        expectStatus: safeNo5xx,
+      });
+    }
+  }
+
+  const tricks = [
+    ["/api/health/", "health-slash"],
+    ["/api/health?", "health-qempty"],
+    ["//api/health", "health-doubleslash"],
+    ["/api/../package.json", "dotdot-package"],
+    ["/api/%2e%2e/package.json", "enc-dotdot-package"],
+    ["/API/HEALTH", "health-upper"],
+    ["/api/health.json", "health-json-ext"],
+    ["/api/copiloto/", "copiloto-slash"],
+    ["/api/copiloto.json", "copiloto-json-ext"],
+    ["/routes%2fcopiloto.js", "enc-routes-copiloto"],
+    ["/./server.js", "dot-server"],
+    ["/dashboard.html/", "dashboard-slash"],
+    ["/index.html/..", "index-dotdot"],
+    ["/api/google-calendar/callback/", "gcal-cb-slash"],
+    ["/api/google-calendar/auth/", "gcal-auth-slash"],
+    ["/api/lembretes-auto/", "lembretes-slash"],
+    ["/api/webhook-transacoes/", "webhook-slash"],
+  ];
+  for (const [path, name] of tricks) {
+    add({
+      id: `trick-get-${name}`,
+      family: "path-trick",
+      title: `GET ${path}`,
+      live: "anon",
+      method: "GET",
+      path,
+      expectStatus: safeNo5xx,
+    });
+  }
+
+  const qfuzz = [
+    "?org_id=" + FAKE_ORG,
+    "?org=" + FAKE_ORG,
+    "?q=<script>alert(1)</script>",
+    "?id=1;DROP TABLE clients;--",
+    "?token=" + "a".repeat(128),
+    "?redirect=https://evil.example",
+    "?code=abc&state=abc",
+    "?callback=alert",
+    "?__proto__[admin]=true",
+  ];
+  for (const api of GET_APIS) {
+    qfuzz.forEach((q, i) => {
+      add({
+        id: `qfuzz-${slug(api)}-${i}`,
+        family: "query-fuzz",
+        title: `GET ${api}${q}`,
+        live: "anon",
+        method: "GET",
+        path: api + q,
+        expectStatus: safeNo5xx,
+      });
+    });
+  }
+
+  const authGets = [
+    "/api/health",
+    "/api/integracoes-status",
+    "/api/calendario-conteudo",
+    "/api/google-calendar/status",
+    "/api/google-calendar/auth",
+    "/api/google-calendar/callback",
+    "/api/lembretes-auto",
+  ];
+  for (const role of ROLES) {
+    for (const api of authGets) {
+      add({
+        id: `auth-get-${role}-${slug(api)}`,
+        family: "api-papel-get",
+        title: `${role} GET ${api}`,
+        live: "auth-api",
+        role,
+        method: "GET",
+        path: `${api}?org_id=${ORG_CTX}&org=${ORG_CTX}`,
+        expectStatus: safeNo5xx,
+      });
+    }
+    for (const api of POST_APIS) {
+      add({
+        id: `auth-put-${role}-${slug(api)}`,
+        family: "api-papel-verb",
+        title: `${role} PUT ${api}`,
+        live: "auth-api",
+        role,
+        method: "PUT",
+        path: api,
+        json: { org_id: ORG_CTX },
+        expectStatus: safeNo5xx,
+      });
+      add({
+        id: `auth-del-${role}-${slug(api)}`,
+        family: "api-papel-verb",
+        title: `${role} DELETE ${api}`,
+        live: "auth-api",
+        role,
+        method: "DELETE",
+        path: api,
+        json: { org_id: ORG_CTX },
+        expectStatus: safeNo5xx,
+      });
+    }
   }
 
   return cases;

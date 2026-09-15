@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+google-key.json
+scripts/qa-last-report.json
+.git
+docs
+supabase
+scripts
