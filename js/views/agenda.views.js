@@ -713,13 +713,6 @@ async function renderAniversariantes() {
   }
 }
 
-function escapeHtml(s) {
-  if (s == null) return ""
-  const div = document.createElement("div")
-  div.textContent = s
-  return div.innerHTML
-}
-
 /* =====================
    MODAIS
 ===================== */
