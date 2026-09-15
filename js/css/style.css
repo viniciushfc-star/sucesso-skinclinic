@@ -2203,7 +2203,161 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
    AGENDA – estilo Google Agenda (UX/referência visual; dados da nossa agenda)
 ===================== */
 
-.agenda-google-style{ background:#fff; border-radius:8px; overflow:hidden; }
+.agenda-atelier{
+  background:#f3f2ee;
+  border:1px solid #e6e4de;
+  border-radius:12px;
+  overflow:hidden;
+}
+.agenda-atelier .agenda-toolbar{
+  background:#fffcf8;
+  border-bottom:1px solid #e6e4de;
+  gap:0.75rem;
+}
+.agenda-atelier .agenda-toolbar-create{
+  background:#16181d;
+  color:#fffcf8;
+  border-radius:8px;
+  box-shadow:none;
+  font-weight:600;
+}
+.agenda-atelier .agenda-toolbar-create:hover{ background:#2a2d33; }
+.agenda-atelier .agenda-toolbar-today{
+  border:1px solid #e6e4de;
+  border-radius:8px;
+  color:#16181d;
+}
+.agenda-atelier .agenda-toolbar-title{
+  font-weight:600;
+  color:#16181d;
+  font-size:1.05rem;
+}
+.agenda-atelier .agenda-layout{
+  grid-template-columns:minmax(220px, 260px) 1fr;
+  background:#f3f2ee;
+  gap:0;
+  padding:1rem 1.1rem 1.25rem;
+}
+.agenda-atelier .agenda-calendar-wrap{
+  background:transparent;
+  border-right:1px solid #e6e4de;
+  padding-right:1rem;
+}
+.agenda-mini-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:4px;
+  margin-bottom:0.35rem;
+}
+.agenda-mini-title{
+  margin:0;
+  font-size:0.85rem;
+  font-weight:600;
+  color:#16181d;
+  text-align:center;
+  flex:1;
+}
+.agenda-atelier .agenda-calendar-cell--selected,
+.agenda-atelier .agenda-calendar-cell--today{
+  background:#16181d;
+  color:#fffcf8;
+  box-shadow:none;
+}
+.agenda-atelier .agenda-calendar-cell--selected .agenda-calendar-dot,
+.agenda-atelier .agenda-calendar-cell--today .agenda-calendar-dot{
+  background:#c4a574;
+  color:#16181d;
+}
+.agenda-atelier .agenda-day-filtro{ margin-top:1rem; flex-direction:column; align-items:flex-start; }
+.agenda-atelier #listaAgenda{ display:none; }
+.agenda-atelier .agenda-day-title{
+  margin:0.85rem 0 0.35rem;
+  font-size:0.8rem;
+  font-weight:600;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  color:#6d7178;
+}
+
+.agenda-week{
+  background:#fffcf8;
+  border:1px solid #e6e4de;
+  border-radius:10px;
+  overflow:auto;
+  max-height:min(68vh, 740px);
+}
+.agenda-week-row{
+  display:grid;
+  grid-template-columns:52px repeat(6, minmax(88px, 1fr));
+  min-width:720px;
+  border-bottom:1px solid #eceae4;
+}
+.agenda-week-row--head{
+  position:sticky;
+  top:0;
+  z-index:2;
+  background:#fffcf8;
+  border-bottom:1px solid #e6e4de;
+}
+.agenda-week-gutter{
+  padding:8px 6px;
+  font-size:0.7rem;
+  color:#6d7178;
+  text-align:right;
+  border-right:1px solid #eceae4;
+}
+.agenda-week-head{
+  border:0;
+  background:transparent;
+  padding:10px 8px;
+  font-size:0.72rem;
+  font-weight:600;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  color:#6d7178;
+  cursor:pointer;
+  border-right:1px solid #eceae4;
+  text-align:center;
+}
+.agenda-week-head span{ display:block; font-weight:500; margin-top:2px; text-transform:none; letter-spacing:0; font-size:0.8rem; color:#16181d; }
+.agenda-week-head.is-today span{ color:#9a7b4a; }
+.agenda-week-head.is-selected{ background:#f3f2ee; }
+.agenda-week-cell{
+  min-height:56px;
+  padding:4px;
+  border-right:1px solid #eceae4;
+  cursor:pointer;
+}
+.agenda-week-cell:hover{ background:#f7f5f0; }
+.agenda-week-block{
+  display:block;
+  width:100%;
+  text-align:left;
+  border:0;
+  border-radius:6px;
+  padding:6px 8px;
+  margin-bottom:4px;
+  background:#e4eee9;
+  color:#24473c;
+  cursor:pointer;
+  font:inherit;
+}
+.agenda-week-block b{ display:block; font-size:0.75rem; font-weight:600; }
+.agenda-week-block span{ display:block; font-size:0.68rem; opacity:0.85; margin-top:1px; }
+.agenda-week-block--event{ background:#eceae4; color:#3c4043; }
+
+.agenda-atelier .agenda-panel__content{
+  background:#fffcf8;
+  box-shadow:none;
+  border-left:1px solid #e6e4de;
+}
+.agenda-atelier .agenda-panel__backdrop{ background:rgba(22,24,29,0.28); }
+.agenda-atelier .agenda-toolbar-btn:hover{ background:#eceae4; color:#16181d; }
+
+@media (max-width: 720px){
+  .agenda-week{ max-height:none; }
+}
 .agenda-toolbar{
   display:flex;
   align-items:center;

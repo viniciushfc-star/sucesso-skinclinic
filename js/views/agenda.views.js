@@ -19,6 +19,7 @@ import { getActiveOrg, withOrg } from "../core/org.js"
 import {
  listAppointmentsByDate,
  listAppointmentsByMonth,
+ listAppointmentsByRange,
  getAgendaItemById,
  getClientAgendaResumo,
  getAvailableProfessionals,
@@ -104,6 +105,10 @@ function bindUI() {
   if (prev) prev.onclick = () => { changeMonth(-1); renderCalendarAndDay() }
   const next = document.getElementById("agendaNextMonth")
   if (next) next.onclick = () => { changeMonth(1); renderCalendarAndDay() }
+  const prevWeek = document.getElementById("agendaPrevWeek")
+  if (prevWeek) prevWeek.onclick = () => { shiftWeek(-1); renderCalendarAndDay() }
+  const nextWeek = document.getElementById("agendaNextWeek")
+  if (nextWeek) nextWeek.onclick = () => { shiftWeek(1); renderCalendarAndDay() }
   const goToday = document.getElementById("agendaGoToday")
   if (goToday) goToday.onclick = () => { goToToday(); renderCalendarAndDay() }
 
@@ -205,6 +210,7 @@ async function renderCalendarAndDay() {
     }
 
     renderCalendar(countsByDay)
+    await renderWeekGrid(professionalId)
     await renderDayList(selectedDate, professionalId)
   } catch (err) {
     console.error("[AGENDA] erro render", err)
@@ -261,6 +267,133 @@ function renderCalendar(countsByDay) {
     btn.onclick = () => {
       selectedDate = btn.dataset.date
       renderCalendarAndDay()
+    }
+  })
+}
+
+function isoFromDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+function parseDateStr(dateStr) {
+  const [y, m, d] = String(dateStr).split("-").map((n) => parseInt(n, 10))
+  return new Date(y, m - 1, d)
+}
+
+function addDaysStr(dateStr, days) {
+  const dt = parseDateStr(dateStr)
+  dt.setDate(dt.getDate() + days)
+  return isoFromDate(dt)
+}
+
+function mondayOf(dateStr) {
+  const dt = parseDateStr(dateStr)
+  const day = dt.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  dt.setDate(dt.getDate() + diff)
+  return isoFromDate(dt)
+}
+
+function shiftWeek(deltaWeeks) {
+  selectedDate = addDaysStr(mondayOf(selectedDate), deltaWeeks * 7)
+  const dt = parseDateStr(selectedDate)
+  calendarYear = dt.getFullYear()
+  calendarMonth = dt.getMonth() + 1
+}
+
+const WEEK_START_HOUR = 8
+const WEEK_END_HOUR = 18
+const WEEK_DAY_COUNT = 6
+
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;")
+}
+
+async function renderWeekGrid(professionalId = null) {
+  const grid = document.getElementById("agendaWeekGrid")
+  const weekTitle = document.getElementById("agendaWeekTitle")
+  if (!grid) return
+
+  const start = mondayOf(selectedDate)
+  const end = addDaysStr(start, WEEK_DAY_COUNT - 1)
+  const a = parseDateStr(start)
+  const b = parseDateStr(end)
+  if (weekTitle) {
+    weekTitle.textContent =
+      a.getMonth() === b.getMonth()
+        ? `${a.getDate()}–${b.getDate()} ${MONTHS[a.getMonth()]} ${a.getFullYear()}`
+        : `${a.getDate()} ${MONTHS[a.getMonth()].slice(0, 3)} – ${b.getDate()} ${MONTHS[b.getMonth()].slice(0, 3)} ${b.getFullYear()}`
+  }
+
+  let items = []
+  try {
+    items = await listAppointmentsByRange(start, end, professionalId)
+  } catch (err) {
+    console.error("[AGENDA] semana", err)
+    grid.innerHTML = `<p class="agenda-empty">Não foi possível carregar a semana.</p>`
+    return
+  }
+
+  const byDate = {}
+  for (const row of items) {
+    if (!row?.data) continue
+    ;(byDate[row.data] ||= []).push(row)
+  }
+
+  const dayNames = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+  let html = `<div class="agenda-week-row agenda-week-row--head"><span class="agenda-week-gutter"></span>`
+  for (let i = 0; i < WEEK_DAY_COUNT; i++) {
+    const ds = addDaysStr(start, i)
+    const [, m, d] = ds.split("-")
+    const isSelected = ds === selectedDate
+    const isToday = ds === getTodayStr()
+    html += `<button type="button" class="agenda-week-head${isSelected ? " is-selected" : ""}${isToday ? " is-today" : ""}" data-date="${ds}">${dayNames[i]} <span>${d}/${m}</span></button>`
+  }
+  html += `</div>`
+
+  for (let h = WEEK_START_HOUR; h <= WEEK_END_HOUR; h++) {
+    const hh = String(h).padStart(2, "0")
+    html += `<div class="agenda-week-row"><span class="agenda-week-gutter">${hh}:00</span>`
+    for (let i = 0; i < WEEK_DAY_COUNT; i++) {
+      const ds = addDaysStr(start, i)
+      const hourItems = (byDate[ds] || []).filter((apt) => Math.floor(parseHoraToMinutes(apt.hora) / 60) === h)
+      const blocks = hourItems
+        .map((apt) => {
+          const cliente = apt.clientes || apt.clients || {}
+          const isEvent = apt.item_type === "event"
+          const nome = isEvent ? apt.event_title || "Evento" : cliente.nome || cliente.name || "—"
+          const proc = isEvent ? apt.event_type || "" : apt.procedimento || ""
+          const kind = isEvent ? "event" : "ok"
+          return `<button type="button" class="agenda-week-block agenda-week-block--${kind}" data-id="${apt.id}">
+            <b>${escapeHtml(nome)}</b>
+            <span>${escapeHtml(proc)}</span>
+          </button>`
+        })
+        .join("")
+      html += `<div class="agenda-week-cell" data-date="${ds}" data-hour="${hh}:00">${blocks}</div>`
+    }
+    html += `</div>`
+  }
+
+  grid.innerHTML = html
+
+  grid.querySelectorAll(".agenda-week-head").forEach((btn) => {
+    btn.onclick = () => {
+      selectedDate = btn.dataset.date
+      renderCalendarAndDay()
+    }
+  })
+  grid.querySelectorAll(".agenda-week-block").forEach((el) => {
+    el.onclick = (e) => {
+      e.stopPropagation()
+      openSlotPanel(el.dataset.id)
+    }
+  })
+  grid.querySelectorAll(".agenda-week-cell").forEach((cell) => {
+    cell.onclick = () => {
+      selectedDate = cell.dataset.date
+      if (cell.querySelector(".agenda-week-block")) return
+      openCreateModal({ hora: cell.dataset.hour })
     }
   })
 }
@@ -591,7 +724,9 @@ function escapeHtml(s) {
    MODAIS
 ===================== */
 
-async function openCreateModal(){
+async function openCreateModal(opts = {}){
+  if (opts.date) selectedDate = opts.date
+  const horaPrefill = opts.hora || ""
 
  let { data: clientes } = await withOrg(
   supabase.from("clients").select("id, name, is_paciente_modelo, model_discount_pct")
@@ -630,7 +765,7 @@ async function openCreateModal(){
    <input type="date" id="data" value="${selectedDate || getTodayStr()}" required>
 
    <label for="hora">Hora</label>
-   <input type="time" id="hora" required>
+   <input type="time" id="hora" value="${horaPrefill}" required>
 
    <label for="procDuration">Duração (min)</label>
    <input type="number" id="procDuration" min="5" step="5" value="60" title="Preenchido ao escolher procedimento do catálogo">

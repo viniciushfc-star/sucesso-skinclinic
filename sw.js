@@ -2,7 +2,7 @@
  * Service Worker mínimo para PWA SkinClinic.
  * Cache de primeiras cargas para uso offline leve; atualização em segundo plano.
  */
-const CACHE_NAME = "skinclinic-v1";
+const CACHE_NAME = "skinclinic-v2-agenda";
 const ASSETS = [
   "/",
   "/index.html",

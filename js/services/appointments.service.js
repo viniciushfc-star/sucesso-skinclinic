@@ -102,6 +102,25 @@ export async function listAppointmentsByDate(date, professionalId = null) {
 }
 
 /**
+ * Agendamentos num intervalo de datas (grade da semana).
+ */
+export async function listAppointmentsByRange(startDate, endDate, professionalId = null) {
+  const orgId = getOrgOrThrow();
+  const q = supabase
+    .from("agenda")
+    .select("*, clients(name, phone, email)")
+    .eq("org_id", orgId)
+    .gte("data", startDate)
+    .lte("data", endDate)
+    .order("data")
+    .order("hora");
+  const finalQ = professionalId ? q.eq("user_id", professionalId) : q;
+  const { data, error } = await finalQ;
+  if (error) throw error;
+  return (data ?? []).filter((a) => !a.cancelled_at);
+}
+
+/**
  * Lista agendamentos do mês (para calendário: saber quantos por dia).
  * professionalId opcional: filtra por user_id.
  */

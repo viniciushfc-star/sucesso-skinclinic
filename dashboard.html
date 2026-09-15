@@ -14,7 +14,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css">
+<link rel="stylesheet" href="./js/css/style.css?v=agenda-semana">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -529,15 +529,15 @@
       </section>
 
       <section id="view-agenda" class="view hidden">
-        <div class="agenda-google-style">
+        <div class="agenda-google-style agenda-atelier">
           <header class="agenda-toolbar">
-            <button type="button" id="btnNovoAgendamento" class="agenda-toolbar-create">Criar</button>
+            <button type="button" id="btnNovoAgendamento" class="agenda-toolbar-create">Novo horário</button>
             <div class="agenda-toolbar-nav">
-              <button type="button" id="agendaPrevMonth" class="agenda-toolbar-btn" title="Mês anterior" aria-label="Mês anterior">‹</button>
+              <button type="button" id="agendaPrevWeek" class="agenda-toolbar-btn" title="Semana anterior" aria-label="Semana anterior">‹</button>
               <button type="button" id="agendaGoToday" class="agenda-toolbar-today">Hoje</button>
-              <button type="button" id="agendaNextMonth" class="agenda-toolbar-btn" title="Próximo mês" aria-label="Próximo mês">›</button>
+              <button type="button" id="agendaNextWeek" class="agenda-toolbar-btn" title="Próxima semana" aria-label="Próxima semana">›</button>
             </div>
-            <h2 id="agendaMonthTitle" class="agenda-toolbar-title">—</h2>
+            <h2 id="agendaWeekTitle" class="agenda-toolbar-title">—</h2>
             <div class="agenda-toolbar-actions">
               <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
               <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
@@ -547,16 +547,22 @@
           </header>
         <div class="agenda-layout">
           <div class="agenda-calendar-wrap">
+            <div class="agenda-mini-head">
+              <button type="button" id="agendaPrevMonth" class="agenda-toolbar-btn" title="Mês anterior" aria-label="Mês anterior">‹</button>
+              <p id="agendaMonthTitle" class="agenda-mini-title">—</p>
+              <button type="button" id="agendaNextMonth" class="agenda-toolbar-btn" title="Próximo mês" aria-label="Próximo mês">›</button>
+            </div>
             <div id="agendaCalendar" class="agenda-calendar" role="grid" aria-label="Calendário mensal"></div>
-          </div>
-          <div class="agenda-day-wrap">
             <div class="agenda-day-filtro">
               <label for="agendaFiltroProfissional" class="agenda-filtro-label">Profissional</label>
               <select id="agendaFiltroProfissional" class="agenda-filtro-select" aria-label="Filtrar agenda por profissional">
                 <option value="">Todos</option>
               </select>
             </div>
-            <h3 id="agendaDayTitle" class="agenda-day-title">Agendamentos do dia</h3>
+          </div>
+          <div class="agenda-day-wrap">
+            <div id="agendaWeekGrid" class="agenda-week" role="grid" aria-label="Agenda da semana"></div>
+            <h3 id="agendaDayTitle" class="agenda-day-title">Dia selecionado</h3>
             <div id="listaAgenda" class="lista-agenda lista-agenda--day"></div>
             <div id="agendaAfazeresWrap" class="agenda-afazeres-wrap">
               <h4 class="agenda-afazeres-title">Tarefas do dia (não ocupam horário)</h4>
@@ -1697,7 +1703,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js"></script>
+<script type="module" src="./js/core/spa.js?v=agenda-semana"></script>
 
 </body>
 </html>
