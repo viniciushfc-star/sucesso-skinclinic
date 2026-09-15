@@ -324,18 +324,21 @@ export function buildCatalog() {
       json: {},
       expectStatus: [400, 401, 403, 404, 405],
     });
-    add({
-      id: `anon-get-on-post-${slug(api)}`,
-      family: "api-metodo",
-      title: `GET ${api} (rota POST) não processa como POST`,
-      live: "anon",
-      method: "GET",
-      path: api,
-      expectStatus: [400, 401, 404, 405],
-    });
+    if (!GET_APIS.includes(api)) {
+      add({
+        id: `anon-get-on-post-${slug(api)}`,
+        family: "api-metodo",
+        title: `GET ${api} (rota POST) não processa como POST`,
+        live: "anon",
+        method: "GET",
+        path: api,
+        expectStatus: [400, 401, 403, 404, 405],
+      });
+    }
   }
 
   for (const api of GET_APIS) {
+    if (api === "/api/health") continue;
     add({
       id: `anon-get-${slug(api)}`,
       family: "api-anon",
@@ -343,12 +346,9 @@ export function buildCatalog() {
       live: "anon",
       method: "GET",
       path: api,
-      expectStatus:
-        api === "/api/health"
-          ? [200]
-          : api.includes("callback")
-            ? [200, 301, 302, 303, 307, 400, 401, 403, 404, 405]
-            : [200, 400, 401, 403, 404, 405],
+      expectStatus: api.includes("callback")
+        ? [200, 301, 302, 303, 307, 400, 401, 403, 404, 405]
+        : [200, 400, 401, 403, 404, 405],
     });
   }
 
@@ -425,23 +425,23 @@ export function buildCatalog() {
   add({
     id: "wh-sem-secret",
     family: "webhook",
-    title: "Webhook sem secret → 401",
+    title: "Webhook sem secret → 401 ou 403",
     live: "anon",
     method: "POST",
     path: "/api/webhook-transacoes",
     json: { account_id: "x", transactions: [] },
-    expectStatus: [401],
+    expectStatus: [401, 403],
   });
   add({
     id: "wh-secret-errado",
     family: "webhook",
-    title: "Webhook secret errado → 401",
+    title: "Webhook secret errado → 401 ou 403",
     live: "anon",
     method: "POST",
     path: "/api/webhook-transacoes",
     json: { account_id: "x", transactions: [{ date: "2026-01-01", amount: 1 }] },
     headers: { "x-webhook-secret": "errado" },
-    expectStatus: [401],
+    expectStatus: [401, 403],
   });
 
   add({

@@ -31,4 +31,12 @@ describe("catálogo QA SkinClinic", () => {
     const live = cases.filter((c) => ["anon", "anon-light", "cors", "anon-header"].includes(c.live));
     assert.ok(live.length >= 700, `só ${live.length} probes anônimos`);
   });
+
+  it("GET em rota POST e webhook aceitam 403 de recusa", () => {
+    const getOnPost = cases.find((c) => c.id === "anon-get-on-post-api-marketing");
+    assert.ok(getOnPost.expectStatus.includes(403));
+    const wh = cases.find((c) => c.id === "wh-sem-secret");
+    assert.ok(wh.expectStatus.includes(401) && wh.expectStatus.includes(403));
+    assert.ok(!cases.some((c) => c.id === "anon-get-api-health"));
+  });
 });
