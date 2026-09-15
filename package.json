@@ -6,10 +6,13 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test scripts/test-p0-01-auth.js scripts/test-p0-02-analise-pele.js scripts/test-named-imports.js",
+    "test": "node --test scripts/test-p0-01-auth.js scripts/test-p0-02-analise-pele.js scripts/test-named-imports.js scripts/test-qa-catalog.js",
     "test:auth": "node --test scripts/test-p0-01-auth.js",
     "test:p002": "node --test scripts/test-p0-02-analise-pele.js",
-    "test:imports": "node --test scripts/test-named-imports.js"
+    "test:imports": "node --test scripts/test-named-imports.js",
+    "test:qa-catalog": "node --test scripts/test-qa-catalog.js",
+    "qa:catalog": "node scripts/qa/catalog.js",
+    "qa:vercel": "node scripts/qa/run-live.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

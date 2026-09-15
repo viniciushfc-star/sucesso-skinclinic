@@ -4,3 +4,4 @@ node_modules/
 *.log
 .DS_Store
 google-key.json
+scripts/qa-last-report.json
