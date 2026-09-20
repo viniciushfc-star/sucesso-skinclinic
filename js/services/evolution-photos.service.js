@@ -3,7 +3,8 @@
  * Upload no bucket client-photos em org_id/client_id/evolution/{id}.ext
  */
 import { supabase } from "../core/supabase.js";
-import { getActiveOrg, withOrg } from "../core/org.js";
+import { getActiveOrg } from "../core/org.js";
+import { signedStorageUrl } from "../core/storage-url.js";
 
 const BUCKET = "client-photos";
 
@@ -26,7 +27,13 @@ export async function listEvolutionPhotosByClient(clientId) {
     .eq("client_id", clientId)
     .order("taken_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  const rows = data ?? [];
+  return Promise.all(
+    rows.map(async (row) => {
+      const signed = await signedStorageUrl(BUCKET, row.photo_url);
+      return signed ? { ...row, photo_url: signed } : row;
+    })
+  );
 }
 
 /**
@@ -48,18 +55,17 @@ export async function addEvolutionPhoto(clientId, takenAt, type, file, procedure
 
   const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
   if (uploadError) throw uploadError;
+  return addEvolutionPhotoRecord(orgId, clientId, dateStr, type, path, procedureId, notes);
+}
 
-  const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  const photoUrl = urlData?.publicUrl || null;
-  if (!photoUrl) throw new Error("Não foi possível obter a URL da foto.");
-
+async function addEvolutionPhotoRecord(orgId, clientId, dateStr, type, path, procedureId, notes) {
   const { data, error } = await supabase
     .from("client_evolution_photos")
     .insert({
       org_id: orgId,
       client_id: clientId,
       taken_at: dateStr,
-      photo_url: photoUrl,
+      photo_url: path,
       type: type === "depois" ? "depois" : "antes",
       procedure_id: procedureId || null,
       notes: notes || null,
@@ -67,7 +73,8 @@ export async function addEvolutionPhoto(clientId, takenAt, type, file, procedure
     .select()
     .single();
   if (error) throw error;
-  return data;
+  const signed = await signedStorageUrl(BUCKET, path);
+  return signed ? { ...data, photo_url: signed } : data;
 }
 
 /**

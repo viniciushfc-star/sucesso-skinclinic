@@ -1,5 +1,6 @@
 import { supabase } from "../core/supabase.js"
 import { getActiveOrg } from "../core/org.js"
+import { normalizeRole } from "../core/permissions.map.js"
 
 const roleCache = new Map()
 
@@ -91,14 +92,15 @@ export async function getRole() {
       return "__NO_ROLE__"
     }
 
-    roleCache.set(orgId, data.role)
+    const role = normalizeRole(data.role)
+    roleCache.set(orgId, role)
 
     log("info", "Role carregada", {
       org: orgId,
-      role: data.role
+      role
     })
 
-    return data.role
+    return role
   } catch (err) {
     log("error", "Falha inesperada em getRole", err)
     return "__ERROR__"

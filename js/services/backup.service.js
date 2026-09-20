@@ -1,19 +1,15 @@
 import { supabase } from "../core/supabase.js"
 import { withOrg, getActiveOrg } from "../core/org.js"
 
+const BACKUP_TABLES = ["clients", "agenda", "financeiro"]
+
 export async function gerarBackup(){
 
  try{
 
-  const tables = [
-   "clientes",
-   "agendamentos",
-   "financeiro"
-  ]
-
   const backup = {}
 
-  for(const t of tables){
+  for(const t of BACKUP_TABLES){
 
    const { data, error } =
     await withOrg(
@@ -39,7 +35,8 @@ export async function restaurarBackup(data){
 
   const org = getActiveOrg()
 
-  for(const table in data){
+  for(const table of BACKUP_TABLES){
+   if (!Object.prototype.hasOwnProperty.call(data, table)) continue
 
    const rows =
     data[table]

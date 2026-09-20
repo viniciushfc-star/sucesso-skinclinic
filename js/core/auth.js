@@ -1,6 +1,8 @@
 import { supabase } from "./supabase.js"
 import { getBase, redirect, urlFor } from "./base-path.js"
 import { userFacingError } from "./errors.js"
+import { clearActiveOrg } from "./org.js"
+import { clearRoleCache } from "../services/permissions.service.js"
 
 export function authErrorMessage(err, fallback = "Não foi possível concluir. Tente de novo.") {
   return userFacingError(err, fallback)
@@ -161,6 +163,8 @@ export function clearSessionState() {
 
 export async function logout() {
   clearSessionState();
+  clearActiveOrg();
+  clearRoleCache();
   await supabase.auth.signOut();
   log("info", "Logout realizado");
 }
@@ -213,6 +217,8 @@ export function setupSessionExpiredRedirect() {
   supabase.auth.onAuthStateChange(function (event, session) {
     if (event === "SIGNED_OUT" || event === "TOKEN_REFRESH_FAILED") {
       clearSessionState();
+      clearActiveOrg();
+      clearRoleCache();
       if (!isLoginPage()) {
         log("warn", "Sessão encerrada ou expirada, redirecionando para login");
         redirect("/index.html");
@@ -230,6 +236,8 @@ export function redirectToLoginIfUnauthorized(error) {
   const msg = String(error?.message || error?.error_description || "").toLowerCase();
   if (code === 401 || code === "401" || msg.includes("jwt") && (msg.includes("expired") || msg.includes("invalid"))) {
     clearSessionState();
+    clearActiveOrg();
+    clearRoleCache();
     if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html"))
       redirect("/index.html");
     return true;

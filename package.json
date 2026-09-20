@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test scripts/test-p0-01-auth.js scripts/test-p0-02-analise-pele.js scripts/test-named-imports.js scripts/test-qa-catalog.js",
+    "test": "node --test scripts/test-p0-01-auth.js scripts/test-p0-02-analise-pele.js scripts/test-p0-03-fase0.js scripts/test-named-imports.js scripts/test-qa-catalog.js",
+    "test:fase0": "node --test scripts/test-p0-03-fase0.js",
     "test:auth": "node --test scripts/test-p0-01-auth.js",
     "test:p002": "node --test scripts/test-p0-02-analise-pele.js",
     "test:imports": "node --test scripts/test-named-imports.js",

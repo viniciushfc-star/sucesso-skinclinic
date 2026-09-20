@@ -4,7 +4,7 @@ from "../core/permissions.catalog.js";
 import { getUserPermissionOverrides, saveUserPermissionOverride }
  from "../services/permissions.service.js";
 
-import { ROLE_PERMISSIONS }
+import { ROLE_PERMISSIONS, normalizeRole }
  from "../core/permissions.map.js";
 
 import { audit } 
@@ -21,7 +21,7 @@ export async function init(user) {
     overrides.map(o => [o.permission, o.allowed])
   );
 
-  const rolePerms = ROLE_PERMISSIONS[user.role] || [];
+  const rolePerms = ROLE_PERMISSIONS[normalizeRole(user.role)] || [];
 
   container.innerHTML = `
     <h2>Permissões de ${user.name}</h2>

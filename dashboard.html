@@ -14,7 +14,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=agenda-semana">
+<link rel="stylesheet" href="./js/css/style.css?v=fase0-hoje">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -36,7 +36,7 @@
 
     <nav class="sidebar-nav">
       <ul class="sidebar-menu">
-        <li><button type="button" class="sidebar-item active" data-view="dashboard" title="Dashboard"><span class="sidebar-icon">📊</span><span class="sidebar-label">Dashboard</span></button></li>
+        <li><button type="button" class="sidebar-item active" data-view="dashboard" title="Hoje"><span class="sidebar-icon">📅</span><span class="sidebar-label">Hoje</span></button></li>
         <li class="sidebar-cadastrar-wrap" id="cadastrarWrap">
           <button type="button" class="sidebar-item sidebar-item-parent" id="btnCadastrar" data-cadastrar-parent aria-expanded="false" title="Cadastrar">
             <span class="sidebar-icon sidebar-icon-user-plus" aria-hidden="true">
@@ -52,6 +52,7 @@
           </ul>
         </li>
         <li><button type="button" class="sidebar-item" data-view="agenda" title="Agenda"><span class="sidebar-icon">📅</span><span class="sidebar-label">Agenda</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="crm" title="Reativar inativos e lista de espera"><span class="sidebar-icon">💛</span><span class="sidebar-label">CRM</span></button></li>
         <li><button type="button" class="sidebar-item" data-view="procedimento" title="Procedimentos e precificação"><span class="sidebar-icon">🩺</span><span class="sidebar-label">Procedimentos</span></button></li>
         <li class="sidebar-financeiro-wrap" id="financeiroWrap">
           <button type="button" class="sidebar-item sidebar-item-parent" id="btnFinanceiro" data-financeiro-parent aria-expanded="false" title="Financeiro">
@@ -75,18 +76,14 @@
           <ul class="sidebar-submenu" id="marketingSubmenu">
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="marketing" title="Sugestões e métricas"><span class="sidebar-icon">📢</span><span class="sidebar-label">Sugestões</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="calendario-conteudo" title="Calendário de conteúdo"><span class="sidebar-icon">📆</span><span class="sidebar-label">Calendário</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="crm" title="Reativar inativos, fidelidade, lista de espera e Google"><span class="sidebar-icon">💛</span><span class="sidebar-label">CRM e fidelidade</span></button></li>
           </ul>
         </li>
         <li><button type="button" class="sidebar-item" data-view="estoque" title="Estoque"><span class="sidebar-icon">📦</span><span class="sidebar-label">Estoque</span></button></li>
         <li id="menuWrapAnamnese" class="menu-item-hidden"><button type="button" class="sidebar-item" data-view="anamnese" title="Ficha de Anamnese"><span class="sidebar-icon">📋</span><span class="sidebar-label">Anamnese</span></button></li>
         <li><button type="button" class="sidebar-item" data-view="skincare" title="Skincare"><span class="sidebar-icon">✨</span><span class="sidebar-label">Skincare</span></button></li>
         <li><button type="button" class="sidebar-item" data-view="protocolo" title="Protocolo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Protocolo</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="estudo-caso" title="Estudo de caso"><span class="sidebar-icon">📚</span><span class="sidebar-label">Estudo de caso</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="ocr" title="Notas fiscais — emissão"><span class="sidebar-icon">📄</span><span class="sidebar-label">Notas fiscais</span></button></li>
         <li class="sidebar-divider"></li>
         <li><button type="button" class="sidebar-item" data-view="export" title="Exportar e importar dados" aria-label="Exportar e importar dados"><span class="sidebar-icon">📤</span><span class="sidebar-label">Exportar e importar</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="para-clinicas" title="Para clínicas — ajuda e posicionamento"><span class="sidebar-icon">📖</span><span class="sidebar-label">Para clínicas</span></button></li>
         <li class="admin-only"><button type="button" class="sidebar-item" data-view="master" title="Configurações da organização"><span class="sidebar-icon">⚙️</span><span class="sidebar-label">Configurações</span></button></li>
       </ul>
     </nav>
@@ -161,18 +158,12 @@
       <!-- Todas as views com class="view" para o SPA mostrar só uma por vez -->
 
       <section id="view-dashboard" class="view">
-        <div class="filter-bar">
-          <label for="filterPeriod" class="sr-only">Período</label>
-          <select id="filterPeriod" aria-label="Período do dashboard">
-            <option value="today">Hoje</option>
-            <option value="week">Semana</option>
-            <option value="month">Mês</option>
-            <option value="custom">Personalizado</option>
-          </select>
-          <input type="date" id="startDate" hidden aria-label="Data inicial">
-          <input type="date" id="endDate" hidden aria-label="Data final">
-          <button type="button" id="applyFilter" class="btn-secondary">Aplicar</button>
+        <div class="cockpit-head">
+          <p class="cockpit-kicker">Operação</p>
+          <h2 class="cockpit-title">O que olhar agora</h2>
+          <p class="cockpit-lead">Agenda do dia, pendências e reativação. Gráficos ficam no fim, se precisar.</p>
         </div>
+        <div class="cockpit-kpis" id="cockpitKpis" aria-live="polite"></div>
         <div class="dashboard-agenda-hoje" id="dashboardAgendaHoje">
           <div class="dashboard-agenda-hoje-header">
             <h3 class="dashboard-agenda-hoje-title">Agendamentos de hoje</h3>
@@ -185,6 +176,30 @@
             <h4 class="dashboard-concluidos-hoje-title">Concluídos hoje (dar baixa)</h4>
             <div id="dashboardConcluidosHojeList" class="dashboard-concluidos-hoje-list"></div>
           </div>
+        </div>
+        <div class="cockpit-cols">
+          <div class="cockpit-card" id="cockpitAtencao">
+            <h3 class="cockpit-card-title">Atenção</h3>
+            <div id="cockpitAtencaoList" class="cockpit-list"></div>
+          </div>
+          <div class="cockpit-card" id="cockpitOportunidades">
+            <h3 class="cockpit-card-title">Oportunidades</h3>
+            <div id="cockpitOportunidadesList" class="cockpit-list"></div>
+          </div>
+        </div>
+        <details class="cockpit-more" id="dashboardMoreMetrics">
+          <summary>Números e gráficos do período</summary>
+        <div class="filter-bar">
+          <label for="filterPeriod" class="sr-only">Período</label>
+          <select id="filterPeriod" aria-label="Período do dashboard">
+            <option value="today">Hoje</option>
+            <option value="week">Semana</option>
+            <option value="month">Mês</option>
+            <option value="custom">Personalizado</option>
+          </select>
+          <input type="date" id="startDate" hidden aria-label="Data inicial">
+          <input type="date" id="endDate" hidden aria-label="Data final">
+          <button type="button" id="applyFilter" class="btn-secondary">Aplicar</button>
         </div>
         <div class="dashboard-chart-wrap" id="dashboardChartWrap">
           <h3 class="dashboard-chart-title">Faturamento no período</h3>
@@ -208,6 +223,7 @@
           <h3 class="dashboard-protocolos-dia-title">Protocolos aplicados hoje</h3>
           <div id="dashboardProtocolosDiaList" class="dashboard-protocolos-dia-list"></div>
         </div>
+        </details>
       </section>
 
       <section id="view-export" class="view hidden">
@@ -1703,7 +1719,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=agenda-semana2"></script>
+<script type="module" src="./js/core/spa.js?v=fase0-hoje"></script>
 
 </body>
 </html>

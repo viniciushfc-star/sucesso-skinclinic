@@ -5,7 +5,7 @@ let deferredPrompt = null;
 export function initPwa() {
   if (typeof navigator?.serviceWorker !== "undefined") {
     const base = getBase();
-    navigator.serviceWorker.register(base + "/sw.js?v=agenda-semana", { scope: base + "/" }).catch(() => {});
+    navigator.serviceWorker.register(base + "/sw.js?v=fase0", { scope: base + "/" }).catch(() => {});
   }
 
   window.addEventListener("beforeinstallprompt", (e) => {

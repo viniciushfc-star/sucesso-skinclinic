@@ -6,6 +6,26 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
+import { signedStorageUrl } from "../core/storage-url.js";
+
+async function withSignedAnamneseFotos(registros) {
+  const list = registros ?? [];
+  return Promise.all(
+    list.map(async (r) => {
+      if (!Array.isArray(r.fotos) || !r.fotos.length) return r;
+      const fotos = await Promise.all(
+        r.fotos.map(async (item) => {
+          const url = typeof item === "string" ? item : item?.url;
+          if (!url) return item;
+          const signed = await signedStorageUrl("anamnese-fotos", url);
+          if (typeof item === "string") return signed || item;
+          return { ...item, url: signed || url };
+        })
+      );
+      return { ...r, fotos };
+    })
+  );
+}
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -104,11 +124,13 @@ export async function listRegistrosByClientAndFuncao(clientId, funcaoId) {
           .order("created_at", { ascending: false })
       );
       if (err2) throw err2;
-      return (fallback ?? []).map((r) => ({ ...r, resultado_resumo: r.ficha?.resultado_resumo ?? null, origem: r.origem || "clinica" }));
+      return withSignedAnamneseFotos(
+        (fallback ?? []).map((r) => ({ ...r, resultado_resumo: r.ficha?.resultado_resumo ?? null, origem: r.origem || "clinica" }))
+      );
     }
     throw error;
   }
-  return data ?? [];
+  return withSignedAnamneseFotos(data ?? []);
 }
 
 /**
@@ -247,8 +269,7 @@ export async function uploadFotoAnamnese(file, clientId, suffix = "") {
     upsert: false
   });
   if (error) throw error;
-  const { data: urlData } = supabase.storage.from(BUCKET_ANAMNESE).getPublicUrl(data.path);
-  return urlData?.publicUrl || data.path;
+  return data.path;
 }
 
 /* =====================

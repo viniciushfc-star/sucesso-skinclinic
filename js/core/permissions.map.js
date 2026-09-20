@@ -1,3 +1,9 @@
+/** Alinha convite `staff` ao mapa `funcionario` (backend já faz o mesmo). */
+export function normalizeRole(role) {
+  if (role === "staff") return "funcionario";
+  return role;
+}
+
 export const ROLE_PERMISSIONS = {
   master: ["*"],
 

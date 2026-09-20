@@ -3,9 +3,13 @@
  * Body: { org_id, client_id } — contexto; identidade vem do JWT.
  */
 
-import { randomUUID } from "node:crypto";
-import { randomBytes } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { requireStaffAccess, sendAuthError, getAdminClient } from "../lib/api-auth.js";
+import {
+  PORTAL_SESSION_TTL_MS,
+  hashPortalToken,
+  isPortalSessionDevBypassEnabled,
+} from "../lib/portal-token.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -13,14 +17,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido" });
   }
 
-  const skipPermissao = process.env.ALLOW_PORTAL_SESSION_DEV === "1";
+  const skipPermissao = isPortalSessionDevBypassEnabled();
   let auth;
   try {
     auth = await requireStaffAccess(req, {
       permission: skipPermissao ? undefined : "clientes:manage",
     });
     if (skipPermissao) {
-      console.warn("[create-portal-session] ALLOW_PORTAL_SESSION_DEV=1: permissão clientes:view não exigida");
+      console.warn("[create-portal-session] ALLOW_PORTAL_SESSION_DEV só vale em desenvolvimento local");
     }
   } catch (e) {
     return sendAuthError(res, e);
@@ -53,14 +57,16 @@ export default async function handler(req, res) {
     .gt("expires_at", new Date().toISOString());
 
   const newToken = randomUUID() + "-" + randomBytes(12).toString("hex");
+  const tokenHash = hashPortalToken(newToken);
 
   const { error: insertErr } = await supabase
     .from("client_sessions")
     .insert({
       org_id: orgId,
       client_id: clientId,
-      token: newToken,
-      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      token: tokenHash,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + PORTAL_SESSION_TTL_MS).toISOString(),
     });
 
   if (insertErr) {

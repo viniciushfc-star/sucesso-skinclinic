@@ -1397,8 +1397,8 @@ function openEditModal(client) {
           const orgId = getActiveOrg();
           if (orgId) {
             try {
-              const avatarUrl = await uploadClientPhoto(orgId, client.id, photoFile);
-              if (avatarUrl) await updateClient(client.id, { avatar_url: avatarUrl });
+              const uploaded = await uploadClientPhoto(orgId, client.id, photoFile);
+              if (uploaded?.path) await updateClient(client.id, { avatar_url: uploaded.path });
             } catch (e) {
               console.warn("[Cliente perfil] Upload da foto falhou:", e);
               toast("Cliente atualizado, mas a foto não foi enviada. Verifique o bucket 'client-photos' e RLS no Supabase.");

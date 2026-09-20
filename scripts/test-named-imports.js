@@ -131,7 +131,7 @@ describe("páginas HTML e rotas SPA", () => {
       const re = /<script[^>]+src=["']([^"']+)["']/gi;
       let m;
       while ((m = re.exec(src))) {
-        const spec = m[1];
+        const spec = m[1].split("?")[0];
         if (spec.startsWith("http") || spec.startsWith("//")) continue;
         const target = path.resolve(path.dirname(html), spec);
         if (!fs.existsSync(target)) {

@@ -8,7 +8,7 @@ import { loadTheme, toggleTheme } from "../services/theme.service.js";
 
 /** Títulos exibidos no header ao trocar de view */
 const VIEW_TITLES = {
-  dashboard: "Dashboard",
+  dashboard: "Hoje",
   agenda: "Agenda",
   procedimento: "Procedimentos",
   clientes: "Clientes",
@@ -26,7 +26,7 @@ const VIEW_TITLES = {
   master: "Configurações",
   copiloto: "Copiloto",
   marketing: "Marketing",
-  crm: "CRM e fidelidade",
+  crm: "CRM",
   "calendario-conteudo": "Calendário de conteúdo",
   estoque: "Estoque",
   ocr: "Notas fiscais",
@@ -438,14 +438,12 @@ async function initMarketingMenu() {
 
   let canMarketing = false;
   let canCalendario = false;
-  let canCrm = false;
   try {
     canMarketing = await checkPermission(routes.marketing?.permission || "dashboard:view");
     canCalendario = await checkPermission(routes["calendario-conteudo"]?.permission || "dashboard:view");
-    canCrm = await checkPermission(routes.crm?.permission || "dashboard:view");
   } catch (_) {}
 
-  if (!canMarketing && !canCalendario && !canCrm) {
+  if (!canMarketing && !canCalendario) {
     wrap.classList.add("menu-item-hidden");
     return;
   }
@@ -454,10 +452,8 @@ async function initMarketingMenu() {
 
   const marketingSub = submenu.querySelector("[data-view='marketing']")?.closest("li");
   const calendarioSub = submenu.querySelector("[data-view='calendario-conteudo']")?.closest("li");
-  const crmSub = submenu.querySelector("[data-view='crm']")?.closest("li");
   if (marketingSub) marketingSub.classList.toggle("menu-item-hidden", !canMarketing);
   if (calendarioSub) calendarioSub.classList.toggle("menu-item-hidden", !canCalendario);
-  if (crmSub) crmSub.classList.toggle("menu-item-hidden", !canCrm);
 
   submenu.classList.add("sidebar-submenu--collapsed");
   submenu.classList.remove("sidebar-submenu--hidden");

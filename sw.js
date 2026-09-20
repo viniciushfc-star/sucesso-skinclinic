@@ -2,7 +2,7 @@
  * Service Worker mínimo para PWA SkinClinic.
  * Cache de primeiras cargas para uso offline leve; atualização em segundo plano.
  */
-const CACHE_NAME = "skinclinic-v3-agenda";
+const CACHE_NAME = "skinclinic-v4-fase0";
 const ASSETS = [
   "/",
   "/index.html",
@@ -37,14 +37,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((res) => {
+    fetch(event.request)
+      .then((res) => {
         const clone = res.clone();
         if (res.ok && (url.pathname.endsWith(".html") || url.pathname.endsWith(".css") || url.pathname.endsWith(".js")))
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         return res;
-      });
-      return cached || fetchPromise;
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });

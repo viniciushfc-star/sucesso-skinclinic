@@ -7,7 +7,7 @@ from "./supabase.js";
 import { getActiveOrg } 
 from "./org.js";
 
-import { ROLE_PERMISSIONS } 
+import { ROLE_PERMISSIONS, normalizeRole } 
 from "./permissions.map.js";
 
 
@@ -131,7 +131,7 @@ export async function checkPermission(permission) {
     return false;
   }
 
-  const role = membership.role;
+  const role = normalizeRole(membership.role);
 
   // 5️⃣ master tem acesso total
   if (role === "master") {

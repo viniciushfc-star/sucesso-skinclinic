@@ -542,10 +542,10 @@ async function createCliente() {
       const orgId = getActiveOrg();
       if (orgId) {
         try {
-          const avatarUrl = await uploadClientPhoto(orgId, client.id, photoFile);
-          if (avatarUrl) {
-            await updateClient(client.id, { avatar_url: avatarUrl });
-            avatarUrlForList = avatarUrl;
+          const uploaded = await uploadClientPhoto(orgId, client.id, photoFile);
+          if (uploaded?.path) {
+            await updateClient(client.id, { avatar_url: uploaded.path });
+            avatarUrlForList = uploaded.url || uploaded.path;
           }
         } catch (e) {
           console.warn("[Clientes] Upload da foto falhou:", e);

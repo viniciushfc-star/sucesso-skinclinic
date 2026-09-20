@@ -4,6 +4,7 @@ import { getApiBase } from "../core/api-base.js";
 import { apiFetch } from "../core/api-fetch.js";
 import { getCache, setCache } from "../utils/cache.js";
 import { getLimits } from "./limits.service.js";
+import { signedStorageUrl, withSignedField, withSignedFields } from "../core/storage-url.js";
 
 /* =========================
    HELPERS
@@ -82,7 +83,7 @@ export async function getClientes(filters = {}) {
   if (!hasFilters) {
     setCache(getCacheKey(orgId), list);
   }
-  return list;
+  return withSignedFields(list, "avatar_url", "client-photos");
 }
 
 /**
@@ -199,7 +200,7 @@ export async function getClientById(clientId) {
     .single();
 
   if (error) throw error;
-  return data;
+  return withSignedField(data, "avatar_url", "client-photos");
 }
 
 /* =========================
@@ -288,7 +289,7 @@ export async function createClient({
 /**
  * Upload da foto do cliente (Storage client-photos).
  * Caminho: org_id/client_id/avatar.ext
- * Retorna a URL pública para salvar em avatar_url.
+ * Retorna path interno (bucket privado) e URL assinada para preview imediato.
  */
 export async function uploadClientPhoto(orgId, clientId, file) {
   if (!orgId || !clientId || !file) throw new Error("Dados inválidos para upload");
@@ -300,9 +301,8 @@ export async function uploadClientPhoto(orgId, clientId, file) {
     .upload(path, file, { upsert: true });
 
   if (error) throw error;
-
-  const { data } = supabase.storage.from("client-photos").getPublicUrl(path);
-  return data?.publicUrl || null;
+  const url = await signedStorageUrl("client-photos", path);
+  return { path, url: url || null };
 }
 
 /* =========================

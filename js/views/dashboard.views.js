@@ -22,6 +22,7 @@ import { getProtocolosAplicadosHoje } from "../services/protocolo-db.service.js"
 import { listAppointmentsByDate } from "../services/appointments.service.js"
 import { listProcedures } from "../services/procedimentos.service.js"
 import { getEntradasHojeComAgenda } from "../services/financeiro.service.js"
+import { getCockpitSnapshot } from "../services/cockpit.service.js"
 import { navigate } from "../core/spa.js"
 // Chart.js 3: aguardar window.Chart (script pode carregar após o módulo)
 async function waitForChart(retries = 25) {
@@ -164,6 +165,11 @@ async function loadAndRender() {
     try {
       faturamentoPorDia = await getFaturamentoPorDia(startDate, endDate)
     } catch (_) {}
+  }
+  try {
+    await renderCockpit()
+  } catch (e) {
+    console.warn("[DASHBOARD] Cockpit:", e)
   }
   try {
     await renderCharts(m, faturamentoPorDia)
@@ -382,10 +388,12 @@ async function renderAgendaHoje() {
           const proc = isEvent(a) ? (a.event_type || "") : (a.procedimento || "Agendamento")
           const retornoBadge = a.is_retorno ? ' <span class="dashboard-agenda-hoje-retorno">Retorno</span>' : ""
           const modeloBadge = a.is_modelo_agendamento ? ' <span class="dashboard-agenda-hoje-modelo">Modelo</span>' : ""
+          const { key, label } = statusFromRow(a)
           return `<div class="dashboard-agenda-hoje-item">
             <span class="dashboard-agenda-hoje-hora">${hora(a)}</span>
             <span class="dashboard-agenda-hoje-nome">${escapeHtml(nome)}</span>
             <span class="dashboard-agenda-hoje-proc">${escapeHtml(proc)}${retornoBadge}${modeloBadge}</span>
+            <span class="cockpit-status cockpit-status--${key}">${escapeHtml(label)}</span>
           </div>`
         })
         .join("")
@@ -425,6 +433,68 @@ async function renderAgendaHoje() {
     console.warn("[DASHBOARD] Agendamentos de hoje:", err)
     listEl.innerHTML = "<p class=\"dashboard-agenda-hoje-empty\">Erro ao carregar. Tente novamente.</p>"
     if (previstoEl) previstoEl.innerHTML = ""
+  }
+}
+
+function statusFromRow(a) {
+  const st = String(a.status || "").toLowerCase()
+  if (a.item_type === "event") return { key: "evento", label: "Evento" }
+  if (st === "released" || a.baixa_em) return { key: "feito", label: "Baixa" }
+  if (st === "confirmed" || a.confirmed_at) return { key: "ok", label: "Confirmado" }
+  const s = String(a.hora || "")
+  const h = /^\d{2}:\d{2}/.test(s) ? s.slice(0, 5) : ""
+  const now = new Date()
+  const nowH = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+  if (h && h < nowH) return { key: "atraso", label: "Atraso" }
+  return { key: "espera", label: "Aguarda" }
+}
+
+async function renderCockpit() {
+  const kpisEl = document.getElementById("cockpitKpis")
+  const atencaoEl = document.getElementById("cockpitAtencaoList")
+  const oportEl = document.getElementById("cockpitOportunidadesList")
+  if (!kpisEl && !atencaoEl) return
+
+  const snap = await getCockpitSnapshot()
+  const k = snap.kpis
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="cockpit-kpi"><b>${k.hojeCount}</b><span>hoje</span></div>
+      <div class="cockpit-kpi"><b>${k.confirmados}</b><span>confirmados</span></div>
+      <div class="cockpit-kpi"><b>${k.atrasos}</b><span>atrasos</span></div>
+      <div class="cockpit-kpi"><b>R$ ${Number(k.previsto || 0).toFixed(2).replace(".", ",")}</b><span>previsto</span></div>`
+  }
+
+  if (atencaoEl) {
+    const rows = []
+    for (const c of snap.atencao.inativos) {
+      const nome = escapeHtml(c.name || c.nome || "Paciente")
+      const dias = c.idleDays != null ? `${c.idleDays} dias` : "sem retorno"
+      rows.push(`<button type="button" class="cockpit-row" data-view="crm">${nome}<span class="muted">Inativa · ${dias}</span></button>`)
+    }
+    for (const a of snap.atencao.analises) {
+      const nome = escapeHtml(a.clients?.name || "Análise de pele")
+      rows.push(`<button type="button" class="cockpit-row" data-view="analise-pele">${nome}<span class="muted">Análise aguardando validação</span></button>`)
+    }
+    for (const c of snap.atencao.contas) {
+      const nome = escapeHtml(c.descricao || "Conta")
+      rows.push(`<button type="button" class="cockpit-row" data-view="financeiro">${nome}<span class="muted">Vencida</span></button>`)
+    }
+    atencaoEl.innerHTML = rows.length
+      ? rows.join("")
+      : `<p class="cockpit-empty">Nada urgente. Bom sinal.</p>`
+  }
+
+  if (oportEl) {
+    const rows = []
+    for (const w of snap.oportunidades.espera) {
+      const nome = escapeHtml(w.nome || "Espera")
+      const proc = escapeHtml(w.procedure_name || "encaixe")
+      rows.push(`<button type="button" class="cockpit-row" data-view="crm">${nome}<span class="muted">Espera · ${proc}</span></button>`)
+    }
+    oportEl.innerHTML = rows.length
+      ? rows.join("")
+      : `<p class="cockpit-empty">Sem lista de espera. Horários vagos estão na <a href="#" data-view="agenda">Agenda</a>.</p>`
   }
 }
 
