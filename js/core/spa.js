@@ -361,7 +361,7 @@ async function applyMenuPermissions() {
       try {
         allowed = await checkPermission(route.permission);
       } catch (_) {
-        if (isSidebarItem) allowed = true;
+        allowed = false;
       }
     }
 

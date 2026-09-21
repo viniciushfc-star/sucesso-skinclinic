@@ -47,30 +47,15 @@ export async function getAppointmentsByDate(date){
 
  const orgId = getOrgOrThrow();
 
- const start =
-  new Date(date);
- start.setHours(0,0,0,0);
-
- const end =
-  new Date(date);
- end.setHours(23,59,59,999);
-
  const { data, error } =
   await supabase
-   .from("appointments")
-   .select(`
-     id,
-     scheduled_at,
-     duration_minutes,
-     status,
-     client_id
-   `)
+   .from("agenda")
+   .select("id, data, hora, duration_minutes, cliente_id, cancelled_at")
    .eq("org_id", orgId)
-   .gte("scheduled_at", start.toISOString())
-   .lte("scheduled_at", end.toISOString())
-   .order("scheduled_at");
+   .eq("data", date)
+   .order("hora");
 
  if(error) throw error;
- return data;
+ return (data || []).filter((row) => !row.cancelled_at);
 }
 

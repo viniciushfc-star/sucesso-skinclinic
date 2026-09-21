@@ -16,44 +16,49 @@ function getOrgOrThrow(){
 }
 
 /**
- * Cria agendamento
+ * Cria horário na tabela canônica `agenda` (não usar `appointments`).
  */
 export async function createAppointment({
  clientId,
  scheduledAt,
- durationMinutes = 60
+ durationMinutes = 60,
+ procedimento = null,
 }){
  const orgId = getOrgOrThrow();
+ const dt = new Date(scheduledAt);
+ if (Number.isNaN(dt.getTime())) throw new Error("Data/hora inválida");
+ const data = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+ const hora = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
 
- const { data, error } =
+ const { data: row, error } =
   await supabase
-   .from("appointments")
+   .from("agenda")
    .insert({
     org_id: orgId,
-    client_id: clientId,
-    scheduled_at: scheduledAt,
+    cliente_id: clientId,
+    data,
+    hora,
     duration_minutes: durationMinutes,
-    status: "scheduled"
+    procedimento,
    })
    .select()
    .single();
 
  if(error) throw error;
- return data;
+ return row;
 }
 
 /**
- * Confirma agendamento
+ * Confirma agendamento na `agenda`.
  */
 export async function confirmAppointment(id){
  const orgId = getOrgOrThrow();
 
  const { error } =
   await supabase
-   .from("appointments")
+   .from("agenda")
    .update({
-    status: "confirmed",
-    updated_at: new Date().toISOString()
+    cancelled_at: null,
    })
    .eq("id", id)
    .eq("org_id", orgId);
@@ -62,21 +67,20 @@ export async function confirmAppointment(id){
 }
 
 /**
- * Libera vaga automaticamente
+ * Cancela / libera vaga na `agenda`.
  */
 export async function releaseAppointment(id){
  const orgId = getOrgOrThrow();
 
  const { error } =
   await supabase
-   .from("appointments")
+   .from("agenda")
    .update({
-    status: "released",
-    updated_at: new Date().toISOString()
+    cancelled_at: new Date().toISOString(),
    })
    .eq("id", id)
    .eq("org_id", orgId)
-   .eq("status", "scheduled");
+   .is("cancelled_at", null);
 
  if(error) throw error;
 }

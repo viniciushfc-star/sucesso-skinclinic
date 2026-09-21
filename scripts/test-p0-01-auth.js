@@ -15,6 +15,7 @@ import {
   ApiAuthError,
   applyPermissionDecision,
   isMissingPermissionCatalog,
+  isDeployedRuntime,
 } from "../lib/api-auth.js";
 import webhookHandler from "../routes/webhook-transacoes.js";
 import { createSignedOAuthState, verifySignedOAuthState } from "../lib/oauth-state.js";
@@ -165,6 +166,20 @@ describe("P0 fail-closed e CORS", () => {
       () => applyPermissionDecision(null, { message: "db down" }, "gestor", "financeiro:view"),
       (err) => err instanceof ApiAuthError && err.status === 500
     );
+  });
+
+  it("isMissingPermissionCatalog reconhece PGRST205", () => {
+    assert.equal(isMissingPermissionCatalog({ code: "PGRST205", message: "schema cache" }), true);
+    assert.equal(isMissingPermissionCatalog({ code: "42P01" }), true);
+    assert.equal(isMissingPermissionCatalog({ code: "42501", message: "permission denied" }), false);
+  });
+
+  it("isDeployedRuntime: Vercel production", () => {
+    const prev = process.env.VERCEL_ENV;
+    process.env.VERCEL_ENV = "production";
+    assert.equal(isDeployedRuntime(), true);
+    if (prev == null) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = prev;
   });
 
   it("DENY override → 403 mesmo para gestor", () => {

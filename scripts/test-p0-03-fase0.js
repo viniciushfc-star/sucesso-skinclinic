@@ -108,4 +108,18 @@ describe("Fase 0 — código", () => {
     assert.match(sw, /catch\(\(\) => caches\.match/);
     assert.doesNotMatch(sw, /return cached \|\| fetchPromise/);
   });
+
+  it("agenda canônica: services não gravam mais em appointments", () => {
+    const appt = src("js/services/appointments.service.js");
+    const conf = src("js/services/confirmations.service.js");
+    assert.equal(appt.includes('.from("appointments")'), false);
+    assert.equal(conf.includes('.from("appointments")'), false);
+    assert.match(appt, /\.from\("agenda"\)/);
+  });
+
+  it("convite legado Edge dynamic-api removido", () => {
+    const user = src("js/services/user.service.js");
+    assert.equal(user.includes("functions.invoke"), false);
+    assert.match(user, /organization_invites/);
+  });
 });

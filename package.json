@@ -12,6 +12,8 @@
     "test:p002": "node --test scripts/test-p0-02-analise-pele.js",
     "test:imports": "node --test scripts/test-named-imports.js",
     "test:qa-catalog": "node --test scripts/test-qa-catalog.js",
+    "schema:probe": "node scripts/schema-probe-live.js",
+    "test:rls-ab": "node scripts/rls-tenant-ab.js",
     "qa:catalog": "node scripts/qa/catalog.js",
     "qa:vercel": "node scripts/qa/run-live.js"
   },
