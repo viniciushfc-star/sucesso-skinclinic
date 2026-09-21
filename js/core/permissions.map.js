@@ -1,7 +1,45 @@
-/** Alinha convite `staff` ao mapa `funcionario` (backend já faz o mesmo). */
+const ROLE_ALIASES = {
+  staff: "funcionario",
+  receptionist: "recepcao",
+  recepcao: "recepcao",
+  "recepção": "recepcao",
+  professional: "profissional",
+  profissional: "profissional",
+};
+
+/** Alinha convite `staff` ao mapa `funcionario`; recepção/profissional têm mapa próprio. */
 export function normalizeRole(role) {
-  if (role === "staff") return "funcionario";
+  const key = String(role || "").trim().toLowerCase();
+  if (ROLE_ALIASES[key]) return ROLE_ALIASES[key];
   return role;
+}
+
+/** Papéis graváveis em organization_users / organization_invites. */
+export const ALLOWED_STORED_ROLES = [
+  "master",
+  "gestor",
+  "staff",
+  "viewer",
+  "funcionario",
+  "recepcao",
+  "profissional",
+];
+
+/** Convite pela Equipe (não oferece master). */
+export const ALLOWED_INVITE_ROLES = ["recepcao", "profissional", "staff", "viewer"];
+
+export function inviteRoleLabel(role) {
+  const r = normalizeRole(role);
+  const labels = {
+    master: "Administrador",
+    gestor: "Gestor",
+    funcionario: "Acesso limitado",
+    staff: "Acesso limitado",
+    viewer: "Visualização",
+    recepcao: "Recepção",
+    profissional: "Profissional",
+  };
+  return labels[r] || labels[role] || role || "Membro";
 }
 
 export const ROLE_PERMISSIONS = {
@@ -29,7 +67,32 @@ export const ROLE_PERMISSIONS = {
     "whatsapp:send",
     "ia:copilot",
     "ia:assist",
-    "estoque:view"
+    "estoque:view",
+    "procedimentos:view",
+  ],
+
+  /** Recepção: agenda + cadastro + WhatsApp. Sem financeiro, equipe, backup, Copiloto. */
+  recepcao: [
+    "dashboard:view",
+    "agenda:view",
+    "agenda:manage",
+    "clientes:view",
+    "clientes:manage",
+    "clientes:edit",
+    "whatsapp:send",
+  ],
+
+  /** Profissional: clínica + IA auxiliar. Sem financeiro, convite, WhatsApp API, Copiloto. */
+  profissional: [
+    "dashboard:view",
+    "agenda:view",
+    "agenda:manage",
+    "clientes:view",
+    "clientes:edit",
+    "planos:view",
+    "ia:assist",
+    "estoque:view",
+    "procedimentos:view",
   ],
 
   funcionario: [
@@ -78,6 +141,7 @@ export const PERMISSIONS = [
   { key: "ia:copilot", label: "Usar Copiloto de IA" },
   { key: "ia:assist", label: "Usar IA auxiliar (preço, pele, skincare, OCR, protocolo)" },
   { key: "estoque:view", label: "Ver estoque (IA/sugestões)" },
+  { key: "procedimentos:view", label: "Ver catálogo de procedimentos" },
 
   // Auditoria (master e gestor)
   { key: "logs:view", label: "Ver logs de auditoria (legado)" },

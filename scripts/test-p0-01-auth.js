@@ -66,6 +66,30 @@ describe("P0-01 helpers", () => {
     assert.equal(permissionAllowedByRoleForTest("gestor", "ia:copilot"), true);
   });
 
+  it("recepção agenda e WhatsApp; sem financeiro, Copiloto e convite", () => {
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "agenda:manage"), true);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "clientes:manage"), true);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "whatsapp:send"), true);
+    assert.equal(permissionAllowedByRoleForTest("recepção", "whatsapp:send"), true);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "financeiro:view"), false);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "ia:copilot"), false);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "ia:assist"), false);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "team:invite"), false);
+    assert.equal(permissionAllowedByRoleForTest("recepcao", "procedimentos:view"), false);
+  });
+
+  it("profissional clínica e IA auxiliar; sem financeiro, Copiloto e WhatsApp API", () => {
+    assert.equal(permissionAllowedByRoleForTest("profissional", "clientes:edit"), true);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "ia:assist"), true);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "planos:view"), true);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "procedimentos:view"), true);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "financeiro:view"), false);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "ia:copilot"), false);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "whatsapp:send"), false);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "team:invite"), false);
+    assert.equal(permissionAllowedByRoleForTest("profissional", "clientes:manage"), false);
+  });
+
   it("cron sem CRON_SECRET não autoriza", () => {
     const prev = process.env.CRON_SECRET;
     delete process.env.CRON_SECRET;

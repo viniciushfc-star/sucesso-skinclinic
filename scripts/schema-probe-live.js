@@ -71,6 +71,8 @@ const TABLES = [
   "marketing_ia",
   "protocolos_ia",
   "ai_usage_events",
+  "api_error_events",
+  "lgpd_requests",
   "google_calendar_connections",
   "assinaturas",
   "convites",

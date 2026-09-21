@@ -6,6 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { secretsEqual } from "../lib/http-security.js";
+import { recordWebhookFailure } from "../lib/observability.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -22,6 +23,7 @@ export default async function handler(req, res) {
   const incomingSecret = req.headers["x-webhook-secret"] || req.headers["x-webhook-transactions-secret"] || "";
   if (!SECRET) {
     console.error("[webhook-transacoes] WEBHOOK_TRANSACTIONS_SECRET não configurado");
+    recordWebhookFailure({ status: 401, message: "WEBHOOK_TRANSACTIONS_SECRET ausente" });
     return res.status(401).json({ error: "Não autenticado" });
   }
   if (!secretsEqual(SECRET, incomingSecret)) {
@@ -43,6 +45,7 @@ export default async function handler(req, res) {
     .single();
 
   if (errConta || !conta) {
+    recordWebhookFailure({ status: 404, message: "conta vinculada nao encontrada" });
     return res.status(404).json({
       error: "Conta vinculada não encontrada ou inativa",
     });
@@ -102,10 +105,16 @@ export default async function handler(req, res) {
       const { error: err2 } = await supabase.from("financeiro").insert(fallback);
       if (err2) {
         console.error("[webhook-transacoes] insert error", err2);
+        req.webhookOrgId = conta.org_id;
+        res.locals = res.locals || {};
+        res.locals.obsMessage = String(err2.message || "").slice(0, 180);
         return res.status(500).json({ error: "Erro ao gravar transações" });
       }
     } else {
       console.error("[webhook-transacoes] insert error", errInsert);
+      req.webhookOrgId = conta.org_id;
+      res.locals = res.locals || {};
+      res.locals.obsMessage = String(errInsert.message || "").slice(0, 180);
       return res.status(500).json({ error: "Erro ao gravar transações" });
     }
   }

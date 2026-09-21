@@ -14,7 +14,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=fase0-hoje">
+<link rel="stylesheet" href="./js/css/style.css?v=p2-metas">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -111,7 +111,7 @@
           </button>
         </div>
       </div>
-      <div class="stats-grid" id="dashboardStatsGrid">
+      <div class="stats-grid hidden" id="dashboardStatsGrid" hidden aria-hidden="true">
         <div class="stat-card" id="statCardClientes" data-metric="clientes">
           <div class="stat-label" id="statLabelClientes">Clientes</div>
           <div class="stat-value" id="mClientes">0</div>
@@ -158,11 +158,17 @@
       <!-- Todas as views com class="view" para o SPA mostrar só uma por vez -->
 
       <section id="view-dashboard" class="view">
+        <div id="setupProgressBar" class="setup-progress hidden" hidden></div>
         <div class="cockpit-head">
           <p class="cockpit-kicker">Operação</p>
           <h2 class="cockpit-title">O que olhar agora</h2>
-          <p class="cockpit-lead">Agenda do dia, pendências e reativação. Gráficos ficam no fim, se precisar.</p>
+          <p class="cockpit-lead">Intelligence escolhe no máximo 5 temas por coluna. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
         </div>
+        <div class="cockpit-tabs" role="tablist" aria-label="Período do cockpit">
+          <button type="button" class="cockpit-tab is-active" role="tab" aria-selected="true" data-cockpit-tab="hoje" id="cockpitTabHoje">Hoje</button>
+          <button type="button" class="cockpit-tab" role="tab" aria-selected="false" data-cockpit-tab="mes" id="cockpitTabMes">Mês</button>
+        </div>
+        <div id="cockpitPaneHoje" class="cockpit-pane" role="tabpanel" aria-labelledby="cockpitTabHoje">
         <div class="cockpit-kpis" id="cockpitKpis" aria-live="polite"></div>
         <div class="dashboard-agenda-hoje" id="dashboardAgendaHoje">
           <div class="dashboard-agenda-hoje-header">
@@ -185,6 +191,19 @@
           <div class="cockpit-card" id="cockpitOportunidades">
             <h3 class="cockpit-card-title">Oportunidades</h3>
             <div id="cockpitOportunidadesList" class="cockpit-list"></div>
+          </div>
+        </div>
+        </div>
+        <div id="cockpitPaneMes" class="cockpit-pane hidden" role="tabpanel" aria-labelledby="cockpitTabMes" hidden>
+          <div class="cockpit-kpis" id="cockpitMesKpis" aria-live="polite"></div>
+          <div class="cockpit-card">
+            <h3 class="cockpit-card-title">Procedimentos no mês</h3>
+            <div id="cockpitMesRanking" class="cockpit-list"></div>
+          </div>
+          <p class="cockpit-lead" id="cockpitMesHint" style="margin-top:1rem;"></p>
+          <div class="cockpit-card" style="margin-top:1rem;">
+            <h3 class="cockpit-card-title">Metas do mês</h3>
+            <div id="cockpitMesMetas" class="cockpit-list"></div>
           </div>
         </div>
         <details class="cockpit-more" id="dashboardMoreMetrics">
@@ -261,8 +280,9 @@
               <a href="#" id="btnDownloadTemplate" class="btn-secondary">Baixar modelo CSV</a>
               <label for="importFile" class="sr-only">Selecionar arquivo CSV para importar</label>
               <input type="file" id="importFile" accept=".csv,text/csv,application/csv" class="import-file" aria-label="Arquivo CSV para importar">
-              <button type="button" id="btnImportarLote" class="btn-primary">Importar</button>
+              <button type="button" id="btnImportarLote" class="btn-primary" disabled>Importar (depois da prévia)</button>
             </div>
+            <p class="view-hint">Nada é gravado até você conferir a prévia e clicar em Importar. Sem rollback automático: revise duplicados antes.</p>
             <div id="importResult" class="import-result hidden"></div>
           </div>
         </div>
@@ -809,6 +829,7 @@
               <button type="button" id="btnNovaMeta" class="btn-secondary">+ Nova meta</button>
             </div>
             <div id="listaFinanceiroMetas" class="lista-financeiro-metas"></div>
+            <p class="view-hint">Receita e lucro: realizado vem dos lançamentos do mês. Ritmo e projeção aparecem no card — <strong>projeção, não garantia</strong>. Sem XP.</p>
           </div>
           <div id="financeiroMasterParticipacao" class="financeiro-master-panel hidden" role="tabpanel" data-tab="participacao">
             <div class="financeiro-master-panel-header">
@@ -1042,6 +1063,7 @@
           </div>
         </div>
         <p class="view-lead">Registro de ações da equipe. Filtre por período, tipo ou itens pendentes de ok do gestor.</p>
+        <div id="opsSnapshot" class="ops-snapshot" aria-live="polite"></div>
         <div id="listaLogs" class="logs-list"></div>
         <div id="logsLoadMoreWrap" class="logs-load-more-wrap hidden">
           <button type="button" id="btnLogsLoadMore" class="btn-secondary">Carregar mais</button>
@@ -1140,7 +1162,25 @@
         <div id="crmRoot">
           <div class="view-header">
             <h2>CRM e fidelidade</h2>
-            <p class="view-lead">O que Clinicorp e Phorest usam para a clínica indicar o sistema: trazer quem sumiu, premiar quem volta e pedir Google depois do atendimento.</p>
+            <p class="view-lead">Radar vira fila de contato. WhatsApp é um clique por pessoa — o sistema não dispara sozinho.</p>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Fila de contato</h3>
+            <p class="view-hint">Uma pessoa, um motivo, no máximo 15. Pacote e espera entram na frente. Sem envio em massa.</p>
+            <div id="crmListaFila" class="crm-list"></div>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Radar de retorno</h3>
+            <p class="view-hint">Um sinal por pessoa, com o motivo. Use Agendar ou WhatsApp. Não é campanha automática.</p>
+            <div class="crm-radar-filtros">
+              <button type="button" class="crm-radar-chip is-active" data-radar="todos">Todos</button>
+              <button type="button" class="crm-radar-chip" data-radar="pacote">Pacote</button>
+              <button type="button" class="crm-radar-chip" data-radar="nova_sem_2">Sem 2º</button>
+              <button type="button" class="crm-radar-chip" data-radar="atrasada">Atrasada</button>
+              <button type="button" class="crm-radar-chip" data-radar="sem_proxima">Sem próxima</button>
+              <button type="button" class="crm-radar-chip" data-radar="inativa">Inativa</button>
+            </div>
+            <div id="crmListaRadar" class="crm-list"></div>
           </div>
           <div class="view-card">
             <h3 class="view-card-title">Quem não volta</h3>
@@ -1698,7 +1738,9 @@
     <input id="inviteEmail" type="email" placeholder="Email do usuário" required aria-label="E-mail do usuário" />
     <label for="inviteRole" class="sr-only">Função</label>
     <select id="inviteRole" aria-label="Função do usuário">
-      <option value="funcionario">Funcionário</option>
+      <option value="recepcao">Recepção</option>
+      <option value="profissional">Profissional</option>
+      <option value="funcionario">Acesso limitado</option>
       <option value="gestor">Gestor</option>
     </select>
     <button type="submit">Convidar</button>
@@ -1719,7 +1761,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=fase0-hoje"></script>
+<script type="module" src="./js/core/spa.js?v=p1-8-roles"></script>
 
 </body>
 </html>

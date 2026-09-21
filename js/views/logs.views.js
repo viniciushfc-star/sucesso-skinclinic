@@ -4,9 +4,63 @@ import { toast } from "../ui/toast.js";
 import { checkPermission } from "../core/permissions.js";
 import { getSession } from "../core/auth.js";
 import { redirect } from "../core/base-path.js";
+import { apiFetch } from "../core/api-fetch.js";
 
 const PAGE_SIZE = 30;
 const auditLogsState = { allRows: [], offset: 0, hasMore: false };
+
+function escapeOps(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function renderOpsSnapshot() {
+  const box = document.getElementById("opsSnapshot");
+  if (!box) return;
+  const orgId = getActiveOrg();
+  if (!orgId) {
+    box.innerHTML = "<p class=\"ops-snapshot-empty\">Selecione uma organização para ver custo de IA e erros da API.</p>";
+    return;
+  }
+  try {
+    const can = await checkPermission("auditoria:view");
+    if (!can) {
+      box.innerHTML = "";
+      return;
+    }
+    const res = await apiFetch(`/api/ops-summary?org_id=${encodeURIComponent(orgId)}`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      box.innerHTML = `<p class="ops-snapshot-empty">Não foi possível carregar o resumo operacional (${res.status}).</p>`;
+      return;
+    }
+    const usd = Number(json?.ai?.monthUsd || 0);
+    const feats = (json?.ai?.byFeature || [])
+      .slice(0, 6)
+      .map((f) => `${escapeOps(f.feature)} US$ ${Number(f.costUsd || 0).toFixed(4)}`)
+      .join(" · ");
+    const errs = json?.errors || [];
+    const errHtml = errs.length
+      ? `<ul class="ops-error-list">${errs
+          .slice(0, 8)
+          .map((e) => {
+            const when = e.created_at ? new Date(e.created_at).toLocaleString("pt-BR") : "";
+            return `<li><span class="ops-error-status">${escapeOps(e.status)}</span> ${escapeOps(e.kind)} ${escapeOps(e.route || "")} <span class="ops-error-when">${escapeOps(when)}</span></li>`;
+          })
+          .join("")}</ul>`
+      : "<p class=\"ops-snapshot-empty\">Nenhum 5xx/webhook gravado para esta clínica.</p>";
+    box.innerHTML = `
+      <div class="ops-snapshot-card">
+        <p class="ops-snapshot-ai"><strong>IA neste mês:</strong> US$ ${usd.toFixed(4)}${feats ? ` <span class="ops-snapshot-feats">(${feats})</span>` : ""}</p>
+        <p class="ops-snapshot-lead">Últimos erros da API e falhas de webhook (sem corpo da requisição).</p>
+        ${errHtml}
+      </div>`;
+  } catch (_) {
+    box.innerHTML = "<p class=\"ops-snapshot-empty\">Resumo operacional indisponível.</p>";
+  }
+}
 
 /* =====================
    SPA INIT
@@ -19,6 +73,7 @@ export function init() {
   document.getElementById("btnExportarAuditoriaCsv")?.addEventListener("click", exportarAuditoriaCsv);
   document.getElementById("btnLogsLoadMore")?.addEventListener("click", loadMoreLogs);
   renderLogs();
+  renderOpsSnapshot();
 }
 
 /* =====================

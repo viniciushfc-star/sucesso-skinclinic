@@ -1,9 +1,24 @@
 import { supabase } from "../core/supabase.js"
 import { withOrg } from "../core/org.js"
 
+async function countUniqueClients(orgId = null) {
+  const ids = new Set()
+  const load = async (table) => {
+    try {
+      let q = supabase.from(table).select("id")
+      q = orgId ? q.eq("org_id", orgId) : withOrg(q)
+      const { data } = await q
+      for (const r of data || []) if (r.id) ids.add(r.id)
+    } catch (_) {}
+  }
+  await load("clients")
+  await load("clientes")
+  return ids.size
+}
+
 /**
  * Métricas do dashboard (clientes, agendamentos hoje, faturamento mês).
- * Tabela de clientes: "clients" ou "clientes" conforme seu schema.
+ * Conta IDs únicos em `clients` e na tabela legado `clientes`.
  */
 export async function getMasterMetrics() {
 
@@ -11,18 +26,7 @@ export async function getMasterMetrics() {
 
   const metrics = {}
 
-  /* CLIENTES - tenta clients (schema comum), depois clientes */
-  let totalClientes = 0
-  const clientesRes = await withOrg(
-    supabase.from("clients").select("*", { count: "exact", head: true })
-  )
-  if (clientesRes?.count != null) totalClientes = clientesRes.count
-  else {
-   const alt = await withOrg(
-    supabase.from("clientes").select("*", { count: "exact", head: true })
-   )
-   if (alt?.count != null) totalClientes = alt.count
-  }
+  const totalClientes = await countUniqueClients()
 
   /* AGENDAMENTOS HOJE (data local) */
   const hoje = getTodayLocal()
@@ -118,17 +122,7 @@ export async function getDashboardMetricsForUser(opts = {}) {
   const startDate = opts.startDate || getTodayLocal()
   const endDate = opts.endDate || startDate
 
-  let totalClientes = 0
-  const clientesRes = await withOrg(
-   supabase.from("clients").select("*", { count: "exact", head: true })
-  )
-  if (clientesRes?.count != null) totalClientes = clientesRes.count
-  else {
-   const alt = await withOrg(
-    supabase.from("clientes").select("*", { count: "exact", head: true })
-   )
-   if (alt?.count != null) totalClientes = alt.count
-  }
+  const totalClientes = await countUniqueClients()
 
   const { count: agPeriod } = await withOrg(
    supabase
@@ -246,14 +240,7 @@ export async function getClinicsComparison(){
 
   for(const org of (orgs || [])){
 
-   /* CLIENTES - tenta clients, depois clientes */
-   let totalClientes = 0
-   let cr = await supabase.from("clients").select("*", { count: "exact", head: true }).eq("org_id", org.id)
-   if (cr?.count != null) totalClientes = cr.count
-   else {
-    cr = await supabase.from("clientes").select("*", { count: "exact", head: true }).eq("org_id", org.id)
-    if (cr?.count != null) totalClientes = cr.count
-   }
+   const totalClientes = await countUniqueClients(org.id)
 
    /* FATURAMENTO */
    const { data: fat } =

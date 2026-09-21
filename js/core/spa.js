@@ -61,7 +61,7 @@ const routes = {
   },
   procedimento: {
     view: "procedimento.views.js",
-    permission: "dashboard:view",
+    permission: "procedimentos:view",
   },
   clientes: {
     view: "clientes.views.js",
@@ -97,7 +97,7 @@ const routes = {
   },
   empresa: {
     view: "empresa.views.js",
-    permission: "dashboard:view",
+    permission: "team:view",
   },
   auditoria: {
     view: "logs.views.js",
@@ -121,47 +121,47 @@ const routes = {
   },
   copiloto: {
     view: "copiloto.views.js",
-    permission: "dashboard:view",
+    permission: "ia:copilot",
   },
   marketing: {
     view: "marketing.views.js",
-    permission: "dashboard:view",
+    permission: "ia:copilot",
   },
   crm: {
     view: "crm.views.js",
-    permission: "dashboard:view",
+    permission: "clientes:manage",
   },
   "calendario-conteudo": {
     view: "calendario-conteudo.views.js",
-    permission: "dashboard:view",
+    permission: "ia:copilot",
   },
   estoque: {
     view: "estoque.views.js",
-    permission: "dashboard:view",
+    permission: "estoque:view",
   },
   ocr: {
     view: "ocr.views.js",
-    permission: "dashboard:view",
+    permission: "ia:assist",
   },
   skincare: {
     view: "skincare.views.js",
-    permission: "dashboard:view",
+    permission: "ia:assist",
   },
   protocolo: {
     view: "protocolo.views.js",
-    permission: "dashboard:view",
+    permission: "ia:assist",
   },
   "estudo-caso": {
     view: "estudo-caso.views.js",
-    permission: "dashboard:view",
+    permission: "ia:assist",
   },
   anamnese: {
     view: "anamnese.views.js",
-    permission: "dashboard:view",
+    permission: "clientes:view",
   },
   "analise-pele": {
     view: "analise-pele.views.js",
-    permission: "dashboard:view",
+    permission: "ia:assist",
   },
   "documentos-termos": {
     view: "documentos-termos.views.js",

@@ -436,6 +436,102 @@ export function getTemplateHeaders(tipo) {
 }
 
 /**
+ * Prévia obrigatória antes de gravar. Não altera o banco.
+ */
+export function analisarPreviaImportacao(tipo, rows) {
+  const total = (rows || []).length;
+  const headers = total ? Object.keys(rows[0] || {}) : [];
+  const issues = [];
+  let okEstimado = 0;
+  let problemas = 0;
+  const tooBig = total > MAX_IMPORT_ROWS;
+  if (tooBig) {
+    issues.push({
+      nivel: "erro",
+      msg: `O arquivo tem ${total} linhas; o máximo é ${MAX_IMPORT_ROWS}. Divida o CSV.`,
+    });
+  }
+
+  const seen = new Set();
+  const pushIssue = (msg) => {
+    problemas += 1;
+    if (issues.length < 12) issues.push({ nivel: "aviso", msg });
+  };
+
+  for (let i = 0; i < total; i++) {
+    const r = rows[i];
+    const linha = i + 2;
+    if (tipo === "clientes") {
+      const name = (col(r, "nome", "name", "cliente") ?? "").trim();
+      const email = (col(r, "email", "e-mail") ?? "").trim();
+      const phone = (col(r, "telefone", "phone", "celular", "tel") ?? "").trim();
+      if (!name) {
+        pushIssue(`Linha ${linha}: nome obrigatório`);
+        continue;
+      }
+      if (!email && !phone) {
+        pushIssue(`Linha ${linha}: informe e-mail ou telefone`);
+        continue;
+      }
+      const key = (email || phone).toLowerCase();
+      if (seen.has(key)) {
+        pushIssue(`Linha ${linha}: e-mail/telefone repetido no arquivo`);
+        continue;
+      }
+      seen.add(key);
+      okEstimado += 1;
+    } else if (tipo === "procedimentos") {
+      const name = (col(r, "nome", "name", "procedimento") ?? "").trim();
+      if (!name) {
+        pushIssue(`Linha ${linha}: nome do procedimento obrigatório`);
+        continue;
+      }
+      okEstimado += 1;
+    } else if (tipo === "financeiro" || tipo === "custo_fixo") {
+      const valor = col(r, "valor");
+      const data = col(r, "data");
+      if (valor == null || String(valor).trim() === "") {
+        pushIssue(`Linha ${linha}: valor obrigatório`);
+        continue;
+      }
+      if (!data) {
+        pushIssue(`Linha ${linha}: data obrigatória`);
+        continue;
+      }
+      okEstimado += 1;
+    } else if (tipo === "agenda") {
+      const data = col(r, "data");
+      const cliente = (col(r, "cliente", "nome", "name") ?? "").trim();
+      if (!data || !cliente) {
+        pushIssue(`Linha ${linha}: data e cliente obrigatórios`);
+        continue;
+      }
+      okEstimado += 1;
+    } else {
+      okEstimado += 1;
+    }
+  }
+
+  if (problemas > issues.filter((x) => x.nivel === "aviso").length) {
+    issues.push({
+      nivel: "aviso",
+      msg: `${problemas} linha(s) com problema. Só as primeiras estão listadas.`,
+    });
+  }
+
+  return {
+    total,
+    headers,
+    sample: (rows || []).slice(0, 8),
+    issues,
+    okEstimado,
+    problemas,
+    tooBig,
+    podeImportar: total > 0 && !tooBig && okEstimado > 0,
+  };
+}
+
+/**
  * Importa um backup único (arquivo JSON com todas as seções).
  * Formato esperado: { clientes: [...], procedimentos: [...], financeiro: [...], agenda: [...] }
  * Cada array é uma lista de objetos com os mesmos campos dos CSV (ex.: nome/name, email, telefone para clientes).

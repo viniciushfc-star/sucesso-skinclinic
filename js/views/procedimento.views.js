@@ -24,6 +24,7 @@ import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
 import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js";
 import { getMargemEmRisco } from "../services/audit.service.js";
 import { getCustoRealProcedimento } from "../services/estoque-entradas.service.js";
+import { explainProcedureEconomics, brl } from "../services/procedimento-pl.service.js";
 import { navigate } from "../core/spa.js";
 import { getOrgMembers } from "../core/org.js";
 import { getProcedimentosRealizadosPorPeriodo } from "../services/metrics.service.js";
@@ -251,12 +252,15 @@ async function renderCardMargemRisco(containerId) {
     }
     el.classList.remove("hidden");
     const uniqueProducts = [...new Set(list.map((x) => x.produto_nome))];
+    const procNames = [...new Set(list.flatMap((x) => (x.procedimentos || []).map((p) => p.procedure_name).filter(Boolean)))];
+    const procsLine = procNames.slice(0, 6).join(", ") + (procNames.length > 6 ? "…" : "");
     el.innerHTML = `
       <div class="card-margem-risco__inner">
         <span class="card-margem-risco__icon" aria-hidden="true">⚠️</span>
         <div class="card-margem-risco__text">
           <strong>Margem em risco:</strong> ${uniqueProducts.length} produto(s) com aumento de custo recente (≥15%).
-          Revise precificação ou fornecedor.
+          ${procsLine ? `Procedimentos que usam esses produtos: ${escapeHtml(procsLine)}. ` : ""}
+          Revise precificação ou fornecedor. O sistema não altera preço sozinho.
         </div>
         <a href="#auditoria" class="btn-secondary btn-sm card-margem-risco__link">Ver na Auditoria</a>
       </div>
@@ -518,6 +522,7 @@ async function openEditModal(id) {
         <div id="procPrecificacaoComTaxas" class="proc-precificacao-taxas-content" aria-live="polite"></div>
       </div>
       <div id="procCustoRealBlock" class="procedimento-custo-real-block" aria-live="polite"></div>
+      <div id="procPlBlock" class="procedimento-pl-block" aria-live="polite"></div>
       <input type="hidden" id="procId" value="${p.id}">
       <p class="procedimento-modal-hint">O procedimento entra em finanças: lucro real, custo operacional, pagamento funcionário; depois ajuda em metas plausíveis.</p>
       `,
@@ -541,6 +546,29 @@ async function openEditModal(id) {
         }
       } catch (e) {
         block.innerHTML = `<h4>📦 Materiais usados e custo real</h4><p class="procedimento-custo-real-empty">Erro ao carregar custo real.</p>`;
+      }
+    }
+    const plBlock = document.getElementById("procPlBlock");
+    if (plBlock) {
+      try {
+        const eco = await explainProcedureEconomics(p);
+        plBlock.innerHTML = `
+          <h4>P&amp;L do procedimento (estimativa)</h4>
+          <p class="procedimento-modal-hint">${escapeHtml(eco.aviso)}</p>
+          <ul class="proc-pl-list">
+            <li>Preço atual: <strong>${brl(eco.preco)}</strong></li>
+            <li>Material (${escapeHtml(eco.materialFonte || "não informado")}): <strong>${brl(eco.material)}</strong></li>
+            <li>Comissão (${eco.comissaoPct}%): <strong>${brl(eco.comissao)}</strong></li>
+            <li>Taxa maquininha à vista crédito (${eco.taxaPct}%): <strong>${brl(eco.taxaPagamento)}</strong></li>
+            <li>Custo estrutural (${escapeHtml(eco.rateioMetodoLabel || "não informado")}): <strong>${brl(eco.custoEstrutural)}</strong>${eco.rateioDetalhe ? ` — ${escapeHtml(eco.rateioDetalhe)}` : ""}</li>
+            <li>Lucro estimado: <strong>${brl(eco.lucro)}</strong> · margem ${eco.margemPct != null ? eco.margemPct.toFixed(1).replace(".", ",") + "%" : "não informado"}</li>
+            <li>Lucro / hora: <strong>${brl(eco.lucroHora)}</strong></li>
+            <li>Preço de equilíbrio: <strong>${brl(eco.precoEquilibrio)}</strong> · mínimo (margem alvo): <strong>${brl(eco.precoMinimo)}</strong> · recomendado: <strong>${brl(eco.precoRecomendado)}</strong></li>
+          </ul>
+          <p class="procedimento-modal-hint">Sugestões não alteram o valor cobrado. Você decide.</p>
+        `;
+      } catch (_) {
+        plBlock.innerHTML = `<h4>P&amp;L do procedimento</h4><p class="procedimento-custo-real-empty">Não foi possível calcular a estimativa.</p>`;
       }
     }
   } catch (err) {

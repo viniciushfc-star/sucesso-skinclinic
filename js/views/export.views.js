@@ -1,5 +1,5 @@
 import { exportarTabela, exportarBackupUnico } from "../services/export.service.js";
-import { importarLote, getTemplateHeaders, importarBackupUnico, parseCSV, MAX_IMPORT_ROWS } from "../services/importacao-lote.service.js";
+import { importarLote, getTemplateHeaders, importarBackupUnico, parseCSV, analisarPreviaImportacao, MAX_IMPORT_ROWS } from "../services/importacao-lote.service.js";
 import { getProcedimentosRealizadosPorPeriodo } from "../services/metrics.service.js";
 import { getRelatorioContador } from "../services/contador.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
@@ -52,6 +52,20 @@ function bindUI() {
   }
   if (importFile) {
     importFile.onchange = () => mostrarPreviewOuImportar(importFile, importResult);
+  }
+  const importTipo = document.getElementById("importTipo");
+  if (importTipo) {
+    importTipo.onchange = () => {
+      pendingImportFile = null;
+      pendingImportRowCount = 0;
+      const btn = document.getElementById("btnImportarLote");
+      if (btn) btn.disabled = true;
+      if (importFile) importFile.value = "";
+      if (importResult) {
+        importResult.classList.add("hidden");
+        importResult.innerHTML = "";
+      }
+    };
   }
   if (btnImportarLote) btnImportarLote.onclick = () => confirmarImportacao(importResult);
 
@@ -252,6 +266,8 @@ function baixarTemplate() {
 
 function mostrarPreviewOuImportar(fileInput, resultEl) {
   const file = fileInput?.files?.[0];
+  const btn = document.getElementById("btnImportarLote");
+  if (btn) btn.disabled = true;
   if (!file || !resultEl) return;
   pendingImportFile = file;
   const reader = new FileReader();
@@ -259,21 +275,37 @@ function mostrarPreviewOuImportar(fileInput, resultEl) {
     try {
       const text = reader.result;
       const rows = parseCSV(text);
+      pendingImportRowCount = rows.length;
+      const tipo = getTipoSelecionado();
+      const previa = analisarPreviaImportacao(tipo, rows);
       if (rows.length === 0) {
-        resultEl.innerHTML = "<p class=\"import-result-err\">Nenhuma linha válida no CSV.</p>";
+        resultEl.innerHTML = "<p class=\"import-result-err\">Nenhuma linha válida no CSV. Nada foi gravado.</p>";
         resultEl.classList.remove("hidden");
         pendingImportFile = null;
+        pendingImportRowCount = 0;
         return;
       }
-      const preview = rows.slice(0, 5);
-      const headers = Object.keys(preview[0] || {});
-      const tableRows = preview.map((r) => "<tr>" + headers.map((h) => "<td>" + String(r[h] ?? "").replace(/</g, "&lt;").slice(0, 30) + "</td>").join("") + "</tr>").join("");
-      resultEl.innerHTML = "<p><strong>" + rows.length + " linha(s)</strong> no arquivo. Primeiras 5:</p><div class=\"import-preview-wrap\"><table class=\"import-preview-table\"><thead><tr>" + headers.map((h) => "<th>" + String(h).replace(/</g, "&lt;") + "</th>").join("") + "</tr></thead><tbody>" + tableRows + "</tbody></table></div><p>Clique em <strong>Importar</strong> para confirmar.</p>";
+      const headers = previa.headers;
+      const tableRows = previa.sample.map((r) => "<tr>" + headers.map((h) => "<td>" + String(r[h] ?? "").replace(/</g, "&lt;").slice(0, 40) + "</td>").join("") + "</tr>").join("");
+      const issueHtml = previa.issues.length
+        ? "<ul class=\"import-previa-issues\">" + previa.issues.map((x) => "<li class=\"import-previa-" + x.nivel + "\">" + String(x.msg).replace(/</g, "&lt;") + "</li>").join("") + "</ul>"
+        : "<p>Nenhum problema óbvio nas linhas lidas.</p>";
+      resultEl.innerHTML =
+        "<p><strong>Prévia — nada foi gravado ainda.</strong> " +
+        previa.total + " linha(s). Estimativa: " + previa.okEstimado + " ok, " + previa.problemas + " com problema.</p>" +
+        issueHtml +
+        "<div class=\"import-preview-wrap\"><table class=\"import-preview-table\"><thead><tr>" +
+        headers.map((h) => "<th>" + String(h).replace(/</g, "&lt;") + "</th>").join("") +
+        "</tr></thead><tbody>" + tableRows + "</tbody></table></div>" +
+        (previa.total > previa.sample.length ? "<p>… e mais " + (previa.total - previa.sample.length) + " linha(s).</p>" : "") +
+        "<p>Se estiver certo, clique em <strong>Importar</strong>. Duplicados no banco serão pulados se essa opção estiver marcada.</p>";
       resultEl.classList.remove("hidden");
+      if (btn) btn.disabled = !previa.podeImportar;
     } catch (e) {
       resultEl.innerHTML = "<p class=\"import-result-err\">" + (e.message || String(e)).replace(/</g, "&lt;") + "</p>";
       resultEl.classList.remove("hidden");
       pendingImportFile = null;
+      pendingImportRowCount = 0;
     }
   };
   reader.readAsText(file, "UTF-8");
@@ -292,6 +324,8 @@ function confirmarImportacao(resultEl) {
   pendingImportFile = null;
   pendingImportRowCount = 0;
   document.getElementById("importFile").value = "";
+  const btn = document.getElementById("btnImportarLote");
+  if (btn) btn.disabled = true;
 }
 
 async function executarImportacao(fileOrFromInput, resultEl) {

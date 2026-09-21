@@ -70,13 +70,29 @@ export async function getMargemEmRisco(dias = 30) {
       .limit(50);
 
     if (error) return [];
-    return (data || []).map((row) => ({
-      id: row.id,
-      produto_nome: row.metadata?.produto_nome || "—",
-      variacao_percentual: row.metadata?.variacao_percentual ?? 0,
-      custo_novo: row.metadata?.custo_novo,
-      created_at: row.created_at,
-    }));
+    const { getProcedimentosQueUsamProduto } = await import("./estoque-entradas.service.js");
+    const byProduct = new Map();
+    const rows = [];
+    for (const row of data || []) {
+      const produto_nome = row.metadata?.produto_nome || "—";
+      const key = String(produto_nome).toLowerCase();
+      if (!byProduct.has(key)) {
+        try {
+          byProduct.set(key, await getProcedimentosQueUsamProduto(produto_nome));
+        } catch (_) {
+          byProduct.set(key, []);
+        }
+      }
+      rows.push({
+        id: row.id,
+        produto_nome,
+        variacao_percentual: row.metadata?.variacao_percentual ?? 0,
+        custo_novo: row.metadata?.custo_novo,
+        created_at: row.created_at,
+        procedimentos: byProduct.get(key) || [],
+      });
+    }
+    return rows;
   } catch (err) {
     console.warn("[AUDIT SERVICE] getMargemEmRisco", err);
     return [];

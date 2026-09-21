@@ -3,10 +3,12 @@ import { apiFetch } from "../core/api-fetch.js";
 
 /**
  * Tenta envio pela Cloud API; se não estiver configurada, abre o WhatsApp (wa.me).
+ * Nunca envia lista: um telefone por chamada.
  */
-export async function sendWhatsapp(telefone, mensagem) {
+export async function sendWhatsapp(telefone, mensagem, meta = {}) {
   const tel = String(telefone ?? "").replace(/\D/g, "");
   const msg = String(mensagem ?? "").trim() || "Olá!";
+  const origem = String(meta.origem || "").slice(0, 40);
 
   if (tel.length < 10) {
     console.warn("[WHATSAPP] Número inválido ou curto:", telefone);
@@ -21,7 +23,7 @@ export async function sendWhatsapp(telefone, mensagem) {
     if (jwt) {
       const res = await apiFetch("/api/whatsapp-send", {
         method: "POST",
-        json: { phone: numeroCompleto, message: msg }
+        json: { phone: numeroCompleto, message: msg },
       });
       const json = await res.json().catch(() => ({}));
       if (json.sent) {
@@ -31,7 +33,7 @@ export async function sendWhatsapp(telefone, mensagem) {
             user_id: user?.id ?? null,
             telefone: numeroCompleto,
             mensagem: msg,
-            status: "enviado_api"
+            status: origem ? `enviado_api:${origem}` : "enviado_api",
           });
         } catch (_) {}
         return { success: true, via: "api" };
@@ -52,7 +54,7 @@ export async function sendWhatsapp(telefone, mensagem) {
       user_id: user?.id ?? null,
       telefone: numeroCompleto,
       mensagem: msg,
-      status: "aberto_wa"
+      status: origem ? `aberto_wa:${origem}` : "aberto_wa",
     });
   } catch (_) {}
 

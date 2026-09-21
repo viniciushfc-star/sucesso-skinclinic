@@ -30,6 +30,12 @@ describe("Fase 0 — papel staff", () => {
     assert.equal(permissionAllowedByRoleForTest("staff", "dashboard:view"), true);
     assert.equal(permissionAllowedByRoleForTest("staff", "financeiro:view"), false);
   });
+
+  it("aliases de recepção e profissional", () => {
+    assert.equal(normalizeRole("receptionist"), "recepcao");
+    assert.equal(normalizeRole("recepção"), "recepcao");
+    assert.equal(normalizeRole("professional"), "profissional");
+  });
 });
 
 describe("Fase 0 — portal token e bypass", () => {

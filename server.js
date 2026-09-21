@@ -9,6 +9,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { corsOriginFor, isBlockedStaticPath } from "./lib/http-security.js";
+import { startApiObservation } from "./lib/observability.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -39,7 +40,9 @@ app.get("/api/health", (req, res) => res.json({ ok: true, service: "skinclinic-a
 /* Envolve handler async para capturar erros */
 function wrap(handler) {
   return (req, res, next) => {
+    const obs = startApiObservation(req, res);
     Promise.resolve(handler(req, res)).catch((err) => {
+      obs.noteError(err);
       console.error("[API]", err?.message || err);
       if (!res.headersSent) res.status(500).json({ error: "Erro interno" });
     });
@@ -88,6 +91,8 @@ async function registerRoutesOnce() {
   await useApi("post", "/api/whatsapp-send", () => import("./routes/whatsapp-send.js"));
   await useApi("get", "/api/lembretes-auto", () => import("./routes/lembretes-auto.js"));
   await useApi("get", "/api/integracoes-status", () => import("./routes/integracoes-status.js"));
+  await useApi("get", "/api/ops-summary", () => import("./routes/ops-summary.js"));
+  await useApi("post", "/api/ops-summary", () => import("./routes/ops-summary.js"));
   await useApi("get", "/api/calendario-conteudo", () => import("./routes/calendario-conteudo.js"));
   await useApi("get", "/api/google-calendar/auth", () => import("./routes/google-calendar/auth.js"));
   await useApi("get", "/api/google-calendar/callback", () => import("./routes/google-calendar/callback.js"));

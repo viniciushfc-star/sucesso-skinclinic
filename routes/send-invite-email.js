@@ -6,6 +6,7 @@
  */
 
 import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
+import { ALLOWED_STORED_ROLES, inviteRoleLabel } from "../js/core/permissions.map.js";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 const FROM_EMAIL = process.env.INVITE_EMAIL_FROM || "SkinClinic <onboarding@resend.dev>";
@@ -32,8 +33,13 @@ export default async function sendInviteEmail(req, res) {
     return res.status(400).json({ error: "E-mail inválido" });
   }
 
+  const storedRole = String(role || "").trim();
+  if (storedRole && !ALLOWED_STORED_ROLES.includes(storedRole)) {
+    return res.status(400).json({ error: "Função inválida" });
+  }
+
   const appUrl = getAppUrl();
-  const roleLabel = role === "gestor" ? "Gestor" : role === "master" ? "Administrador" : role === "staff" ? "Funcionário" : role === "viewer" ? "Visualização" : role || "Membro";
+  const roleLabel = inviteRoleLabel(storedRole);
   const clinicName = orgName && String(orgName).trim() ? String(orgName).trim() : "a clínica";
 
   const subject = `Convite para entrar em ${clinicName}`;

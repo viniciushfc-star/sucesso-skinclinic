@@ -117,8 +117,29 @@ export async function getProtocolosAplicadosHoje() {
   if (ids.length > 0) {
     const { data: clients } = await supabase.from("clients").select("id, name").in("id", ids);
     (clients ?? []).forEach((c) => (names[c.id] = c.name));
+    const missing = ids.filter((id) => !names[id]);
+    if (missing.length) {
+      const { data: legacy } = await supabase.from("clientes").select("id, nome").in("id", missing);
+      (legacy ?? []).forEach((c) => (names[c.id] = c.nome));
+    }
   }
   return (data ?? []).map((r) => ({ ...r, client_name: names[r.client_id] ?? "—" }));
+}
+
+/**
+ * Protocolos já ligados a um agendamento (atalho da agenda).
+ */
+export async function getProtocolosAplicadosByAgendaId(agendaId) {
+  if (!agendaId) return [];
+  const orgId = getOrgId();
+  const { data, error } = await supabase
+    .from("protocolos_aplicados")
+    .select("id, protocolo_id, aplicado_em, observacao, descricao, protocolos(nome)")
+    .eq("org_id", orgId)
+    .eq("agenda_id", agendaId)
+    .order("aplicado_em", { ascending: false });
+  if (error) return [];
+  return data ?? [];
 }
 
 /**
@@ -144,7 +165,7 @@ export async function createProtocoloAplicado(payload) {
 
   const { data: uid } = await supabase.auth.getUser();
   const aplicadoAt = aplicado_em ? new Date(aplicado_em).toISOString() : new Date().toISOString();
-  const produtosUsados = Array.isArray(produtos_usados)
+  let produtosUsados = Array.isArray(produtos_usados)
     ? produtos_usados
         .filter((p) => p && (p.produto_nome || "").trim())
         .map((p) => ({
@@ -152,6 +173,22 @@ export async function createProtocoloAplicado(payload) {
           quantidade: Math.max(0, Number(p.quantidade) || 1),
         }))
     : [];
+
+  if (protocoloId) {
+    try {
+      const descartaveis = await getDescartaveisByProtocolo(protocoloId);
+      const have = new Set(produtosUsados.map((p) => p.produto_nome.toLowerCase()));
+      for (const d of descartaveis) {
+        const nome = (d.produto_nome || "").trim();
+        if (!nome || have.has(nome.toLowerCase())) continue;
+        produtosUsados.push({
+          produto_nome: nome,
+          quantidade: Math.max(0, Number(d.quantidade) || 1),
+        });
+        have.add(nome.toLowerCase());
+      }
+    } catch (_) {}
+  }
 
   const { data, error } = await supabase
     .from("protocolos_aplicados")

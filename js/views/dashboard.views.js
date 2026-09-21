@@ -22,7 +22,8 @@ import { getProtocolosAplicadosHoje } from "../services/protocolo-db.service.js"
 import { listAppointmentsByDate } from "../services/appointments.service.js"
 import { listProcedures } from "../services/procedimentos.service.js"
 import { getEntradasHojeComAgenda } from "../services/financeiro.service.js"
-import { getCockpitSnapshot } from "../services/cockpit.service.js"
+import { getCockpitSnapshot, getCockpitMesSnapshot } from "../services/cockpit.service.js"
+import { getSetupProgress } from "../services/setup-progress.service.js"
 import { navigate } from "../core/spa.js"
 // Chart.js 3: aguardar window.Chart (script pode carregar após o módulo)
 async function waitForChart(retries = 25) {
@@ -170,6 +171,11 @@ async function loadAndRender() {
     await renderCockpit()
   } catch (e) {
     console.warn("[DASHBOARD] Cockpit:", e)
+  }
+  try {
+    await renderSetupProgress()
+  } catch (e) {
+    console.warn("[DASHBOARD] Setup:", e)
   }
   try {
     await renderCharts(m, faturamentoPorDia)
@@ -338,6 +344,10 @@ export async function init() {
 
   /* Botão "Abrir Agenda" já tem data-view="agenda"; navegação feita pelo SPA (bindMenu) */
 
+  document.querySelectorAll("[data-cockpit-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => setCockpitTab(btn.dataset.cockpitTab))
+  })
+
   await loadAndRender()
 }
 
@@ -466,36 +476,90 @@ async function renderCockpit() {
   }
 
   if (atencaoEl) {
-    const rows = []
-    for (const c of snap.atencao.inativos) {
-      const nome = escapeHtml(c.name || c.nome || "Paciente")
-      const dias = c.idleDays != null ? `${c.idleDays} dias` : "sem retorno"
-      rows.push(`<button type="button" class="cockpit-row" data-view="crm">${nome}<span class="muted">Inativa · ${dias}</span></button>`)
-    }
-    for (const a of snap.atencao.analises) {
-      const nome = escapeHtml(a.clients?.name || "Análise de pele")
-      rows.push(`<button type="button" class="cockpit-row" data-view="analise-pele">${nome}<span class="muted">Análise aguardando validação</span></button>`)
-    }
-    for (const c of snap.atencao.contas) {
-      const nome = escapeHtml(c.descricao || "Conta")
-      rows.push(`<button type="button" class="cockpit-row" data-view="financeiro">${nome}<span class="muted">Vencida</span></button>`)
-    }
+    const rows = (snap.atencao || []).map((card) => insightRow(card));
     atencaoEl.innerHTML = rows.length
       ? rows.join("")
       : `<p class="cockpit-empty">Nada urgente. Bom sinal.</p>`
   }
 
   if (oportEl) {
-    const rows = []
-    for (const w of snap.oportunidades.espera) {
-      const nome = escapeHtml(w.nome || "Espera")
-      const proc = escapeHtml(w.procedure_name || "encaixe")
-      rows.push(`<button type="button" class="cockpit-row" data-view="crm">${nome}<span class="muted">Espera · ${proc}</span></button>`)
-    }
+    const rows = (snap.oportunidades || []).map((card) => insightRow(card));
     oportEl.innerHTML = rows.length
       ? rows.join("")
-      : `<p class="cockpit-empty">Sem lista de espera. Horários vagos estão na <a href="#" data-view="agenda">Agenda</a>.</p>`
+      : `<p class="cockpit-empty">Sem lista de espera nem radar de retorno agora. Horários vagos estão na <a href="#" data-view="agenda">Agenda</a>.</p>`
   }
+}
+
+function insightRow(card) {
+  const view = escapeHtml(card.view || "dashboard")
+  const title = escapeHtml(card.title || "Atenção")
+  const reason = escapeHtml(card.reason || "")
+  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"><span class="cockpit-row-text"><strong>${title}</strong>${reason ? `<span class="cockpit-row-reason">${reason}</span>` : ""}</span></button>`
+}
+
+async function renderCockpitMes() {
+  const kpisEl = document.getElementById("cockpitMesKpis")
+  const rankEl = document.getElementById("cockpitMesRanking")
+  const hintEl = document.getElementById("cockpitMesHint")
+  const metasEl = document.getElementById("cockpitMesMetas")
+  if (!kpisEl) return
+  const snap = await getCockpitMesSnapshot()
+  const k = snap.kpis
+  kpisEl.innerHTML = `
+    <div class="cockpit-kpi"><b>${k.sessoes}</b><span>sessões no mês</span></div>
+    <div class="cockpit-kpi"><b>${k.clientes}</b><span>clientes</span></div>
+    <div class="cockpit-kpi"><b>R$ ${Number(k.faturamento || 0).toFixed(2).replace(".", ",")}</b><span>entradas no mês</span></div>`
+  if (rankEl) {
+    if (!snap.ranking.length) {
+      rankEl.innerHTML = `<p class="cockpit-empty">Ainda sem procedimentos com baixa neste mês. Use a Agenda e dê baixa no Financeiro.</p>`
+    } else {
+      rankEl.innerHTML = snap.ranking
+        .map((p) => `<div class="cockpit-row" data-view="procedimento"><span>${escapeHtml(p.procedure_name)}</span><span class="muted">${p.total} · R$ ${Number(p.receita || 0).toFixed(2).replace(".", ",")}</span></div>`)
+        .join("")
+    }
+  }
+  if (hintEl) {
+    const risco = snap.produtosRisco.length
+    hintEl.innerHTML = risco
+      ? `${risco} produto(s) com aumento de custo recente. Revise em <a href="#" data-view="procedimento">Procedimentos</a>. O sistema não altera preço.`
+      : "Sem alerta de margem em risco neste recorte."
+  }
+  if (metasEl) {
+    const rows = snap.metasMes || []
+    if (!rows.length) {
+      metasEl.innerHTML = `<p class="cockpit-empty">Sem meta de receita/lucro neste mês. Master cadastra em Financeiro → Reserva e metas. Projeção, não garantia.</p>`
+    } else {
+      metasEl.innerHTML = rows
+        .map((m) => {
+          const label = m.tipo === "lucro_mensal" ? "Lucro" : "Receita"
+          const copy = escapeHtml(m.ritmo?.copy || "")
+          const cls = m.ritmo?.onTrack === false ? "cockpit-row cockpit-row--insight meta-offtrack" : "cockpit-row cockpit-row--insight"
+          return `<button type="button" class="${cls}" data-view="financeiro"><span class="cockpit-row-text"><strong>${label}</strong><span class="cockpit-row-reason">${copy}</span></span></button>`
+        })
+        .join("")
+    }
+  }
+}
+
+function setCockpitTab(tab) {
+  const hoje = document.getElementById("cockpitPaneHoje")
+  const mes = document.getElementById("cockpitPaneMes")
+  document.querySelectorAll("[data-cockpit-tab]").forEach((btn) => {
+    const on = btn.dataset.cockpitTab === tab
+    btn.classList.toggle("is-active", on)
+    btn.setAttribute("aria-selected", on ? "true" : "false")
+  })
+  if (hoje) {
+    hoje.classList.toggle("hidden", tab !== "hoje")
+    hoje.hidden = tab !== "hoje"
+  }
+  if (mes) {
+    mes.classList.toggle("hidden", tab !== "mes")
+    mes.hidden = tab !== "mes"
+  }
+  const titleEl = document.getElementById("headerViewTitle")
+  if (titleEl) titleEl.textContent = tab === "mes" ? "Mês" : "Hoje"
+  if (tab === "mes") renderCockpitMes().catch((e) => console.warn("[DASHBOARD] Mês:", e))
 }
 
 function escapeHtml(s) {
@@ -503,4 +567,34 @@ function escapeHtml(s) {
   const div = document.createElement("div")
   div.textContent = s
   return div.innerHTML
+}
+
+async function renderSetupProgress() {
+  const el = document.getElementById("setupProgressBar")
+  if (!el) return
+  const p = await getSetupProgress()
+  const faltaAha = p.pct >= 100 && !p.aha
+  if (p.pct >= 100 && p.aha) {
+    el.classList.add("hidden")
+    el.hidden = true
+    el.innerHTML = ""
+    return
+  }
+  el.hidden = false
+  el.classList.remove("hidden")
+  const itens = p.steps
+    .map((s) => {
+      const mark = s.ok ? "✓" : "○"
+      const cls = s.ok ? "setup-progress-ok" : "setup-progress-pendente"
+      return `<li class="${cls}"><button type="button" class="setup-progress-link" data-view="${s.view}">${mark} ${escapeHtml(s.label)}</button></li>`
+    })
+    .join("")
+  const ahaHtml = faltaAha
+    ? `<p class="setup-progress-aha">Checklist básico ok. O momento de virada: registre o <strong>primeiro protocolo aplicado</strong> no atalho da <a href="#" data-view="agenda">Agenda</a>.</p>`
+    : `<p class="setup-progress-import">Para entrar rápido: <a href="#" data-view="export">importar CSV com prévia</a>.</p>`
+  el.innerHTML = `
+    <p class="setup-progress-pct"><strong>${p.pct}% configurado</strong> (${p.done}/${p.total})</p>
+    <ul class="setup-progress-list">${itens}</ul>
+    ${ahaHtml}
+  `
 }

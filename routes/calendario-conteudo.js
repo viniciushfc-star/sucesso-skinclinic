@@ -24,7 +24,7 @@ export default async function handler(req, res) {
   let orgFiltro = null;
   if (!isCronAuthorized(req)) {
     try {
-      const auth = await requireStaffAccess(req, { permission: "dashboard:view" });
+      const auth = await requireStaffAccess(req, { permission: "ia:copilot" });
       orgFiltro = auth.orgId;
     } catch (e) {
       return sendAuthError(res, e);

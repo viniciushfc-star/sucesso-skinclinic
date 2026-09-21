@@ -7,6 +7,7 @@ import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { toast } from "../ui/toast.js";
 import { CUSTOS_FIXOS_COMUNS } from "../utils/categoria-financeiro.js";
+import { RATEIO_METODOS, getRateioConfig, saveRateioConfig } from "../services/rateio.service.js";
 
 const BTN_CRIAR_ID = "btnSetupCriarLancamentos";
 const BTN_ADD_CUSTO_ID = "btnSetupAddCusto";
@@ -34,6 +35,23 @@ export function renderCustoFixo(container) {
         <button type="button" id="${BTN_ADD_CUSTO_ID}" class="btn-secondary">+ Adicionar</button>
       </div>
       <ul id="${CUSTOS_CUSTOM_LIST}" class="setup-inicial-custos-custom-list" aria-label="Custos adicionados"></ul>
+    </div>
+    <div class="setup-inicial-rateio" id="setupRateioBlock">
+      <h4 class="setup-inicial-custos-custom-title">Como o custo fixo entra no procedimento</h4>
+      <p class="setup-inicial-next">O sistema <strong>não</strong> divide sozinho por número de atendimentos. Você escolhe o método. Sem dado, o P&amp;L mostra “não informado” e <strong>não altera preço</strong>.</p>
+      <label for="rateioMetodo">Método</label>
+      <select id="rateioMetodo">
+        ${RATEIO_METODOS.map((m) => `<option value="${m.id}">${m.label}</option>`).join("")}
+      </select>
+      <div id="rateioCamposHora" class="setup-inicial-rateio-extra hidden">
+        <label for="rateioHorasMes">Horas disponíveis no mês</label>
+        <input type="number" id="rateioHorasMes" min="1" step="1" placeholder="Ex.: 160">
+      </div>
+      <div id="rateioCamposCapacidade" class="setup-inicial-rateio-extra hidden">
+        <label for="rateioCapacidadeMes">Capacidade teórica (sessões possíveis no mês)</label>
+        <input type="number" id="rateioCapacidadeMes" min="1" step="1" placeholder="Ex.: 200">
+      </div>
+      <button type="button" id="btnSalvarRateio" class="btn-secondary">Salvar metodologia de rateio</button>
     </div>
     <div class="setup-inicial-actions">
       <button type="button" id="${BTN_CRIAR_ID}" class="btn-primary">Criar lançamentos no Financeiro</button>
@@ -105,6 +123,46 @@ export function bindCustoFixoEvents(container) {
   }
 
   /* Links data-view são tratados pelo SPA (bindMenu com delegação) */
+
+  bindRateio(container);
+}
+
+function toggleRateioCampos(metodo) {
+  const hora = document.getElementById("rateioCamposHora");
+  const cap = document.getElementById("rateioCamposCapacidade");
+  if (hora) hora.classList.toggle("hidden", !(metodo === "hora" || metodo === "sala"));
+  if (cap) cap.classList.toggle("hidden", metodo !== "capacidade");
+}
+
+function bindRateio(container) {
+  const sel = container.querySelector("#rateioMetodo");
+  const horas = container.querySelector("#rateioHorasMes");
+  const cap = container.querySelector("#rateioCapacidadeMes");
+  const btn = container.querySelector("#btnSalvarRateio");
+  if (!sel || !btn) return;
+
+  getRateioConfig()
+    .then((cfg) => {
+      sel.value = cfg.metodo || "nao_ratear";
+      if (horas && cfg.horas_mes != null) horas.value = cfg.horas_mes;
+      if (cap && cfg.capacidade_mes != null) cap.value = cfg.capacidade_mes;
+      toggleRateioCampos(sel.value);
+    })
+    .catch(() => toggleRateioCampos(sel.value));
+
+  sel.onchange = () => toggleRateioCampos(sel.value);
+  btn.onclick = async () => {
+    try {
+      await saveRateioConfig({
+        metodo: sel.value,
+        horas_mes: horas?.value,
+        capacidade_mes: cap?.value,
+      });
+      toast("Metodologia de rateio salva.");
+    } catch (err) {
+      toast(err?.message || "Não foi possível salvar o rateio.");
+    }
+  };
 }
 
 async function criarLancamentos(container) {

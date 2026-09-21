@@ -33,6 +33,7 @@ import {
   createFinanceiroMeta,
   updateFinanceiroMeta,
   deleteFinanceiroMeta,
+  explainFinanceiroMetas,
   TIPOS_META,
 } from "../services/financeiro-metas.service.js"
 import {
@@ -260,8 +261,10 @@ function switchFinanceiroMainTab(tabId) {
     if (contentEl && !contentEl.querySelector(".setup-inicial-custos")) {
       import("../views/setup-inicial.views.js").then((m) => {
         if (m.renderCustoFixo && m.bindCustoFixoEvents) {
-          m.renderCustoFixo(contentEl)
-          m.bindCustoFixoEvents(contentEl)
+          if (!contentEl.querySelector("#setupRateioBlock")) {
+            m.renderCustoFixo(contentEl)
+            m.bindCustoFixoEvents(contentEl)
+          }
         }
       }).catch((err) => {
         console.warn("[Financeiro] Custo fixo:", err)
@@ -432,12 +435,15 @@ async function renderCardMargemRisco(containerId) {
     }
     el.classList.remove("hidden");
     const uniqueProducts = [...new Set(list.map((x) => x.produto_nome))];
+    const procNames = [...new Set(list.flatMap((x) => (x.procedimentos || []).map((p) => p.procedure_name).filter(Boolean)))];
+    const procsLine = procNames.slice(0, 6).join(", ") + (procNames.length > 6 ? "…" : "");
     el.innerHTML = `
       <div class="card-margem-risco__inner">
         <span class="card-margem-risco__icon" aria-hidden="true">⚠️</span>
         <div class="card-margem-risco__text">
           <strong>Margem em risco:</strong> ${uniqueProducts.length} produto(s) com aumento de custo recente (≥15%).
-          Revise precificação ou fornecedor.
+          ${procsLine ? `Procedimentos que usam esses produtos: ${escapeHtml(procsLine)}. ` : ""}
+          Revise precificação ou fornecedor. O sistema não altera preço sozinho.
         </div>
         <a href="#auditoria" class="btn-secondary btn-sm card-margem-risco__link">Ver na Auditoria</a>
       </div>
@@ -1253,8 +1259,12 @@ async function renderMasterSection(data, totalEntradas, totalSaidas, saldo) {
     contas = await listContasAPagar()
   } catch (_) {}
   try {
-    metas = await listFinanceiroMetas()
-  } catch (_) {}
+    metas = await explainFinanceiroMetas({ saldoAtual: saldo })
+  } catch (_) {
+    try {
+      metas = (await listFinanceiroMetas()).map((m) => ({ ...m, ritmo: null }))
+    } catch (_) {}
+  }
   try {
     participacao = await listParticipacaoLucros()
   } catch (_) {}
@@ -1314,20 +1324,27 @@ async function renderMasterSection(data, totalEntradas, totalSaidas, saldo) {
   const labelsMeta = { reserva_emergencia: "Reserva de emergência", receita_mensal: "Receita mensal", lucro_mensal: "Lucro mensal", outro: "Outro" }
   if (listaMetas) {
     if (!metas || metas.length === 0) {
-      listaMetas.innerHTML = "<p class=\"financeiro-master-empty\">Nenhuma meta. Clique em \"+ Nova meta\" (ex.: reserva de emergência).</p>"
+      listaMetas.innerHTML = "<p class=\"financeiro-master-empty\">Nenhuma meta. Clique em \"+ Nova meta\". Receita e lucro usam o financeiro do mês (YYYY-MM). Projeção, não garantia.</p>"
     } else {
-      listaMetas.innerHTML = (metas || []).map((m) => `
-        <div class="meta-card" data-id="${m.id}">
+      listaMetas.innerHTML = (metas || []).map((m) => {
+        const r = m.ritmo
+        const track = r?.onTrack === true ? "meta-card--ok" : r?.onTrack === false ? "meta-card--atraso" : ""
+        const ritmoHtml = r?.copy
+          ? `<p class="meta-ritmo">${escapeHtml(r.copy)}</p>`
+          : ""
+        return `
+        <div class="meta-card ${track}" data-id="${m.id}">
           <div>
             <b>${escapeHtml(labelsMeta[m.tipo] || m.tipo)}</b>
-            <br><span class="item-card__categoria">R$ ${Number(m.valor_meta).toFixed(2).replace(".", ",")}${m.periodo_ref ? " · " + m.periodo_ref : ""}</span>
+            <br><span class="item-card__categoria">Meta R$ ${Number(m.valor_meta).toFixed(2).replace(".", ",")}${m.periodo_ref ? " · " + m.periodo_ref : ""}${r?.pct != null ? " · " + r.pct + "%" : ""}</span>
+            ${ritmoHtml}
           </div>
           <div>
             <button type="button" class="btn-secondary btn-edit-meta" data-id="${m.id}">Editar</button>
             <button type="button" class="btn-secondary btn-delete-meta" data-id="${m.id}">Excluir</button>
           </div>
-        </div>
-      `).join("")
+        </div>`
+      }).join("")
       listaMetas.querySelectorAll(".btn-edit-meta").forEach((btn) => {
         btn.onclick = (e) => { e.stopPropagation(); openEditMetaModal(btn.dataset.id) }
       })
@@ -1514,7 +1531,7 @@ function openNovaMetaModal() {
     <select id="metaTipo">${opts}</select>
     <label>Valor da meta (R$)</label>
     <input type="number" id="metaValor" step="0.01" min="0" required>
-    <label>Período (opcional, ex: 2025-01)</label>
+    <label>Período (YYYY-MM). Receita e lucro: vazio = mês atual.</label>
     <input type="text" id="metaPeriodo" placeholder="YYYY-MM">
     <label>Observação</label>
     <input type="text" id="metaObs" placeholder="Opcional">

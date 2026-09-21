@@ -1,4 +1,5 @@
 import { supabase } from "../core/supabase.js";
+import { ALLOWED_INVITE_ROLES } from "../core/permissions.map.js";
 
 function newInviteToken() {
   const bytes = new Uint8Array(24);
@@ -11,12 +12,16 @@ function newInviteToken() {
 }
 
 export async function createInvite({ orgId, email, role }) {
+  const stored = String(role || "").trim();
+  if (!ALLOWED_INVITE_ROLES.includes(stored)) {
+    throw new Error("Essa função não pode ser atribuída por convite.");
+  }
   const { error } = await supabase
     .from("organization_invites")
     .insert({
       org_id: orgId,
       email: String(email || "").trim().toLowerCase(),
-      role,
+      role: stored,
       status: "pending",
       token: newInviteToken(),
     });

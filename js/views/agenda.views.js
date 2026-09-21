@@ -15,6 +15,7 @@ import { sendWhatsapp }
 from "../services/whatsapp.service.js"
 
 import { getActiveOrg, withOrg } from "../core/org.js"
+import { listClientesForSelect } from "../services/clientes.service.js"
 
 import {
  listAppointmentsByDate,
@@ -50,6 +51,8 @@ import { listPacotesComSaldoByClient } from "../services/pacotes.service.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
+import { getProtocolos, getProtocolosAplicadosByAgendaId, createProtocoloAplicado, getAlertaEstoqueProtocolo } from "../services/protocolo-db.service.js"
+import { getResumoPorProduto } from "../services/estoque-entradas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
 import { listAfazeresByPrazo } from "../services/afazeres.service.js"
@@ -95,6 +98,9 @@ export function init() {
   bindUI()
   renderCalendarAndDay()
   renderAniversariantes()
+  if (sessionStorage.getItem("agendaPrefillClientId")) {
+    openCreateModal()
+  }
 }
 
 function bindUI() {
@@ -721,15 +727,14 @@ async function openCreateModal(opts = {}){
   if (opts.date) selectedDate = opts.date
   const horaPrefill = opts.hora || ""
 
- let { data: clientes } = await withOrg(
-  supabase.from("clients").select("id, name, is_paciente_modelo, model_discount_pct")
- )
- if (!clientes?.length && getActiveOrg()) {
-  const alt = await withOrg(supabase.from("clientes").select("id, nome, is_paciente_modelo, model_discount_pct"))
-  clientes = alt?.data ? alt.data.map(c => ({ id: c.id, name: c.nome, nome: c.nome, is_paciente_modelo: c.is_paciente_modelo, model_discount_pct: c.model_discount_pct })) : []
- } else if (clientes?.length) {
-  clientes = clientes.map(c => ({ ...c, nome: c.name || c.nome }))
+ let clientes = []
+ try {
+  clientes = await listClientesForSelect()
+ } catch (_) {
+  clientes = []
  }
+ const prefillClient = opts.clientId || sessionStorage.getItem("agendaPrefillClientId") || ""
+ if (sessionStorage.getItem("agendaPrefillClientId")) sessionStorage.removeItem("agendaPrefillClientId")
 
  const members = await getOrgMembers()
  const profOptions = (members || []).map((m, i) => {
@@ -785,7 +790,7 @@ async function openCreateModal(opts = {}){
    <label for="cliente">Cliente</label>
    <select id="cliente">
     ${(clientes || []).map(c=>`
-     <option value="${c.id}" data-modelo="${c.is_paciente_modelo ? "1" : "0"}" data-discount="${c.model_discount_pct != null ? c.model_discount_pct : ""}">${(c.nome || c.name || "").replace(/</g, "&lt;")}${c.is_paciente_modelo ? " (modelo)" : ""}</option>
+     <option value="${c.id}" ${c.id === prefillClient ? "selected" : ""} data-modelo="${c.is_paciente_modelo ? "1" : "0"}" data-discount="${c.model_discount_pct != null ? c.model_discount_pct : ""}">${(c.nome || c.name || "").replace(/</g, "&lt;")}${c.is_paciente_modelo ? " (modelo)" : ""}</option>
     `).join("")}
    </select>
    <div id="agendaModeloWrap" class="agenda-modelo-wrap hidden">
@@ -1047,6 +1052,10 @@ async function openSlotPanel(id){
   if (!isEvent && item.id) {
    try { baixasJaRegistradas = await getEntradasByAgendaId(item.id) } catch (_) {}
   }
+  let protocolosDestaAgenda = []
+  if (!isEvent && item.id) {
+   try { protocolosDestaAgenda = await getProtocolosAplicadosByAgendaId(item.id) } catch (_) {}
+  }
   const temBaixa = baixasJaRegistradas.length > 0
   const primeiraBaixa = baixasJaRegistradas[0]
   const valorBaixa = primeiraBaixa && (primeiraBaixa.valor_recebido != null && primeiraBaixa.valor_recebido !== "" ? Number(primeiraBaixa.valor_recebido) : Number(primeiraBaixa.valor))
@@ -1092,7 +1101,8 @@ async function openSlotPanel(id){
     <p class="agenda-panel__hint">Anamnese e histórico completo: abra o perfil do cliente.</p>
     ${baixaRegistradaHtml}
     <button type="button" class="btn-primary agenda-panel__btn-profile" id="agendaPanelBtnProfile">Abrir perfil do cliente (e Anamnese)</button>
-    <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado (protocolo)">Registrar protocolo</button>
+    <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão, sem abrir o perfil inteiro">Registrar o que foi aplicado</button>
+    ${protocolosDestaAgenda.length ? `<p class="agenda-panel__hint">Já há ${protocolosDestaAgenda.length} registro(s) de protocolo nesta sessão.</p>` : `<p class="agenda-panel__hint">Registro rápido do método aplicado nesta sessão. Não é promoção.</p>`}
     ${!temBaixa ? `<button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
     <button type="button" class="btn-secondary" id="agendaPanelBtnReview">Pedir avaliação no Google</button>
      `
@@ -1120,12 +1130,9 @@ async function openSlotPanel(id){
   }
   const btnProtocolo = document.getElementById("agendaPanelBtnProtocolo")
   if (btnProtocolo && clientId && !isEvent) {
-   btnProtocolo.onclick = () => {
-    sessionStorage.setItem("clientePerfilId", clientId)
-    sessionStorage.setItem("clientePerfilOpenTab", "protocolo")
-    sessionStorage.setItem("clientePerfilAgendaId", item.id)
+   btnProtocolo.onclick = async () => {
     closeSlotPanel()
-    navigate("cliente-perfil")
+    await openRegistrarProtocoloAgendaModal(item)
    }
   }
 
@@ -1179,15 +1186,10 @@ async function openEditModal(id){
 
   if(error || !data) return
 
-  let { data: clientes } = await withOrg(
-   supabase.from("clients").select("id, name, is_paciente_modelo, model_discount_pct")
-  )
-  if (clientes && clientes.length) {
-   clientes = clientes.map(c => ({ id: c.id, nome: c.name || c.nome, is_paciente_modelo: c.is_paciente_modelo, model_discount_pct: c.model_discount_pct }))
-  } else if (getActiveOrg()) {
-   const alt = await withOrg(supabase.from("clientes").select("id, nome, is_paciente_modelo, model_discount_pct"))
-   clientes = alt?.data ? alt.data.map(c => ({ id: c.id, nome: c.nome || c.name, is_paciente_modelo: c.is_paciente_modelo, model_discount_pct: c.model_discount_pct })) : []
-  } else {
+  let clientes = []
+  try {
+   clientes = await listClientesForSelect()
+  } catch (_) {
    clientes = []
   }
 
@@ -1338,6 +1340,137 @@ async function pedirAvaliacaoGoogle(item, { silenciosoSeVazio = false } = {}) {
 }
 
 /** Modal "Dar baixa": valor vem do procedimento (agenda); acréscimo só se produto a mais / outro procedimento. Opção de descontar 1 sessão de pacote. */
+async function openRegistrarProtocoloAgendaModal(item) {
+  const clientId = item.cliente_id || item.client_id
+  if (!clientId) {
+    toast("Este agendamento não tem cliente.")
+    return
+  }
+  const cliente = item.clientes || item.clients || {}
+  const nomeCliente = escapeHtml(cliente.nome || cliente.name || "Cliente")
+  const dataAtend = item.data || getTodayStr()
+
+  let protocolos = []
+  let produtosEstoque = []
+  let jaAplicados = []
+  try { protocolos = await getProtocolos() } catch (_) {}
+  try {
+    const resumo = await getResumoPorProduto()
+    produtosEstoque = (resumo || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  } catch (_) {}
+  try { jaAplicados = await getProtocolosAplicadosByAgendaId(item.id) } catch (_) {}
+
+  const hist = jaAplicados.length
+    ? `<ul class="protocolo-produtos-list">${jaAplicados.map((a) => {
+        const nome = a.protocolos?.nome || a.descricao || "Registro"
+        const quando = a.aplicado_em ? new Date(a.aplicado_em).toLocaleString("pt-BR") : ""
+        return `<li>${escapeHtml(nome)}${quando ? ` — ${escapeHtml(quando)}` : ""}</li>`
+      }).join("")}</ul>`
+    : "<p class=\"agenda-baixa-hint\">Nenhum registro nesta sessão ainda.</p>"
+
+  openModal(
+    "Registrar o que foi aplicado",
+    `
+    <p class="agenda-baixa-hint">Sessão de <strong>${nomeCliente}</strong> em ${escapeHtml(dataAtend)}. Método + histórico; não é promoção. O sistema não bloqueia se o estoque estiver baixo.</p>
+    <p class="agenda-baixa-hint">Já nesta sessão:</p>
+    ${hist}
+    <label for="agendaProtocoloDescricao">O que foi feito</label>
+    <textarea id="agendaProtocoloDescricao" rows="3" placeholder="Ex.: limpeza, áreas aplicadas, técnica…">${escapeHtml(item.procedimento || "")}</textarea>
+    <label>Produtos utilizados (estoque)</label>
+    <div class="protocolo-produtos-add">
+      <select id="agendaProtocoloProdutoSelect">
+        <option value="">— Selecione um produto —</option>
+        ${produtosEstoque.map((nome) => `<option value="${escapeHtml(nome)}">${escapeHtml(nome)}</option>`).join("")}
+      </select>
+      <input type="number" id="agendaProtocoloProdutoQty" min="0.01" step="0.01" value="1" style="width:4rem;">
+      <button type="button" class="btn-secondary" id="agendaProtocoloAddProduto">Adicionar</button>
+    </div>
+    <ul id="agendaProtocoloProdutosList" class="protocolo-produtos-list"></ul>
+    <label for="agendaProtocoloSelect">Protocolo cadastrado (opcional)</label>
+    <select id="agendaProtocoloSelect">
+      <option value="">— Nenhum —</option>
+      ${protocolos.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome)}</option>`).join("")}
+    </select>
+    <p class="agenda-baixa-hint">Se escolher um protocolo, os descartáveis cadastrados entram no consumo estimado (sem bloquear o atendimento).</p>
+    <label for="agendaProtocoloObservacao">Observação (opcional)</label>
+    <textarea id="agendaProtocoloObservacao" rows="2" placeholder="Ex.: área, reação…"></textarea>
+    <p class="agenda-baixa-hint"><button type="button" class="btn-link" id="agendaProtocoloAbrirFicha">Abrir ficha completa do cliente</button></p>
+    `,
+    () => submitRegistrarProtocoloAgenda(item)
+  )
+
+  document.getElementById("agendaProtocoloAddProduto")?.addEventListener("click", (e) => {
+    e.preventDefault()
+    const sel = document.getElementById("agendaProtocoloProdutoSelect")
+    const qtyEl = document.getElementById("agendaProtocoloProdutoQty")
+    const listEl = document.getElementById("agendaProtocoloProdutosList")
+    const nome = (sel?.value || "").trim()
+    if (!nome) {
+      toast("Selecione um produto")
+      return
+    }
+    const qty = Math.max(0.01, parseFloat(qtyEl?.value) || 1)
+    const li = document.createElement("li")
+    li.className = "protocolo-produto-line"
+    li.dataset.produto = nome
+    li.dataset.quantidade = String(qty)
+    li.innerHTML = `<span>${escapeHtml(nome)} × ${qty}</span> <button type="button" class="btn-sm btn-remove-produto" title="Remover">×</button>`
+    li.querySelector(".btn-remove-produto")?.addEventListener("click", () => li.remove())
+    listEl?.appendChild(li)
+    if (sel) sel.value = ""
+    if (qtyEl) qtyEl.value = "1"
+  })
+
+  document.getElementById("agendaProtocoloAbrirFicha")?.addEventListener("click", (e) => {
+    e.preventDefault()
+    sessionStorage.setItem("clientePerfilId", clientId)
+    sessionStorage.setItem("clientePerfilOpenTab", "protocolo")
+    sessionStorage.setItem("clientePerfilAgendaId", item.id)
+    closeModal()
+    navigate("cliente-perfil")
+  })
+}
+
+async function submitRegistrarProtocoloAgenda(item) {
+  const clientId = item.cliente_id || item.client_id
+  const protocoloId = document.getElementById("agendaProtocoloSelect")?.value?.trim() || null
+  const descricao = document.getElementById("agendaProtocoloDescricao")?.value?.trim() || ""
+  const observacao = document.getElementById("agendaProtocoloObservacao")?.value?.trim() || ""
+  const produtos_usados = []
+  document.getElementById("agendaProtocoloProdutosList")?.querySelectorAll(".protocolo-produto-line").forEach((li) => {
+    const nome = (li.dataset.produto || "").trim()
+    if (nome) produtos_usados.push({ produto_nome: nome, quantidade: parseFloat(li.dataset.quantidade) || 1 })
+  })
+  if (!protocoloId && !descricao && produtos_usados.length === 0) {
+    toast("Informe o que foi feito, um produto ou um protocolo.")
+    return
+  }
+  try {
+    if (protocoloId) {
+      const { alertas } = await getAlertaEstoqueProtocolo(protocoloId).catch(() => ({ alertas: [] }))
+      if (alertas.length > 0) {
+        const msg = alertas.map((a) => `${a.produto_nome} (precisa ${a.quantidade_necessaria}, saldo ${a.saldo_estimado})`).join("; ")
+        toast(`Estoque baixo (não bloqueia): ${msg}`, "warning")
+      }
+    }
+    const aplicado_em = item.data ? `${item.data}T12:00:00.000Z` : undefined
+    await createProtocoloAplicado({
+      clientId,
+      protocoloId: protocoloId || undefined,
+      agendaId: item.id,
+      observacao,
+      descricao,
+      aplicado_em,
+      produtos_usados,
+    })
+    closeModal()
+    toast("Registro salvo no prontuário desta sessão.")
+  } catch (err) {
+    console.error("[AGENDA] protocolo aplicado", err)
+    toast(err?.message || "Erro ao registrar")
+  }
+}
+
 async function openDarBaixaModal(item) {
   const jaTemBaixa = await getEntradasByAgendaId(item.id).then((r) => r.length > 0).catch(() => false)
   if (jaTemBaixa) {

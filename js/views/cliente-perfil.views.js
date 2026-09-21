@@ -9,6 +9,8 @@ import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } 
 import { listProcedures } from "../services/procedimentos.service.js";
 import { listPacotesByClient, createPacote } from "../services/pacotes.service.js";
 import { audit } from "../services/audit.service.js";
+import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
+import { isLgpdClientId } from "../utils/lgpd-titular.js";
 import { checkPermission } from "../core/permissions.js";
 import { getActiveOrg } from "../core/org.js";
 import { openModal, closeModal } from "../ui/modal.js";
@@ -27,6 +29,8 @@ let capturedPhotoDataUrl = null;
 let capturedPhotoBlob = null;
 /** Se o usuário pode editar cliente (usado no callback do modal após salvar) */
 let canEditClient = false;
+/** Portabilidade / exclusão LGPD (clientes:manage) */
+let canLgpdClient = false;
 
 let editPermissionUsed = "clientes:manage"; // qual permissão usar na auditoria (manage ou edit)
 let cachedProceduresList = [];
@@ -62,6 +66,7 @@ export async function init() {
     const canManage = await checkPermission("clientes:manage");
     const canEditPerm = await checkPermission("clientes:edit");
     canEditClient = canManage || canEditPerm;
+    canLgpdClient = canManage;
     editPermissionUsed = canManage ? "clientes:manage" : "clientes:edit";
     renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes);
     if (sessionStorage.getItem("clientePerfilOpenEdit") === "1") {
@@ -107,6 +112,32 @@ function formatCpfForInput(cpf) {
   const d = cpf.replace(/\D/g, "");
   if (d.length !== 11) return cpf;
   return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+}
+
+function renderLgpdBlock(client) {
+  if (!canLgpdClient) return "";
+  const erased = !!(client.lgpd_erased_at || client.name === "Titular excluído");
+  const canonical = isLgpdClientId(client.id);
+  if (!canonical) {
+    return `<div class="cliente-lgpd-block">
+      <h4>Dados e privacidade</h4>
+      <p class="client-hint">Este cadastro ainda está só na tabela antiga. A portabilidade e a exclusão do titular valem no cadastro unificado (UUID).</p>
+    </div>`;
+  }
+  if (erased) {
+    return `<div class="cliente-lgpd-block">
+      <h4>Dados e privacidade</h4>
+      <p class="client-hint">Identidade anonimizada. O prontuário (o que foi feito na clínica) permanece para respaldo em intercorrência.</p>
+    </div>`;
+  }
+  return `<div class="cliente-lgpd-block">
+    <h4>Dados e privacidade</h4>
+    <p class="client-hint">Pedido do titular: exportar o que a clínica guarda ou remover nome, contato e CPF. <strong>O prontuário não some</strong> (anamnese, fotos, protocolos, agenda e financeiro) — respaldo se houver intercorrência. <strong>Não é parecer jurídico.</strong> Rascunho interno de IA não entra no arquivo.</p>
+    <div class="cliente-consent-actions">
+      <button type="button" class="btn-secondary btn-sm" id="btnLgpdExport">Exportar dados do titular (JSON)</button>
+      <button type="button" class="btn-secondary btn-sm" id="btnLgpdErase">Anonimizar identidade (manter prontuário)</button>
+    </div>
+  </div>`;
 }
 
 function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], produtosEstoque = [], cpfOther = null, pacotes = []) {
@@ -205,6 +236,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
                   <button type="button" class="btn-secondary btn-sm" id="btnRegistrarTermoPapel">Registrar aceite (assinatura em papel)</button>
                 </div>` : ""}
               </div>`}
+          ${renderLgpdBlock(client)}
         </div>
       </div>
 
@@ -874,6 +906,39 @@ function bindPerfilEvents(client, canEdit) {
   };
   document.getElementById("btnAnamneseCliente")?.addEventListener("click", goToAnamnese);
   document.querySelectorAll(".btn-open-anamnese").forEach((btn) => btn.addEventListener("click", goToAnamnese));
+
+  document.getElementById("btnLgpdExport")?.addEventListener("click", async () => {
+    try {
+      await exportTitularJson(client.id);
+      toast("Arquivo do titular baixado.");
+    } catch (err) {
+      toast(err?.message || "Não foi possível exportar.");
+    }
+  });
+  document.getElementById("btnLgpdErase")?.addEventListener("click", () => {
+    openModal(
+      "Anonimizar identidade",
+      `<p class="client-hint">Nome, telefone, e-mail e CPF serão anonimizados e o acesso ao portal encerrado. <strong>Anamnese, fotos, o que foi aplicado, agenda e financeiro permanecem</strong> no prontuário, para respaldo da clínica em caso de intercorrência. Digite <strong>EXCLUIR</strong> para confirmar. Isto não é declaração de conformidade com a LGPD.</p>
+       <label for="lgpdEraseConfirm">Confirmação</label>
+       <input id="lgpdEraseConfirm" type="text" autocomplete="off" placeholder="EXCLUIR">`,
+      async () => {
+        const typed = document.getElementById("lgpdEraseConfirm")?.value?.trim();
+        if (typed !== "EXCLUIR") {
+          toast("Digite EXCLUIR para confirmar.");
+          return;
+        }
+        try {
+          await eraseTitular(client.id);
+          closeModal();
+          toast("Identidade anonimizada. O prontuário permanece.");
+          sessionStorage.removeItem("clientePerfilId");
+          navigate("clientes");
+        } catch (err) {
+          toast(err?.message || "Não foi possível excluir.");
+        }
+      }
+    );
+  });
 
   document.querySelectorAll(".cliente-evolucao-card").forEach((card) => {
     card.addEventListener("click", () => {

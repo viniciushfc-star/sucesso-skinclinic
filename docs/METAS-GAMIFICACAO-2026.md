@@ -4,6 +4,10 @@
 
 Tabela `financeiro_metas` + `financeiro-metas.service.js`, UI restrita a **master**. Sem ritmo, sem previsão, sem metas de ocupação/retorno.
 
+## P2-2 (implementado)
+
+Receita e lucro mensais: realizado no financeiro do `periodo_ref` (YYYY-MM). Ritmo atual vs necessário, projeção linear. **Projeção, não garantia.** Sem XP (P3). Reserva de emergência usa saldo de caixa, sem R$/dia.
+
 ## Metas alvo (P2)
 
 Dimensões: financeiro, comercial, operacional, retenção, marketing, estoque.  

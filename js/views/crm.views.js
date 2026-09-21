@@ -1,7 +1,9 @@
 import { toast } from "../ui/toast.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getAniversariantes, getClientes } from "../services/clientes.service.js";
-import { listInactiveClients, listLoyaltyClients } from "../services/crm.service.js";
+import { listInactiveClients, listLoyaltyClients, getRadarRetorno } from "../services/crm.service.js";
+import { buildCrmFila, filaWhatsappTemplate } from "../utils/crm-fila.js";
+import { navigate } from "../core/spa.js";
 import { addWaitlistEntry, listWaitlist, updateWaitlistStatus } from "../services/waitlist.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { getActiveOrg } from "../core/org.js";
@@ -28,6 +30,14 @@ function clinicName(profile) {
   return profile?.name || "nossa clínica";
 }
 
+const RADAR_LABEL = {
+  pacote: "Pacote",
+  nova_sem_2: "Sem 2º",
+  atrasada: "Atrasada",
+  sem_proxima: "Sem próxima",
+  inativa: "Inativa",
+};
+
 export async function init() {
   const diasEl = document.getElementById("crmDiasInativo");
   const btnInativos = document.getElementById("crmBtnInativos");
@@ -36,6 +46,14 @@ export async function init() {
   const listaAniv = document.getElementById("crmListaAniversario");
   const listaEspera = document.getElementById("crmListaEspera");
   const formEspera = document.getElementById("crmFormEspera");
+  const listaRadar = document.getElementById("crmListaRadar");
+  const listaFila = document.getElementById("crmListaFila");
+
+  let radarFilter = "todos";
+  let radarRows = [];
+  let esperaRows = [];
+  let fidelRows = [];
+  let anivRows = [];
 
   let profile = {};
   try {
@@ -77,12 +95,123 @@ export async function init() {
     }
   }
 
+  function agendarUrl() {
+    const orgId = profile.id || getActiveOrg() || "";
+    return `${window.location.origin}/agendar.html?org=${encodeURIComponent(orgId)}`;
+  }
+
+  function renderFila() {
+    if (!listaFila) return;
+    const chunks = [];
+    for (const c of radarRows) {
+      chunks.push({
+        clientId: c.id,
+        name: c.name,
+        phone: c.phone,
+        sinal: c.sinal,
+        motivo: c.motivo,
+      });
+    }
+    for (const r of esperaRows) {
+      chunks.push({
+        clientId: r.client_id || null,
+        name: r.nome,
+        phone: r.phone,
+        sinal: "espera",
+        motivo: r.procedure_name ? `Espera: ${r.procedure_name}` : "Lista de espera",
+      });
+    }
+    for (const c of fidelRows) {
+      if (c.falta > 1) continue;
+      chunks.push({
+        clientId: c.id,
+        name: c.name,
+        phone: c.phone,
+        sinal: "fidelidade",
+        motivo: c.falta === 0 ? `Cortesia da ${c.meta}ª visita` : `Falta ${c.falta} para a cortesia`,
+      });
+    }
+    for (const c of anivRows) {
+      chunks.push({
+        clientId: c.id,
+        name: c.name,
+        phone: c.phone,
+        sinal: "aniversario",
+        motivo: c._quando || "Aniversário nesta semana",
+      });
+    }
+    const fila = buildCrmFila(chunks);
+    if (!fila.length) {
+      listaFila.innerHTML = "<p class=\"view-hint\">Fila vazia. Quando o radar, a espera ou a fidelidade tiverem alguém, aparece aqui — um toque, uma mensagem.</p>";
+      return;
+    }
+    const clinic = clinicName(profile);
+    const url = agendarUrl();
+    listaFila.innerHTML = fila
+      .map((c) => {
+        const tel = digitsPhone(c.phone);
+        const extra = c.sinal === "fidelidade" ? String(c.motivo || "") : "";
+        const msg = filaWhatsappTemplate({ name: c.name, sinal: c.sinal, clinic, agendarUrl: url, extra });
+        const tag = RADAR_LABEL[c.sinal] || (c.sinal === "espera" ? "Espera" : c.sinal === "fidelidade" ? "Fidelidade" : c.sinal === "aniversario" ? "Aniversário" : c.sinal);
+        return `<div class="crm-row">
+            <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
+            <span class="view-hint">${escapeHtml(c.motivo || "")}</span></div>
+            <div class="crm-row-actions">
+              ${c.clientId ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(c.clientId)}">Agendar</button>` : ""}
+              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_fila" data-sinal="${escapeHtml(c.sinal || "")}" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : "<span class=\"view-hint\">Sem telefone</span>"}
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
+  function renderRadar() {
+    if (!listaRadar) return;
+    const rows = radarFilter === "todos" ? radarRows : radarRows.filter((r) => r.sinal === radarFilter);
+    if (!rows.length) {
+      listaRadar.innerHTML = "<p class=\"view-hint\">Ninguém neste recorte. Bom sinal — ou ainda falta histórico na agenda.</p>";
+      return;
+    }
+    listaRadar.innerHTML = rows
+      .slice(0, 80)
+      .map((c) => {
+        const tel = digitsPhone(c.phone);
+        const orgId = profile.id || getActiveOrg() || "";
+        const msg = `Oi, ${c.name || ""}! Vi seu acompanhamento na ${clinicName(profile)} e queria encaixar o retorno. Posso te mandar horários? ${window.location.origin}/agendar.html?org=${encodeURIComponent(orgId)}`;
+        const tag = RADAR_LABEL[c.sinal] || c.sinal;
+        return `<div class="crm-row">
+            <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
+            <span class="view-hint">${escapeHtml(c.motivo)}</span></div>
+            <div class="crm-row-actions">
+              <button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${c.id}">Agendar</button>
+              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : ""}
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
+  async function loadRadar() {
+    if (!listaRadar) return;
+    listaRadar.innerHTML = "<p class=\"view-hint\">Carregando radar…</p>";
+    try {
+      const dias = Math.max(21, Number(diasEl?.value) || 60);
+      radarRows = await getRadarRetorno({ minDaysInativa: dias });
+      renderRadar();
+      renderFila();
+    } catch (err) {
+      listaRadar.innerHTML = `<p class="view-hint">${escapeHtml(err.message || "Erro no radar.")}</p>`;
+    }
+  }
+
   async function loadFidelidade() {
     if (!listaFidel) return;
     try {
       const rows = await listLoyaltyClients(meta);
+      fidelRows = rows;
       if (!rows.length) {
         listaFidel.innerHTML = `<p class="view-hint">Ninguém perto da ${meta}ª visita ainda. A meta se configura em Empresa.</p>`;
+        renderFila();
         return;
       }
       listaFidel.innerHTML = rows
@@ -101,6 +230,7 @@ export async function init() {
           </div>`;
         })
         .join("");
+      renderFila();
     } catch (err) {
       listaFidel.innerHTML = `<p class="view-hint">${escapeHtml(err.message || "Erro na fidelidade.")}</p>`;
     }
@@ -110,8 +240,10 @@ export async function init() {
     if (!listaAniv) return;
     try {
       const rows = await getAniversariantes("semana");
+      anivRows = rows;
       if (!rows.length) {
         listaAniv.innerHTML = "<p class=\"view-hint\">Nenhum aniversário nesta semana (precisa ter data de nascimento no cadastro).</p>";
+        renderFila();
         return;
       }
       const brinde = profile.brinde_aniversario_habilitado
@@ -127,6 +259,7 @@ export async function init() {
           </div>`;
         })
         .join("");
+      renderFila();
     } catch (err) {
       listaAniv.innerHTML = `<p class="view-hint">${escapeHtml(err.message || "Erro nos aniversários.")}</p>`;
     }
@@ -136,8 +269,10 @@ export async function init() {
     if (!listaEspera) return;
     try {
       const rows = await listWaitlist("aberta");
+      esperaRows = rows;
       if (!rows.length) {
         listaEspera.innerHTML = "<p class=\"view-hint\">Lista vazia. Quando lotar, coloque a pessoa aqui e avise no WhatsApp quando abrir vaga.</p>";
+        renderFila();
         return;
       }
       listaEspera.innerHTML = rows
@@ -153,6 +288,7 @@ export async function init() {
           </div>`;
         })
         .join("");
+      renderFila();
     } catch (err) {
       const msg = String(err.message || err.details || "");
       listaEspera.innerHTML = msg.toLowerCase().includes("agenda_waitlist") || msg.toLowerCase().includes("does not exist")
@@ -164,8 +300,11 @@ export async function init() {
   document.getElementById("crmRoot")?.addEventListener("click", async (e) => {
     const wa = e.target.closest?.(".crm-wa");
     if (wa) {
-      await sendWhatsapp(wa.dataset.phone, wa.dataset.msg);
-      toast("WhatsApp aberto. Se a API estiver ligada, a mensagem já saiu.");
+      await sendWhatsapp(wa.dataset.phone, wa.dataset.msg, {
+        origem: wa.dataset.origem || "crm",
+        sinal: wa.dataset.sinal || "",
+      });
+      toast("WhatsApp aberto. Uma pessoa por clique — o sistema não dispara a fila sozinho.");
       return;
     }
     const done = e.target.closest?.(".crm-wait-done");
@@ -177,10 +316,28 @@ export async function init() {
       } catch (err) {
         toast(err.message || "Não foi possível atualizar.");
       }
+      return;
+    }
+    const agendar = e.target.closest?.(".crm-agendar");
+    if (agendar?.dataset.id) {
+      sessionStorage.setItem("agendaPrefillClientId", agendar.dataset.id);
+      navigate("agenda");
+      toast("Abra o horário: o cliente já vem selecionado. O sistema não envia mensagem sozinho.");
     }
   });
 
-  btnInativos?.addEventListener("click", loadInativos);
+  document.querySelectorAll(".crm-radar-chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      radarFilter = btn.dataset.radar || "todos";
+      document.querySelectorAll(".crm-radar-chip").forEach((b) => b.classList.toggle("is-active", b === btn));
+      renderRadar();
+    });
+  });
+
+  btnInativos?.addEventListener("click", () => {
+    loadInativos();
+    loadRadar();
+  });
 
   document.getElementById("crmBtnReviewLote")?.addEventListener("click", async () => {
     if (!reviewUrl) {
@@ -188,18 +345,23 @@ export async function init() {
       return;
     }
     try {
-      const rows = await listLoyaltyClients(Math.max(2, meta - 5));
-      const withPhone = rows.filter((c) => digitsPhone(c.phone).length >= 10).slice(0, 1);
+      const fila = buildCrmFila([
+        ...radarRows.map((c) => ({ clientId: c.id, name: c.name, phone: c.phone, sinal: c.sinal })),
+        ...esperaRows.map((r) => ({ clientId: r.client_id, name: r.nome, phone: r.phone, sinal: "espera" })),
+        ...fidelRows.map((c) => ({ clientId: c.id, name: c.name, phone: c.phone, sinal: "fidelidade" })),
+      ]);
+      const withPhone = fila.filter((c) => digitsPhone(c.phone).length >= 10).slice(0, 1);
       if (!withPhone.length) {
-        toast("Ninguém com telefone e visitas recentes para o primeiro pedido. Use o botão no fim da baixa da agenda.");
+        toast("Ninguém com telefone na fila. Use o WhatsApp na linha da pessoa.");
         return;
       }
       const c = withPhone[0];
       await sendWhatsapp(
         c.phone,
-        `Oi, ${c.name}! Obrigada pela visita. Se puder, deixa uma avaliação no Google: ${reviewUrl}`
+        `Oi, ${c.name}! Obrigada pela visita. Se puder, deixa uma avaliação no Google: ${reviewUrl}`,
+        { origem: "crm_fila", sinal: "avaliacao" }
       );
-      toast("Pedido de avaliação aberto para a primeira cliente da lista. Repita nas outras pelo WhatsApp de cada linha.");
+      toast("Pedido de avaliação aberto para a primeira pessoa da fila. O resto é um clique por linha.");
     } catch (err) {
       toast(err.message || "Não foi possível montar o pedido.");
     }
@@ -248,5 +410,5 @@ export async function init() {
     } catch (_) {}
   }
 
-  await Promise.all([loadInativos(), loadFidelidade(), loadAniversario(), loadEspera()]);
+  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera()]);
 }

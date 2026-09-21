@@ -14,7 +14,15 @@ import { navigate } from "../core/spa.js"
 import { getRole } from "../services/permissions.service.js"
 import { toast } from "../ui/toast.js"
 
-const ROLE_LABEL = { staff: "Funcionário", gestor: "Gestor", master: "Administrador", viewer: "Visualização" }
+const ROLE_LABEL = {
+  staff: "Acesso limitado",
+  funcionario: "Acesso limitado",
+  gestor: "Gestor",
+  master: "Administrador",
+  viewer: "Visualização",
+  recepcao: "Recepção",
+  profissional: "Profissional",
+}
 
 function escapeHtml(s) {
   if (s == null) return ""

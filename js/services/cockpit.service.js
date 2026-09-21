@@ -5,12 +5,15 @@
 
 import { listAppointmentsByDate } from "./appointments.service.js";
 import { listProcedures } from "./procedimentos.service.js";
-import { listInactiveClients } from "./crm.service.js";
+import { listInactiveClients, getRadarRetorno } from "./crm.service.js";
 import { listWaitlist } from "./waitlist.service.js";
 import { listAnalisesPele } from "./analise-pele.service.js";
 import { listContasAPagar } from "./contas-a-pagar.service.js";
-import { getTodayLocal } from "./metrics.service.js";
+import { getTodayLocal, getPeriodRange, getDashboardMetricsForUser, getRankingProcedimentosComReceita } from "./metrics.service.js";
+import { getMargemEmRisco } from "./audit.service.js";
 import { horaAgenda, statusAgendaItem } from "./cockpit-status.js";
+import { buildAttentionInsights, buildOpportunityInsights } from "./intelligence.service.js";
+import { explainFinanceiroMetas } from "./financeiro-metas.service.js";
 
 export { statusAgendaItem, horaAgenda };
 
@@ -41,13 +44,15 @@ export async function getCockpitSnapshot() {
   const hoje = getTodayLocal();
   const now = hhmmNow();
 
-  const [appointments, procedures, inativos, espera, analises, contas] = await Promise.all([
+  const [appointments, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
     soft(() => listAppointmentsByDate(hoje)),
     soft(() => listProcedures(true)),
     soft(() => listInactiveClients(90)),
     soft(() => listWaitlist("aberta")),
     soft(() => listAnalisesPele("pending_validation")),
     soft(() => listContasAPagar()),
+    soft(() => getRadarRetorno({ minDaysInativa: 60 })),
+    soft(() => getMargemEmRisco(30)),
   ]);
 
   const procMap = (procedures || []).reduce((acc, p) => {
@@ -90,6 +95,9 @@ export async function getCockpitSnapshot() {
     return d && d <= hoje;
   });
 
+  const radarFila = (radar || []).filter((r) => r.sinal && r.sinal !== "inativa");
+  const produtosRisco = [...new Set((margem || []).map((x) => x.produto_nome).filter(Boolean))];
+
   return {
     hoje,
     kpis: {
@@ -99,13 +107,65 @@ export async function getCockpitSnapshot() {
       previsto,
     },
     agenda: itens,
-    atencao: {
-      inativos: (inativos || []).slice(0, 8),
-      analises: (analises || []).slice(0, 8),
-      contas: contasVencidas.slice(0, 8),
+    atencao: buildAttentionInsights({
+      atrasos,
+      contasVencidas: contasVencidas.length,
+      analisesPendentes: (analises || []).length,
+      inativos: (inativos || []).length,
+      produtosRisco: produtosRisco.length,
+    }),
+    oportunidades: buildOpportunityInsights({
+      espera: (espera || []).length,
+      radar: radarFila.length,
+    }),
+  };
+}
+
+export async function getCockpitMesSnapshot() {
+  const { startDate, endDate } = getPeriodRange("month");
+  const ym = String(startDate || "").slice(0, 7);
+  const [metrics, ranking, margem, metas] = await Promise.all([
+    (async () => {
+      try {
+        return await getDashboardMetricsForUser({ startDate, endDate });
+      } catch {
+        return { clientes: 0, agendamentosHoje: 0, faturamentoMes: 0 };
+      }
+    })(),
+    (async () => {
+      try {
+        return await getRankingProcedimentosComReceita(startDate, endDate, 5);
+      } catch {
+        return [];
+      }
+    })(),
+    (async () => {
+      try {
+        return await getMargemEmRisco(30);
+      } catch {
+        return [];
+      }
+    })(),
+    soft(() => explainFinanceiroMetas()),
+  ]);
+
+  const produtosRisco = [...new Set((margem || []).map((x) => x.produto_nome).filter(Boolean))];
+  const metasMes = (metas || []).filter(
+    (m) =>
+      (m.tipo === "receita_mensal" || m.tipo === "lucro_mensal") &&
+      String(m.periodo_ref || m.start || "").startsWith(ym)
+  );
+
+  return {
+    startDate,
+    endDate,
+    kpis: {
+      clientes: metrics.clientes ?? 0,
+      sessoes: metrics.agendamentosHoje ?? 0,
+      faturamento: metrics.faturamentoMes ?? 0,
     },
-    oportunidades: {
-      espera: (espera || []).slice(0, 8),
-    },
+    ranking: ranking || [],
+    produtosRisco,
+    metasMes,
   };
 }

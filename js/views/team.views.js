@@ -32,10 +32,13 @@ function openProfissionalPerfil(userId) {
 
 /** Rótulos de função (papel) para exibição na Equipe */
 const ROLE_LABEL = {
-  staff: "Funcionário",
+  staff: "Acesso limitado",
+  funcionario: "Acesso limitado",
   gestor: "Gestor",
   master: "Administrador",
   viewer: "Visualização",
+  recepcao: "Recepção",
+  profissional: "Profissional",
 }
 
 
@@ -480,7 +483,9 @@ function openInvite(){
    <p class="form-hint">O convite será enviado para este e-mail; a pessoa usará esse mesmo e-mail para entrar na clínica.</p>
    <label for="inviteRole">Função</label>
    <select id="inviteRole">
-    <option value="staff">Funcionário</option>
+    <option value="recepcao">Recepção</option>
+    <option value="profissional">Profissional</option>
+    <option value="staff">Acesso limitado</option>
     <option value="viewer">Visualização</option>
    </select>
   `,
@@ -501,7 +506,7 @@ async function sendInvite() {
     return;
   }
   const email = emailInput.value.trim();
-  const role = roleInput?.value || "staff";
+  const role = roleInput?.value || "recepcao";
   const orgId = getActiveOrg();
   if (!orgId) {
     toast("Organização não selecionada");
@@ -566,7 +571,15 @@ async function renderTeamPaymentIfMaster() {
     const nomesByUser = await getDisplayNamesByUserIds(userIds)
     const modelByUser = (models || []).reduce((acc, m) => { acc[m.user_id] = m; return acc }, {})
     const labels = { fixo: "Salário fixo", percentual: "Comissão por procedimento", diaria: "Diária", combinado: "Fixo + comissão" }
-    const roleLabels = { master: "Administrador", gestor: "Gestor", staff: "Colaborador", viewer: "Visualização" }
+    const roleLabels = {
+      master: "Administrador",
+      gestor: "Gestor",
+      staff: "Acesso limitado",
+      funcionario: "Acesso limitado",
+      viewer: "Visualização",
+      recepcao: "Recepção",
+      profissional: "Profissional",
+    }
     if (!members || members.length === 0) {
       listEl.innerHTML = "<p class=\"team-payment-empty\">Nenhum membro na organização.</p>"
     } else {
