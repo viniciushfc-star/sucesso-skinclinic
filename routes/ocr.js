@@ -1,15 +1,28 @@
-﻿import vision from "@google-cloud/vision";
-import { askAI, COMPLEXITY } from "../ai/core/index.js";
+﻿import { askAI, COMPLEXITY } from "../ai/core/index.js";
 import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
+import { normalizeParsedNota } from "../js/utils/ocr-nota.js";
+import { existsSync } from "node:fs";
 
-const client = new vision.ImageAnnotatorClient({
-  keyFilename: "google-key.json",
-});
+async function readImageText(imageBase64) {
+  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || "google-key.json";
+  if (!existsSync(keyFile) && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return { text: "", visionError: "Vision não configurada. Cole o texto da nota ou use foto com a chave Google." };
+  }
+  try {
+    const vision = (await import("@google-cloud/vision")).default;
+    const client = new vision.ImageAnnotatorClient(
+      existsSync(keyFile) ? { keyFilename: keyFile } : undefined
+    );
+    const [result] = await client.textDetection({
+      image: { content: imageBase64 },
+    });
+    return { text: result.fullTextAnnotation?.text ?? "", visionError: null };
+  } catch (err) {
+    console.error("[OCR] Vision", err);
+    return { text: "", visionError: "Não foi possível ler a imagem. Cole o texto da nota." };
+  }
+}
 
-/**
- * OCR: imagem ou texto. Extrai dados estruturados (produto, qtd, valor, fornecedor, data).
- * Canon: OCR sugere, não decide; campos editáveis.
- */
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
@@ -20,22 +33,17 @@ export default async function handler(req, res) {
     return sendAuthError(res, e);
   }
 
-  const { imageBase64, parseOnly } = req.body;
+  const { imageBase64, parseOnly } = req.body || {};
 
   let text = "";
+  let visionError = null;
   if (imageBase64 && !parseOnly) {
-    try {
-      const [result] = await client.textDetection({
-        image: { content: imageBase64 },
-      });
-      text = result.fullTextAnnotation?.text ?? "";
-    } catch (err) {
-      console.error("[OCR] Vision", err);
-      return res.status(500).json({ error: "Erro ao ler imagem.", text: "" });
-    }
-  } else if (req.body.text && parseOnly) {
-    text = req.body.text;
-  } else if (!imageBase64 && !req.body.text) {
+    const read = await readImageText(imageBase64);
+    text = read.text;
+    visionError = read.visionError;
+  } else if (req.body?.text && parseOnly) {
+    text = String(req.body.text || "");
+  } else if (!imageBase64 && !req.body?.text) {
     return res.status(400).json({ error: "Envie imageBase64 ou text (com parseOnly)." });
   }
 
@@ -44,7 +52,7 @@ export default async function handler(req, res) {
     try {
       const systemInstruction = `Extraia dados de nota fiscal / compra. Retorne APENAS um JSON válido, sem markdown:
 { "fornecedor": "nome ou null", "data": "YYYY-MM-DD ou null", "itens": [ { "produto_nome": "string", "quantidade": number, "valor_unitario": number ou null, "valor_total": number ou null, "lote": "string ou null" } ] }
-Use null quando não conseguir identificar. Quantidades e valores em números.`;
+Use null quando não conseguir identificar. Quantidades e valores em números. Não invente produto que não esteja no texto.`;
       const { content } = await askAI({
         userId: auth.user.id,
         orgId: auth.orgId,
@@ -57,12 +65,16 @@ Use null quando não conseguir identificar. Quantidades e valores em números.`;
         cacheTtlMs: 0,
         extraCreateOptions: { response_format: { type: "json_object" } },
       });
-      if (content) parsed = JSON.parse(content);
+      if (content) parsed = normalizeParsedNota(JSON.parse(content));
     } catch (e) {
       console.warn("[OCR] Parse", e);
     }
   }
 
-  res.json({ text, parsed });
+  res.json({
+    text,
+    parsed,
+    error: !text && visionError ? visionError : undefined,
+    visionError: visionError || undefined,
+  });
 }
-

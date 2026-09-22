@@ -3,8 +3,10 @@
  * Canon: referência inteligente; OCR sugere, não decide; entrada facilitada.
  */
 
-import { lerNota } from "../services/ocr.service.js"
+import { lerNota, parseTextoNota } from "../services/ocr.service.js"
 import { listEntradas, createEntrada, getResumoPorProduto, getAcuraciaEstoque, registrarConsumoReal, getProdutosProximosVencer, getProcedimentosQueUsamProduto } from "../services/estoque-entradas.service.js"
+import { saveOcrNota } from "../services/ocr-notas.service.js"
+import { normalizeParsedNota, parseNfeXml } from "../utils/ocr-nota.js"
 import { analisarEstoque } from "../services/estoque.service.js"
 import { supabase } from "../core/supabase.js"
 import { getActiveOrg } from "../core/org.js"
@@ -22,11 +24,17 @@ export async function init() {
 
 function bindUI() {
   const btnOCR = document.getElementById("btnEstoqueEntradaOCR")
+  const btnColar = document.getElementById("btnEstoqueColarTexto")
   const btnImportar = document.getElementById("btnEstoqueImportarNota")
   const btnManual = document.getElementById("btnEstoqueEntradaManual")
 
   if (btnOCR) btnOCR.onclick = () => openEntradaOCR()
-  if (btnImportar) btnImportar.onclick = () => toast("Importar XML em breve.")
+  if (btnColar) btnColar.onclick = () => openColarTextoNota()
+  if (btnImportar) {
+    btnImportar.disabled = false
+    btnImportar.removeAttribute("title")
+    btnImportar.onclick = () => openEntradaXml()
+  }
   if (btnManual) btnManual.onclick = () => openEntradaManual()
 
   const periodoAcuracia = document.getElementById("estoqueAcuraciaPeriodo")
@@ -357,24 +365,70 @@ function openEntradaOCR() {
     toast("Lendo nota…")
     try {
       const res = await lerNota(base64)
-      if (res.error) {
-        toast(res.error || "Erro ao ler nota.")
+      const parsed = normalizeParsedNota(res.parsed)
+      if (res.error && !res.text && !parsed.itens.length) {
+        openColarTextoNota(res.error)
         return
       }
-      const { text, parsed } = res
-      if (!parsed?.itens?.length) {
-        openModal(
-          "OCR — texto lido",
-          `<p class="estoque-ocr-hint">Nenhum item extraído. Use o texto abaixo para entrada manual ou confira a imagem.</p><pre class="estoque-ocr-texto">${escapeHtml((text || "").slice(0, 2000))}</pre>`,
-          () => closeModal(),
-          null
-        )
+      if (!parsed.itens.length) {
+        openColarTextoNota(res.text || "", "Nenhum item extraído. Confira ou cole o texto da nota.")
         return
       }
-      openModalSalvarItensOCR(parsed)
+      openModalSalvarItensOCR(parsed, res.text, "ocr")
     } catch (e) {
       console.error("[ESTOQUE OCR]", e)
-      toast("Erro ao processar nota.")
+      openColarTextoNota("", "Erro ao processar a foto. Cole o texto da nota.")
+    }
+  }
+  input.click()
+}
+
+function openColarTextoNota(seed = "", hint = "Cole o texto da nota. A IA sugere; você confere.") {
+  openModal(
+    "Colar texto da nota",
+    `<p class="estoque-ocr-hint">${escapeHtml(hint)}</p>
+     <textarea id="estoqueOcrTexto" rows="10" placeholder="Texto da nota">${escapeHtml(seed || "")}</textarea>`,
+    async () => {
+      const text = document.getElementById("estoqueOcrTexto")?.value?.trim() || ""
+      if (!text) {
+        toast("Cole o texto da nota.")
+        return
+      }
+      toast("Interpretando…")
+      try {
+        const res = await parseTextoNota(text)
+        const parsed = normalizeParsedNota(res.parsed)
+        if (!parsed.itens.length) {
+          toast("Não deu para extrair itens. Ajuste o texto ou use entrada manual.")
+          return
+        }
+        closeModal()
+        openModalSalvarItensOCR(parsed, text, "ocr")
+      } catch (e) {
+        toast(e?.message || "Erro ao interpretar texto.")
+      }
+    },
+    null
+  )
+}
+
+function openEntradaXml() {
+  const input = document.createElement("input")
+  input.type = "file"
+  input.accept = ".xml,text/xml,application/xml"
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    try {
+      const xml = await file.text()
+      const parsed = parseNfeXml(xml)
+      if (!parsed.itens.length) {
+        toast("XML sem itens reconhecidos. Use foto/texto ou entrada manual.")
+        return
+      }
+      openModalSalvarItensOCR(parsed, xml.slice(0, 8000), "xml")
+    } catch (e) {
+      toast(e?.message || "Não foi possível ler o XML.")
     }
   }
   input.click()
@@ -389,10 +443,11 @@ function toBase64(file) {
   })
 }
 
-function openModalSalvarItensOCR(parsed) {
-  const fornecedor = parsed.fornecedor || ""
-  const data = parsed.data || new Date().toISOString().slice(0, 10)
-  const itens = Array.isArray(parsed.itens) ? parsed.itens : []
+function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
+  const normalized = normalizeParsedNota(parsed)
+  const fornecedor = normalized.fornecedor || ""
+  const data = normalized.data || new Date().toISOString().slice(0, 10)
+  const itens = normalized.itens
 
   const rows = itens.map((item, i) => `
     <div class="estoque-ocr-item" data-i="${i}">
@@ -405,7 +460,7 @@ function openModalSalvarItensOCR(parsed) {
   `).join("")
 
   const fields = `
-    <p class="estoque-ocr-hint">OCR sugere; você pode editar e salvar. Nada bloqueia.</p>
+    <p class="estoque-ocr-hint">Sugestão da nota; você confere e salva. Nada bloqueia o atendimento.</p>
     <label>Fornecedor</label>
     <input type="text" id="estoqueOcrFornecedor" value="${escapeHtml(fornecedor)}" placeholder="Nome do fornecedor">
     <label>Data da nota</label>
@@ -415,13 +470,13 @@ function openModalSalvarItensOCR(parsed) {
   `
 
   openModal(
-    "Nota fiscal — conferir e salvar",
+    origem === "xml" ? "XML — conferir e salvar" : "Nota fiscal — conferir e salvar",
     fields,
     async () => {
       const fornecedorVal = document.getElementById("estoqueOcrFornecedor")?.value?.trim() || null
       const dataVal = document.getElementById("estoqueOcrData")?.value || new Date().toISOString().slice(0, 10)
       const containers = document.querySelectorAll(".estoque-ocr-item")
-      let salvos = 0
+      const conferido = []
       for (const div of containers) {
         const produto = div.querySelector(".estoque-ocr-produto")?.value?.trim()
         const qty = div.querySelector(".estoque-ocr-qty")?.value
@@ -429,15 +484,25 @@ function openModalSalvarItensOCR(parsed) {
         const total = div.querySelector(".estoque-ocr-total")?.value
         const lote = div.querySelector(".estoque-ocr-lote")?.value?.trim()
         if (!produto || !qty || Number(qty) <= 0) continue
-        await createEntrada({
+        conferido.push({
           produto_nome: produto,
           quantidade: qty,
           valor_unitario: unit || null,
           valor_total: total || null,
+          lote: lote || null,
+        })
+      }
+      const ocrNotaId = origem === "ocr"
+        ? await saveOcrNota({ rawText, parsed: { fornecedor: fornecedorVal, data: dataVal, itens: conferido } })
+        : null
+      let salvos = 0
+      for (const item of conferido) {
+        await createEntrada({
+          ...item,
           fornecedor: fornecedorVal,
           data_entrada: dataVal,
-          lote: lote || null,
-          origem: "ocr"
+          origem,
+          ocr_nota_id: ocrNotaId,
         })
         salvos++
       }

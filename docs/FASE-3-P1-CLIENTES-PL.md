@@ -98,3 +98,7 @@ Marketing: até 3 campanhas a partir do radar/espera. Objetivo, público, custo 
 ## P2-7 — lucro/hora
 
 Procedimentos: ordenar por lucro/hora; faixa melhor/pior na lista. Cockpit **Mês** e Oportunidades usam a mesma estimativa (preço − material estimado ÷ duração). **Não altera preço.** Sem preço ou duração → “não informado”.
+
+## P2-8 — import IA (OCR) + XML
+
+Estoque: foto da nota, colar texto ou XML NF-e. IA/XML **sugerem**; a clínica confere e salva. Grava `ocr_notas` e `ocr_nota_id` na entrada (SQL `20260922030000_p2_ocr_notas.sql`). Vision ausente não derruba a API — cai para colar texto. XML não inventa item. Não trava atendimento.
