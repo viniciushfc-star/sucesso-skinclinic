@@ -1,11 +1,14 @@
 import { supabase } from "./supabase.js";
-import { storageObjectPath } from "./storage-path.js";
+import { getActiveOrg } from "./org.js";
+import { rejectsForeignOrgStoragePath, storageObjectPath } from "./storage-path.js";
 
 export { storageObjectPath };
 
 export async function signedStorageUrl(bucket, stored, expiresIn = 3600) {
   const path = storageObjectPath(bucket, stored);
   if (!path || path.includes("..")) return null;
+  const orgId = getActiveOrg();
+  if (rejectsForeignOrgStoragePath(path, orgId)) return null;
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;

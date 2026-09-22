@@ -79,3 +79,10 @@ Receita/lucro mensal: realizado = lançamentos do `YYYY-MM`. Mostra % , restante
 ## P2-3 — WhatsApp na fila do CRM
 
 CRM monta no máximo 15 contatos (uma pessoa, o sinal mais urgente). WhatsApp só no clique. Sem disparo da fila inteira. Pedido de avaliação também pega só a primeira da fila.
+
+## P2-4 — plano na agenda + RPC portal + Storage IDOR
+
+- Novo agendamento: escolher plano terapêutico; primeira sessão neste horário; demais a cada 7 dias (mesmo horário) se a caixa estiver marcada. Conflito de sala/profissional **pula** a sessão.
+- Colunas `agenda.plano_id`, `sessao_plano`, `sessoes_plano`. SQL: `supabase/migrations/20260922010000_p2_plano_agenda_portal_storage.sql`.
+- Recria `get_client_session_by_token` / `get_client_by_token` com **hash** (`p_token`) e `get_analises_pele_by_token` só do cliente da sessão (sem `ia_preliminar`).
+- Buckets `client-photos`, `anamnese-fotos`, `analise-pele-fotos` privados; SELECT/INSERT só se o primeiro segmento do path for `org_id` do membro. Assinatura de URL no app recusa path de outra org.

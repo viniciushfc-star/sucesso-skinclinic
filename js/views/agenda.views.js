@@ -41,6 +41,8 @@ import { getOrgMembers } from "../core/org.js"
 import { audit } from "../services/audit.service.js"
 
 import { listProcedures } from "../services/procedimentos.service.js"
+import { listPlanosTerapeuticos } from "../services/planos-terapeuticos.service.js"
+import { buildPlanoAgendaSlots, expandPlanoSessoes } from "../utils/plano-agenda.js"
 
 import { navigate } from "../core/spa.js"
 import { redirect } from "../core/base-path.js"
@@ -755,6 +757,13 @@ async function openCreateModal(opts = {}){
  try { procedures = await listProcedures(true) } catch (_) {}
  const procCatalogOptions = "<option value=\"\">Texto livre</option>" + (procedures || []).map((p) => `<option value="${p.id}" data-name="${(p.name || "").replace(/"/g, "&quot;")}" data-duration="${p.duration_minutes || 60}">${(p.name || "").replace(/</g, "&lt;")}</option>`).join("")
 
+ let planos = []
+ try { planos = await listPlanosTerapeuticos() } catch (_) { planos = [] }
+ const planoOptions = "<option value=\"\">Nenhum — só este horário</option>" + (planos || []).map((pl) =>
+  `<option value="${pl.id}">${(pl.nome || "Plano").replace(/</g, "&lt;")}</option>`
+ ).join("")
+ const proceduresById = new Map((procedures || []).map((p) => [p.id, p]))
+
  openModal(
   "Novo agendamento",
 
@@ -799,6 +808,14 @@ async function openCreateModal(opts = {}){
     <label for="agendaDescontoModeloPct">Desconto neste agendamento (%)</label>
     <input type="number" id="agendaDescontoModeloPct" min="0" max="100" step="0.5" placeholder="Ex.: 30">
    </div>
+
+   <label for="agendaPlano">Plano terapêutico (opcional)</label>
+   <select id="agendaPlano">${planoOptions}</select>
+   <p id="agendaPlanoPreview" class="agenda-plano-preview"></p>
+   <label class="agenda-plano-sessoes hidden" id="agendaPlanoSessoesWrap">
+    <input type="checkbox" id="agendaPlanoSessoes" checked>
+    Agendar as demais sessões a cada 7 dias (mesmo horário). Conflito pula a sessão.
+   </label>
 
    <label for="procCatalog">Procedimento (catálogo)</label>
    <select id="procCatalog">${procCatalogOptions}</select>
@@ -852,6 +869,32 @@ async function openCreateModal(opts = {}){
   clienteSelect.addEventListener("change", updateModeloWrap)
   updateModeloWrap()
  }
+
+ const planoEl = document.getElementById("agendaPlano")
+ const planoPreviewEl = document.getElementById("agendaPlanoPreview")
+ const planoSessoesWrap = document.getElementById("agendaPlanoSessoesWrap")
+ function refreshPlanoPreview() {
+  const plano = (planos || []).find((p) => p.id === planoEl?.value)
+  if (!plano) {
+   if (planoPreviewEl) planoPreviewEl.textContent = ""
+   if (planoSessoesWrap) planoSessoesWrap.classList.add("hidden")
+   return
+  }
+  const sessoes = expandPlanoSessoes(plano.procedimentos, proceduresById)
+  if (planoPreviewEl) {
+   const nomes = sessoes.map((s, i) => `${i + 1}. ${s.procedimento || "procedimento"}`).join(" · ")
+   planoPreviewEl.textContent = sessoes.length
+    ? `${sessoes.length} sessão(ões): ${nomes}`
+    : "Este plano ainda não tem procedimentos."
+  }
+  if (planoSessoesWrap) planoSessoesWrap.classList.toggle("hidden", sessoes.length < 2)
+  const first = sessoes[0]
+  if (first?.procedure_id && procCatalogEl) {
+   procCatalogEl.value = first.procedure_id
+   procCatalogEl.dispatchEvent(new Event("change"))
+  }
+ }
+ if (planoEl) planoEl.addEventListener("change", refreshPlanoPreview)
 
  if (procCatalogEl) {
   procCatalogEl.onchange = async () => {
@@ -1096,6 +1139,7 @@ async function openSlotPanel(id){
      <p class="agenda-panel__client-label">Cliente</p>
      <p class="agenda-panel__client">${(cliente.nome || cliente.name || "—").replace(/</g, "&lt;")}</p>
      <p class="agenda-panel__procedure">${(item.procedimento || "—").replace(/</g, "&lt;")}</p>
+     ${item.plano_id && item.sessao_plano && item.sessoes_plano ? `<p class="agenda-panel__hint">Plano: sessão ${item.sessao_plano} de ${item.sessoes_plano}</p>` : ""}
      ${(cliente.telefone || cliente.phone) ? `<p class="agenda-panel__phone">${String(cliente.telefone || cliente.phone).replace(/</g, "&lt;")}</p>` : ""}
      ${resumoHtml}
     <p class="agenda-panel__hint">Anamnese e histórico completo: abra o perfil do cliente.</p>
@@ -1650,6 +1694,19 @@ async function submitDarBaixa(item) {
   }
 }
 
+async function insertAgendaRow(payload) {
+  let { error } = await supabase.from("agenda").insert(payload)
+  if (error && /plano_id|sessao_plano|sessoes_plano/i.test(error.message || "")) {
+    const fallback = { ...payload }
+    delete fallback.plano_id
+    delete fallback.sessao_plano
+    delete fallback.sessoes_plano
+    const retry = await supabase.from("agenda").insert(fallback)
+    error = retry.error
+  }
+  if (error) throw error
+}
+
 /* =====================
    AÇÕES
 ===================== */
@@ -1749,25 +1806,91 @@ async function createAgenda(){
   const descontoModeloPctRaw = document.getElementById("agendaDescontoModeloPct")?.value?.trim()
   const descontoModeloPct = aplicarDescontoModelo && descontoModeloPctRaw !== "" ? (parseFloat(descontoModeloPctRaw) || null) : null
 
-  const payload = {
-   data: dataInput.value,
-   hora: horaInput.value,
-   procedimento: procInput.value || null,
-   org_id: orgId,
-   duration_minutes: durationMinutes,
-   user_id: profissionalId || null,
-   sala_id: salaId || null,
-   is_retorno: isRetorno,
-   is_modelo_agendamento: !!aplicarDescontoModelo && descontoModeloPct != null,
-   desconto_modelo_pct: descontoModeloPct,
+  const planoId = (document.getElementById("agendaPlano")?.value || "").trim()
+  const agendarDemais = !!document.getElementById("agendaPlanoSessoes")?.checked
+  let slots = [{
+    data: dataInput.value,
+    hora: horaInput.value,
+    procedimento: procInput.value || null,
+    duration_minutes: durationMinutes,
+    procedure_id: procedureId,
+    sessao_plano: planoId ? 1 : null,
+    sessoes_plano: planoId ? 1 : null,
+    plano_id: planoId || null,
+  }]
+  if (planoId) {
+    try {
+      const planos = await listPlanosTerapeuticos()
+      const plano = (planos || []).find((p) => p.id === planoId)
+      const procedures = await listProcedures(true)
+      const proceduresById = new Map((procedures || []).map((p) => [p.id, p]))
+      const sessoes = expandPlanoSessoes(plano?.procedimentos, proceduresById).map((s) => ({ ...s, plano_id: planoId }))
+      if (sessoes.length) {
+        slots = buildPlanoAgendaSlots({
+          startDate: dataInput.value,
+          startTime: horaInput.value,
+          sessoes,
+          onlyFirst: !agendarDemais || sessoes.length < 2,
+        })
+        slots = slots.map((s, i) => (i === 0 ? {
+          ...s,
+          procedimento: procInput.value || s.procedimento,
+          duration_minutes: durationMinutes || s.duration_minutes,
+          procedure_id: procedureId || s.procedure_id,
+          plano_id: planoId,
+        } : { ...s, plano_id: planoId }))
+      }
+    } catch (e) {
+      console.warn("[AGENDA] plano", e)
+    }
   }
+
   const clienteId = (clienteInput.value || "").trim()
-  if (clienteId) payload.cliente_id = clienteId
-  if (procedureId) payload.procedure_id = procedureId
+  let criados = 0
+  let pulados = 0
+  for (const slot of slots) {
+    const dur = slot.duration_minutes || durationMinutes
+    if (salaId && criados > 0) {
+      const salaCheckSlot = await checkSalaAvailable(salaId, slot.data, slot.hora, dur)
+      if (!salaCheckSlot.disponivel) {
+        pulados += 1
+        continue
+      }
+    }
+    if (profissionalId && criados > 0) {
+      const profCheckSlot = await checkProfessionalAvailableWithRespiro(profissionalId, slot.data, slot.hora, dur)
+      if (!profCheckSlot.disponivel) {
+        pulados += 1
+        continue
+      }
+    }
+    const payload = {
+      data: slot.data,
+      hora: slot.hora,
+      procedimento: slot.procedimento || null,
+      org_id: orgId,
+      duration_minutes: dur,
+      user_id: profissionalId || null,
+      sala_id: salaId || null,
+      is_retorno: isRetorno,
+      is_modelo_agendamento: !!aplicarDescontoModelo && descontoModeloPct != null,
+      desconto_modelo_pct: descontoModeloPct,
+    }
+    if (clienteId) payload.cliente_id = clienteId
+    if (slot.procedure_id) payload.procedure_id = slot.procedure_id
+    if (slot.plano_id) {
+      payload.plano_id = slot.plano_id
+      payload.sessao_plano = slot.sessao_plano
+      payload.sessoes_plano = slot.sessoes_plano
+    }
+    await insertAgendaRow(payload)
+    criados += 1
+  }
 
-  const { error } = await supabase.from("agenda").insert(payload)
-
-  if(error) throw error
+  if (!criados) {
+    toast("Nenhum horário foi criado.")
+    return
+  }
 
   await supabase
    .from("notificacoes")
@@ -1794,7 +1917,11 @@ async function createAgenda(){
 
   closeModal()
   renderAgenda()
-  toast("Agendamento criado!")
+  toast(pulados
+    ? `${criados} sessão(ões) do plano na agenda; ${pulados} pulada(s) por conflito.`
+    : criados > 1
+      ? `${criados} sessões do plano na agenda.`
+      : "Agendamento criado!")
 
  }catch(err){
 

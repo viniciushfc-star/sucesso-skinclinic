@@ -3298,6 +3298,9 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .agenda-retorno-option{ margin:0.75rem 0; }
 .agenda-retorno-option label{ display:inline-flex; align-items:center; gap:0.35rem; font-weight:500; }
 .agenda-retorno-hint{ margin:0.25rem 0 0; font-size:0.85rem; color:#64748b; line-height:1.35; }
+.agenda-plano-preview{ margin:0.25rem 0 0.5rem; font-size:0.85rem; color:#334155; line-height:1.35; }
+.agenda-plano-sessoes{ display:flex; gap:0.5rem; align-items:flex-start; font-size:0.88rem; color:#334155; margin:0 0 0.75rem; }
+.agenda-plano-sessoes.hidden{ display:none; }
 .calendar-event--retorno .calendar-event-name{ font-style:italic; }
 .calendar-event-retorno-badge{ font-size:0.7rem; font-weight:600; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px; margin-left:0.35rem; font-style:normal; }
 .dashboard-agenda-hoje-retorno{ font-size:0.7rem; font-weight:600; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px; margin-left:0.25rem; }
