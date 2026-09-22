@@ -65,6 +65,7 @@
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="dre" title="DRE e relatórios"><span class="sidebar-icon">📈</span><span class="sidebar-label">DRE</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="contador" title="Pasta e CSV para o contador"><span class="sidebar-icon">📁</span><span class="sidebar-label">Contador</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="market-radar" title="Radar de mercado"><span class="sidebar-icon">📡</span><span class="sidebar-label">Radar de mercado</span></button></li>
           </ul>
         </li>
         <li class="sidebar-divider"></li>
@@ -1030,6 +1031,45 @@
           <h3>Recomendação</h3>
           <p class="precificacao-recomendacao-text"></p>
         </div>
+      </section>
+
+      <section id="view-market-radar" class="view hidden">
+        <div class="view-header">
+          <h2>Radar de mercado</h2>
+          <p class="view-lead">Só aparece o número com fonte, data, região, metodologia, confiança e amostra. Não define o preço da clínica. Separado do Copiloto.</p>
+        </div>
+        <p class="view-hint" id="radarEmpty">Sem referência completa cadastrada — o radar não compara. Cadastre uma observação da clínica (pesquisa própria ou dado público citado).</p>
+        <div id="radarList" class="radar-list"></div>
+        <form id="radarForm" class="view-card">
+          <h3 class="view-card-title">Cadastrar referência observada</h3>
+          <label for="radarProcedureId">Procedimento do catálogo (opcional)</label>
+          <select id="radarProcedureId"></select>
+          <label for="radarProcedimento">Nome do procedimento</label>
+          <input id="radarProcedimento" required placeholder="Ex.: Limpeza de pele">
+          <label for="radarRegiao">Região</label>
+          <input id="radarRegiao" required placeholder="Ex.: zona sul SP">
+          <label for="radarMin">Preço mínimo observado</label>
+          <input id="radarMin" type="number" min="0" step="0.01" required>
+          <label for="radarMax">Preço máximo observado</label>
+          <input id="radarMax" type="number" min="0" step="0.01" required>
+          <label for="radarFonte">Fonte</label>
+          <input id="radarFonte" required placeholder="Ex.: pesquisa própria 12 clínicas / site público X">
+          <label for="radarData">Data da observação</label>
+          <input id="radarData" type="date" required>
+          <label for="radarMetodo">Metodologia</label>
+          <input id="radarMetodo" required placeholder="Ex.: pergunta de preço à recepção">
+          <label for="radarConfianca">Confiança</label>
+          <select id="radarConfianca" required>
+            <option value="baixa">Baixa</option>
+            <option value="media" selected>Média</option>
+            <option value="alta">Alta</option>
+          </select>
+          <label for="radarAmostra">Tamanho da amostra</label>
+          <input id="radarAmostra" type="number" min="1" step="1" required value="1">
+          <label for="radarNotas">Notas (opcional)</label>
+          <textarea id="radarNotas" rows="2"></textarea>
+          <button type="submit" class="btn-primary">Salvar referência</button>
+        </form>
       </section>
 
       <section id="view-auditoria" class="view hidden">

@@ -14,7 +14,7 @@ const VIEW_TITLES = {
   clientes: "Clientes",
   "cliente-perfil": "Perfil do cliente",
   "profissional-perfil": "Perfil do profissional",
-  financeiro: "Financeiro",
+  "market-radar": "Radar de mercado",
   "precificacao-taxas": "Taxas da maquininha",
   notificacoes: "Notificações",
   team: "Equipe",
@@ -77,6 +77,10 @@ const routes = {
   },
   financeiro: {
     view: "financeiro.views.js",
+    permission: "financeiro:view",
+  },
+  "market-radar": {
+    view: "market-radar.views.js",
     permission: "financeiro:view",
   },
   "precificacao-taxas": {
@@ -780,7 +784,7 @@ function setActive(view) {
   const financeiroSubmenu = document.getElementById("financeiroSubmenu");
   const btnFinanceiro = document.getElementById("btnFinanceiro");
   if (financeiroSubmenu && btnFinanceiro) {
-    if (view === "financeiro") {
+    if (view === "financeiro" || view === "market-radar" || view === "precificacao-taxas") {
       financeiroSubmenu.classList.remove("sidebar-submenu--collapsed");
       btnFinanceiro.setAttribute("aria-expanded", "true");
       btnFinanceiro.classList.add("parent-active");

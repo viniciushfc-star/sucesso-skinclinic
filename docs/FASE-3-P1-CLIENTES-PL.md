@@ -102,3 +102,7 @@ Procedimentos: ordenar por lucro/hora; faixa melhor/pior na lista. Cockpit **Mê
 ## P2-8 — import IA (OCR) + XML
 
 Estoque: foto da nota, colar texto ou XML NF-e. IA/XML **sugerem**; a clínica confere e salva. Grava `ocr_notas` e `ocr_nota_id` na entrada (SQL `20260922030000_p2_ocr_notas.sql`). Vision ausente não derruba a API — cai para colar texto. XML não inventa item. Não trava atendimento.
+
+## P2-9 — Market Radar com fonte
+
+Financeiro → Radar de mercado. Só compara se a linha tiver fonte, data, região, metodologia, confiança e amostra. Tom: acima/abaixo da **referência observada**. Proibido “cobre X”. Sem fonte não renderiza o número. SQL: `20260922040000_p2_market_radar.sql`.
