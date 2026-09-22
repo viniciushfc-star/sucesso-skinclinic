@@ -94,3 +94,7 @@ Marketing: até 3 campanhas a partir do radar/espera. Objetivo, público, custo 
 ## P2-6 — Minha jornada no portal
 
 `portal.html` abre em **Minha jornada**: cadastro, anamnese, pele (só validada), sessões, skincare se liberado, próximo passo. Sem `ia_preliminar`. SQL: `supabase/migrations/20260922020000_p2_portal_jornada.sql` (`list_portal_jornada_agenda`). Sem o SQL, usa os horários futuros já existentes.
+
+## P2-7 — lucro/hora
+
+Procedimentos: ordenar por lucro/hora; faixa melhor/pior na lista. Cockpit **Mês** e Oportunidades usam a mesma estimativa (preço − material estimado ÷ duração). **Não altera preço.** Sem preço ou duração → “não informado”.

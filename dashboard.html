@@ -202,6 +202,10 @@
           </div>
           <p class="cockpit-lead" id="cockpitMesHint" style="margin-top:1rem;"></p>
           <div class="cockpit-card" style="margin-top:1rem;">
+            <h3 class="cockpit-card-title">Lucro / hora (estimativa)</h3>
+            <p class="cockpit-lead" id="cockpitMesLucroHora"></p>
+          </div>
+          <div class="cockpit-card" style="margin-top:1rem;">
             <h3 class="cockpit-card-title">Metas do mês</h3>
             <div id="cockpitMesMetas" class="cockpit-list"></div>
           </div>
@@ -629,6 +633,7 @@
           </div>
         </div>
         <div id="procedimentoCardMargemRisco" class="card-margem-risco hidden" aria-live="polite"></div>
+        <div id="procLucroHora" class="proc-lucro-hora" aria-live="polite"></div>
         <div id="procedimentoFilters" class="procedimento-filters">
           <button type="button" id="procFiltersToggle" class="procedimento-filters__toggle" aria-expanded="false" aria-controls="procFiltersPanel">
             <span class="procedimento-filters__toggle-icon">▾</span>
@@ -640,7 +645,7 @@
               <span class="procedimento-filters__nova"><button type="button" id="btnNovaCategoria" class="procedimento-filters__link">+ Nova categoria</button></span>
               <label class="procedimento-filters__label">Status <select id="procFilterStatus"><option value="">Todos</option><option value="active">Ativos</option><option value="inactive">Inativos</option></select></label>
               <label class="procedimento-filters__label">Valor <select id="procFilterValor"><option value="">Todos</option><option value="with">Com valor</option><option value="without">Sem valor</option></select></label>
-              <label class="procedimento-filters__label">Ordenar <select id="procFilterSort"><option value="name">Nome</option><option value="valor">Valor</option><option value="duration">Duração</option></select></label>
+              <label class="procedimento-filters__label">Ordenar <select id="procFilterSort"><option value="name">Nome</option><option value="valor">Valor</option><option value="duration">Duração</option><option value="lucro_hora">Lucro/hora</option></select></label>
             </div>
           </div>
         </div>

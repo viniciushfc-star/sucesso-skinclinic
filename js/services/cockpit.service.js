@@ -14,6 +14,7 @@ import { getMargemEmRisco } from "./audit.service.js";
 import { horaAgenda, statusAgendaItem } from "./cockpit-status.js";
 import { buildAttentionInsights, buildOpportunityInsights } from "./intelligence.service.js";
 import { explainFinanceiroMetas } from "./financeiro-metas.service.js";
+import { lucroHoraOpportunity, rankLucroHora, summarizeLucroHora } from "../utils/lucro-hora.js";
 
 export { statusAgendaItem, horaAgenda };
 
@@ -97,6 +98,8 @@ export async function getCockpitSnapshot() {
 
   const radarFila = (radar || []).filter((r) => r.sinal && r.sinal !== "inativa");
   const produtosRisco = [...new Set((margem || []).map((x) => x.produto_nome).filter(Boolean))];
+  const rankedLucro = rankLucroHora(procedures);
+  const lucroHoraCard = lucroHoraOpportunity(rankedLucro);
 
   return {
     hoje,
@@ -117,14 +120,16 @@ export async function getCockpitSnapshot() {
     oportunidades: buildOpportunityInsights({
       espera: (espera || []).length,
       radar: radarFila.length,
+      lucroHora: lucroHoraCard,
     }),
+    lucroHora: summarizeLucroHora(rankedLucro),
   };
 }
 
 export async function getCockpitMesSnapshot() {
   const { startDate, endDate } = getPeriodRange("month");
   const ym = String(startDate || "").slice(0, 7);
-  const [metrics, ranking, margem, metas] = await Promise.all([
+  const [metrics, ranking, margem, metas, procedures] = await Promise.all([
     (async () => {
       try {
         return await getDashboardMetricsForUser({ startDate, endDate });
@@ -147,6 +152,7 @@ export async function getCockpitMesSnapshot() {
       }
     })(),
     soft(() => explainFinanceiroMetas()),
+    soft(() => listProcedures(true)),
   ]);
 
   const produtosRisco = [...new Set((margem || []).map((x) => x.produto_nome).filter(Boolean))];
@@ -167,5 +173,6 @@ export async function getCockpitMesSnapshot() {
     ranking: ranking || [],
     produtosRisco,
     metasMes,
+    lucroHora: summarizeLucroHora(rankLucroHora(procedures)),
   };
 }

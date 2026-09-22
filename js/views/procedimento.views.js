@@ -23,6 +23,7 @@ import { gerarPreco } from "../services/preco.service.js";
 import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
 import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js";
 import { getMargemEmRisco } from "../services/audit.service.js";
+import { rankLucroHora, summarizeLucroHora } from "../utils/lucro-hora.js";
 import { getCustoRealProcedimento } from "../services/estoque-entradas.service.js";
 import { explainProcedureEconomics, brl } from "../services/procedimento-pl.service.js";
 import { navigate } from "../core/spa.js";
@@ -304,9 +305,21 @@ export async function renderProcedimentos() {
 
     if (sortBy === "valor") data = [...data].sort((a, b) => (Number(a.valor_cobrado) || 0) - (Number(b.valor_cobrado) || 0));
     else if (sortBy === "duration") data = [...data].sort((a, b) => (a.duration_minutes || 0) - (b.duration_minutes || 0));
+    else if (sortBy === "lucro_hora") {
+      const order = new Map(rankLucroHora(data).map((r, i) => [r.id, i]));
+      data = [...data].sort((a, b) => (order.get(a.id) ?? 9999) - (order.get(b.id) ?? 9999));
+    }
     else data = [...data].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
+    const lucroEl = document.getElementById("procLucroHora");
+    if (lucroEl) {
+      const sum = summarizeLucroHora(rankLucroHora(data));
+      lucroEl.textContent = sum.copy;
+    }
+
     if (!data || data.length === 0) {
+      const lucroElEmpty = document.getElementById("procLucroHora");
+      if (lucroElEmpty) lucroElEmpty.textContent = "Lucro/hora não informado — falta preço ou duração.";
       listEl.innerHTML = `
         <p class="procedimento-empty">Nenhum procedimento encontrado. Ajuste os filtros ou clique em "+ Novo procedimento".</p>
       `;
@@ -325,7 +338,10 @@ export async function renderProcedimentos() {
           <h3 class="procedimento-card__name">${p.codigo ? `<span class="procedimento-card__codigo">${escapeHtml(p.codigo)}</span> ` : ""}${escapeHtml(p.name)}</h3>
           ${catName ? `<p class="procedimento-card__category">${escapeHtml(catName)}</p>` : ""}
           ${p.description ? `<p class="procedimento-card__desc">${escapeHtml(p.description.slice(0, 80))}${p.description.length > 80 ? "…" : ""}</p>` : ""}
-          <p class="procedimento-card__meta">${p.duration_minutes} min${p.valor_cobrado != null ? ` · R$ ${Number(p.valor_cobrado).toFixed(2).replace(".", ",")}` : ""}${extra ? ` · ${extra}` : ""}</p>
+          <p class="procedimento-card__meta">${p.duration_minutes} min${p.valor_cobrado != null ? ` · R$ ${Number(p.valor_cobrado).toFixed(2).replace(".", ",")}` : ""}${extra ? ` · ${extra}` : ""}${(() => {
+            const lh = rankLucroHora([p])[0];
+            return lh ? ` · ~R$ ${Number(lh.lucroHora).toFixed(2).replace(".", ",")}/h` : "";
+          })()}</p>
           <span class="procedimento-card__badge">${p.active ? "Ativo" : "Inativo"}</span>
         </div>
         <div class="procedimento-card__actions">

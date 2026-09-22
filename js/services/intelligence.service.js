@@ -128,7 +128,7 @@ export function buildAttentionInsights({
   return prioritizeInsights(out.map((i) => ({ ...i, score: scoreInsight(i) })));
 }
 
-export function buildOpportunityInsights({ espera = 0, radar = 0 } = {}) {
+export function buildOpportunityInsights({ espera = 0, radar = 0, lucroHora = null } = {}) {
   const out = [];
   if (espera > 0) {
     out.push({
@@ -153,6 +153,9 @@ export function buildOpportunityInsights({ espera = 0, radar = 0 } = {}) {
       actionable: 1,
       count: radar,
     });
+  }
+  if (lucroHora && lucroHora.theme) {
+    out.push(lucroHora);
   }
   return prioritizeInsights(out.map((i) => ({ ...i, score: scoreInsight(i) })));
 }

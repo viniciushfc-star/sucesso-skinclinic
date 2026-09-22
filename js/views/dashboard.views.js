@@ -502,6 +502,7 @@ async function renderCockpitMes() {
   const rankEl = document.getElementById("cockpitMesRanking")
   const hintEl = document.getElementById("cockpitMesHint")
   const metasEl = document.getElementById("cockpitMesMetas")
+  const lucroEl = document.getElementById("cockpitMesLucroHora")
   if (!kpisEl) return
   const snap = await getCockpitMesSnapshot()
   const k = snap.kpis
@@ -523,6 +524,9 @@ async function renderCockpitMes() {
     hintEl.innerHTML = risco
       ? `${risco} produto(s) com aumento de custo recente. Revise em <a href="#" data-view="procedimento">Procedimentos</a>. O sistema não altera preço.`
       : "Sem alerta de margem em risco neste recorte."
+  }
+  if (lucroEl) {
+    lucroEl.textContent = snap.lucroHora?.copy || "Lucro/hora não informado."
   }
   if (metasEl) {
     const rows = snap.metasMes || []
