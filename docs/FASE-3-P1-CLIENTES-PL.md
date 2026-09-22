@@ -86,3 +86,11 @@ CRM monta no máximo 15 contatos (uma pessoa, o sinal mais urgente). WhatsApp s�
 - Colunas `agenda.plano_id`, `sessao_plano`, `sessoes_plano`. SQL: `supabase/migrations/20260922010000_p2_plano_agenda_portal_storage.sql`.
 - Recria `get_client_session_by_token` / `get_client_by_token` com **hash** (`p_token`) e `get_analises_pele_by_token` só do cliente da sessão (sem `ia_preliminar`).
 - Buckets `client-photos`, `anamnese-fotos`, `analise-pele-fotos` privados; SELECT/INSERT só se o primeiro segmento do path for `org_id` do membro. Assinatura de URL no app recusa path de outra org.
+
+## P2-5 — Marketing Intelligence
+
+Marketing: até 3 campanhas a partir do radar/espera. Objetivo, público, custo em **tempo de contato** (não inventa R$ de mídia), métrica, prazo, risco, como medir. WhatsApp só na fila do CRM. Sem Market Radar. Sem garantia de resultado. Copilot de conteúdo continua opcional.
+
+## P2-6 — Minha jornada no portal
+
+`portal.html` abre em **Minha jornada**: cadastro, anamnese, pele (só validada), sessões, skincare se liberado, próximo passo. Sem `ia_preliminar`. SQL: `supabase/migrations/20260922020000_p2_portal_jornada.sql` (`list_portal_jornada_agenda`). Sem o SQL, usa os horários futuros já existentes.

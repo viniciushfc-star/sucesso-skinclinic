@@ -3,15 +3,25 @@ import {
   getActiveProtocol,
   reportClientEvent,
   getSkincareRotinaByToken,
+  getAnalisesPeleByToken,
+  listAnamnesePortalByToken,
+  getClientByToken,
 } from "./client-portal.service.js";
+import { listPortalJornadaAgenda, listPortalAppointments } from "./agenda-portal.service.js";
 import { toast } from "./ui/toast.client.js";
+import { buildPortalJornada } from "../utils/portal-jornada.js";
 
 const app =
  document.getElementById("app");
 
-/* =========================
-   INIT
-========================= */
+function todayLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function token() {
+  try { return sessionStorage.getItem("client_portal_token"); } catch { return null; }
+}
 
 export async function init(){
 
@@ -20,13 +30,27 @@ export async function init(){
   app.innerHTML =
    "<p>Carregando...</p>";
 
-  const [protocol, records, skincareRotina] = await Promise.all([
+  const t = token();
+  const [protocol, records, skincareRotina, cliente, anamneses, analises, sessoes] = await Promise.all([
     safeGetProtocol(),
-    getSharedRecords(),
+    getSharedRecords().catch(() => []),
     getSkincareRotinaByToken().catch(() => null),
+    t ? getClientByToken(t).catch(() => null) : Promise.resolve(null),
+    listAnamnesePortalByToken().catch(() => []),
+    getAnalisesPeleByToken().catch(() => []),
+    listPortalJornadaAgenda().catch(() => listPortalAppointments().catch(() => [])),
   ]);
 
-  renderDashboard(protocol, records, !!skincareRotina);
+  const jornada = buildPortalJornada({
+    today: todayLocal(),
+    cadastroCompleto: !!(cliente?.registration_completed_at),
+    anamneses: anamneses || [],
+    analises: analises || [],
+    sessoes: sessoes || [],
+    hasSkincare: !!skincareRotina,
+  });
+
+  renderDashboard(protocol, records || [], !!skincareRotina, jornada);
 
  }catch(err){
 
@@ -43,10 +67,6 @@ export async function init(){
  }
 }
 
-/* =========================
-   HELPERS
-========================= */
-
 async function safeGetProtocol(){
  try{
   return await getActiveProtocol();
@@ -55,25 +75,36 @@ async function safeGetProtocol(){
  }
 }
 
-/* =========================
-   RENDER
-========================= */
-
 function renderDashboard(
   protocol,
   records,
-  hasSkincareRotina = false
+  hasSkincareRotina = false,
+  jornada = []
 ) {
+  const stepsHtml = (jornada || []).map((s) => `
+    <li class="portal-jornada-item portal-jornada-item--${s.estado}">
+      <button type="button" class="portal-jornada-btn" data-hash="${s.hash}">
+        <span class="portal-jornada-titulo">${escapeHtml(s.titulo)}</span>
+        <span class="portal-jornada-estado">${labelEstado(s.estado)}</span>
+        <span class="portal-jornada-detalhe">${escapeHtml(s.detalhe)}</span>
+      </button>
+    </li>
+  `).join("");
+
   app.innerHTML = `
   <section class="client-header">
-   <h2>Seu tratamento</h2>
+   <h2>Minha jornada</h2>
    <p>
     ${
      protocol
-      ? "Acompanhamento ativo"
-      : "Nenhum tratamento ativo no momento"
+      ? "Acompanhamento ativo com a clínica"
+      : "O que já aconteceu e o próximo passo — só o que a clínica validou"
     }
    </p>
+  </section>
+
+  <section class="portal-jornada">
+   <ol class="portal-jornada-list">${stepsHtml}</ol>
   </section>
 
   <section class="client-records">
@@ -82,7 +113,7 @@ function renderDashboard(
    ${
     records.length
      ? records.map(renderRecord).join("")
-     : "<p>Nenhuma orientação disponível.</p>"
+     : "<p>Nenhuma orientação compartilhada no momento.</p>"
    }
   </section>
 
@@ -129,9 +160,19 @@ function renderDashboard(
  bindActions();
 }
 
-/* =========================
-   RECORD ITEM
-========================= */
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/"/g, "&quot;");
+}
+
+function labelEstado(estado) {
+  if (estado === "feito") return "Feito";
+  if (estado === "aguardando") return "Aguardando";
+  if (estado === "pendente") return "Pendente";
+  return "Disponível";
+}
 
 function renderRecord(r){
 
@@ -162,11 +203,13 @@ function formatContent(r){
  return "Atualização do tratamento";
 }
 
-/* =========================
-   ACTIONS
-========================= */
-
 function bindActions() {
+  document.querySelectorAll(".portal-jornada-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const hash = btn.getAttribute("data-hash");
+      if (hash) window.location.hash = `#${hash}`;
+    });
+  });
   document.getElementById("btnAgendaPortal")?.addEventListener("click", () => {
     window.location.hash = "#agenda";
   });

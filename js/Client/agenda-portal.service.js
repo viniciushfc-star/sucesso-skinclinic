@@ -28,6 +28,12 @@ export async function listPortalBusyHours(dateYmd) {
   return (data ?? []).map((r) => String(r.hora || r).slice(0, 5));
 }
 
+export async function listPortalJornadaAgenda() {
+  const { data, error } = await supabase.rpc("list_portal_jornada_agenda", { p_token: tokenOrThrow() });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function listPortalAppointments() {
   const { data, error } = await supabase.rpc("list_portal_appointments", { p_token: tokenOrThrow() });
   if (error) throw error;
