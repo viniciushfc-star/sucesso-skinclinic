@@ -2,7 +2,6 @@ import { supabase } from "../core/supabase.js";
 import { withOrg, getActiveOrg } from "../core/org.js";
 import { toast } from "../ui/toast.js";
 import { checkPermission } from "../core/permissions.js";
-import { getSession } from "../core/auth.js";
 import { redirect } from "../core/base-path.js";
 import { apiFetch } from "../core/api-fetch.js";
 
@@ -312,26 +311,18 @@ function escapeCsv(s) {
 
 async function acknowledgeLog(auditId) {
   const orgId = getActiveOrg();
-  const session = await getSession();
-  const user = session?.user;
-  if (!orgId || !user) {
+  if (!orgId) {
     toast("Sessão inválida");
     return;
   }
 
   try {
-    const { error } = await withOrg(
-      supabase
-        .from("audit_logs")
-        .update({
-          acknowledged_by: user.id,
-          acknowledged_at: new Date().toISOString(),
-          acknowledged_by_email: user.email || "",
-        })
-        .eq("id", auditId)
-    );
-
-    if (error) throw error;
+    const res = await apiFetch("/api/audit-log", {
+      method: "POST",
+      json: { op: "acknowledge", id: auditId },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || "Erro ao registrar ok");
     toast("Ok registrado");
     renderLogs();
   } catch (err) {
@@ -342,27 +333,18 @@ async function acknowledgeLog(auditId) {
 
 async function toggleStar(auditId, currentStarred) {
   const orgId = getActiveOrg();
-  const session = await getSession();
-  const user = session?.user;
-  if (!orgId || !user) {
+  if (!orgId) {
     toast("Sessão inválida");
     return;
   }
 
   try {
-    const payload = currentStarred
-      ? { starred_by: null, starred_at: null, starred_by_email: null }
-      : {
-          starred_by: user.id,
-          starred_at: new Date().toISOString(),
-          starred_by_email: user.email || "",
-        };
-
-    const { error } = await withOrg(
-      supabase.from("audit_logs").update(payload).eq("id", auditId)
-    );
-
-    if (error) throw error;
+    const res = await apiFetch("/api/audit-log", {
+      method: "POST",
+      json: { op: "star", id: auditId, starred: !currentStarred },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || "Erro ao atualizar estrela");
     toast(currentStarred ? "Estrela removida" : "Marcado como importante");
     renderLogs();
   } catch (err) {

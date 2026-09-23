@@ -1,5 +1,6 @@
 /**
  * Auditoria de negócio: identidade e org vêm do JWT + membership, não do body.
+ * op=acknowledge|star atualiza só colunas de ok/estrela (identidade imutável no banco).
  */
 import { getAdminClient, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 
@@ -14,8 +15,68 @@ function clip(value, max) {
   return s ? s.slice(0, max) : null;
 }
 
+function sanitizeMetadata(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const metadata = { ...raw };
+  delete metadata.user_id;
+  delete metadata.userId;
+  delete metadata.org_id;
+  delete metadata.orgId;
+  delete metadata.actor;
+  delete metadata.completed_by_client;
+  return metadata;
+}
+
+async function handleAckOrStar(req, res) {
+  let auth;
+  try {
+    auth = await requireStaffAccess(req, { permission: "auditoria:acknowledge" });
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
+
+  const id = req.body?.id;
+  if (!isUuid(id)) return res.status(400).json({ error: "Informe o registro." });
+
+  const op = String(req.body.op);
+  const patch =
+    op === "acknowledge"
+      ? {
+          acknowledged_by: auth.user.id,
+          acknowledged_at: new Date().toISOString(),
+          acknowledged_by_email: auth.user.email || "",
+        }
+      : req.body?.starred === false
+        ? { starred_by: null, starred_at: null, starred_by_email: null }
+        : {
+            starred_by: auth.user.id,
+            starred_at: new Date().toISOString(),
+            starred_by_email: auth.user.email || "",
+          };
+
+  const { data, error } = await getAdminClient()
+    .from("audit_logs")
+    .update(patch)
+    .eq("id", id)
+    .eq("org_id", auth.orgId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[audit-log]", error.message);
+    return res.status(500).json({ error: "Erro interno" });
+  }
+  if (!data) return res.status(404).json({ error: "Registro não encontrado." });
+  return res.status(200).json({ ok: true });
+}
+
 export default async function auditLog(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
+
+  const op = req.body?.op;
+  if (op === "acknowledge" || op === "star") {
+    return handleAckOrStar(req, res);
+  }
 
   let auth;
   try {
@@ -32,7 +93,7 @@ export default async function auditLog(req, res) {
     const raw = JSON.stringify(req.body.metadata);
     if (raw.length <= 4000) {
       try {
-        metadata = JSON.parse(raw);
+        metadata = sanitizeMetadata(JSON.parse(raw));
       } catch {
         metadata = {};
       }
