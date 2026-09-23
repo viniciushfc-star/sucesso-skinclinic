@@ -7,7 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { askAI, COMPLEXITY } from "../ai/core/index.js";
-import { ANALISE_PELE_BUCKET } from "../lib/analise-pele-storage.js";
+import { ANALISE_PELE_BUCKET, publicSubmitAnaliseBody } from "../lib/analise-pele-storage.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -71,6 +71,17 @@ export default async function handler(req, res) {
     }
 
     const arrImages = Array.isArray(imagens) ? imagens : [];
+    if (arrImages.filter(Boolean).length < 2) {
+      return res.status(400).json({
+        error: "Envie pelo menos duas fotos (frontal e lateral).",
+      });
+    }
+    const nomeResp = String(menor_responsavel || "").trim();
+    if (req.body?.sou_menor && nomeResp.length < 3) {
+      return res.status(400).json({
+        error: "Para menor de idade, informe o nome do responsável legal.",
+      });
+    }
     const respostasObj = respostas && typeof respostas === "object" ? respostas : {};
     const promptText = PROMPT_CANON.replace(
       "{{RESPOSTAS}}",
@@ -150,11 +161,13 @@ export default async function handler(req, res) {
 
     const id = insertResult?.id;
 
-    return res.status(200).json({
-      id,
-      status: "aguardando_validacao",
-      message: "Análise registrada. Um profissional fará a validação.",
-    });
+    return res.status(200).json(
+      publicSubmitAnaliseBody({
+        id,
+        status: "aguardando_validacao",
+        message: "Análise registrada. Um profissional fará a validação.",
+      })
+    );
   } catch (err) {
     console.error("[ANALISE-PELE]", err);
     return res.status(500).json({

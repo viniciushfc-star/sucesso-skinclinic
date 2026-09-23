@@ -199,6 +199,7 @@ export async function submitAnalisePele(payload) {
     body: JSON.stringify({
       token,
       consentimento_imagens: payload.consentimento_imagens,
+      sou_menor: !!payload.sou_menor,
       menor_responsavel: payload.menor_responsavel || null,
       imagens: payload.imagens || [],
       respostas: payload.respostas || {},
@@ -206,7 +207,13 @@ export async function submitAnalisePele(payload) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || "Erro ao enviar análise.");
-  return json;
+  delete json.ia_preliminar;
+  delete json.imagens;
+  return {
+    id: json.id ?? null,
+    status: json.status || "aguardando_validacao",
+    message: json.message || "Análise registrada. Um profissional fará a validação.",
+  };
 }
 
 /* =========================

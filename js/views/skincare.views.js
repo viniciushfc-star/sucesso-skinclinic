@@ -9,6 +9,7 @@ import { audit } from "../services/audit.service.js";
 import { getClientById, getClientes } from "../services/clientes.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listAnalisesPeleByClient } from "../services/analise-pele.service.js";
+import { analisesPeleParaSkincare } from "../../lib/analise-pele-storage.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina } from "../services/skincare-rotina.service.js";
 import { createAfazer } from "../services/afazeres.service.js";
 import { supabase } from "../core/supabase.js";
@@ -55,15 +56,9 @@ function buildContextForSkincare(cliente, registrosAnamnese, analisesPele) {
       }))
     });
   }
-  if (analisesPele && analisesPele.length > 0) {
-    partes.push({
-      analise_pele: analisesPele.map((a) => ({
-        data: a.created_at,
-        texto_validado: a.texto_validado,
-        ia_preliminar: a.ia_preliminar,
-        status: a.status
-      }))
-    });
+  const peleValidada = analisesPeleParaSkincare(analisesPele);
+  if (peleValidada.length > 0) {
+    partes.push({ analise_pele: peleValidada });
   }
   return partes.length ? JSON.stringify(partes, null, 2) : "";
 }

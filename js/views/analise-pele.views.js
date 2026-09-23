@@ -123,7 +123,8 @@ async function openDetalhe(id) {
         <div class="analise-pele-ia-texto">${escapeHtml(a.ia_preliminar || "").replace(/\n/g, "<br>")}</div>
       </div>
       <div class="analise-pele-detalhe-validacao">
-        <label>Texto validado / complemento (opcional)</label>
+        <label>Texto que o cliente verá no portal (opcional agora; obrigatório para a devolutiva aparecer)</label>
+        <p class="analise-pele-hint">O rascunho da IA acima é só para a equipe. Skincare e anamnese usam este texto, não a IA crua.</p>
         <textarea id="analisePeleTextoValidado" rows="4" placeholder="Correções ou complementos do profissional…">${escapeHtml(a.texto_validado || "")}</textarea>
       </div>
       <div class="analise-pele-detalhe-actions">

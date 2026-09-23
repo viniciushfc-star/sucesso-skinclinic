@@ -11,6 +11,7 @@ const app = document.getElementById("app");
 let step = 0;
 let state = {
   consentimento: false,
+  sou_menor: false,
   menor_responsavel: "",
   imagens: [],
   respostas: {},
@@ -54,7 +55,7 @@ const PERGUNTAS = [
 
 export async function init() {
   step = 0;
-  state = { consentimento: false, menor_responsavel: "", imagens: [], respostas: {} };
+  state = { consentimento: false, sou_menor: false, menor_responsavel: "", imagens: [], respostas: {} };
   render();
 }
 
@@ -80,19 +81,49 @@ function renderConsent() {
         <input type="checkbox" id="consentimentoImagens" required>
         Autorizo o uso das imagens apenas para análise preliminar e validação pela clínica.
       </label>
-      <label class="analise-pele-optional">Sou menor de idade — nome do responsável legal (opcional)</label>
-      <input type="text" id="menorResponsavel" placeholder="Nome do responsável" class="analise-pele-input">
+      <label class="analise-pele-checkbox">
+        <input type="checkbox" id="souMenor">
+        Sou menor de idade
+      </label>
+      <div id="menorWrap" class="hidden">
+        <label class="analise-pele-optional" for="menorResponsavel">Nome do responsável legal</label>
+        <input type="text" id="menorResponsavel" placeholder="Nome do responsável" class="analise-pele-input">
+        <label class="analise-pele-checkbox">
+          <input type="checkbox" id="menorAutoriza">
+          O responsável legal autoriza esta análise e o uso das imagens.
+        </label>
+      </div>
       <button type="button" id="btnAvancarConsent" class="btn-primary">Continuar</button>
     </section>
   `;
+  const souMenorEl = document.getElementById("souMenor");
+  const menorWrap = document.getElementById("menorWrap");
+  const syncMenor = () => {
+    if (!menorWrap || !souMenorEl) return;
+    menorWrap.classList.toggle("hidden", !souMenorEl.checked);
+  };
+  souMenorEl?.addEventListener("change", syncMenor);
+  syncMenor();
   document.getElementById("btnAvancarConsent").onclick = () => {
     const cb = document.getElementById("consentimentoImagens");
     if (!cb?.checked) {
       toast("Marque que autoriza o uso das imagens para continuar.");
       return;
     }
+    const souMenor = !!souMenorEl?.checked;
+    const nomeResp = document.getElementById("menorResponsavel")?.value?.trim() || "";
+    const autoriza = !!document.getElementById("menorAutoriza")?.checked;
+    if (souMenor && nomeResp.length < 3) {
+      toast("Informe o nome do responsável legal.");
+      return;
+    }
+    if (souMenor && !autoriza) {
+      toast("O responsável legal precisa autorizar a análise.");
+      return;
+    }
     state.consentimento = true;
-    state.menor_responsavel = document.getElementById("menorResponsavel")?.value?.trim() || "";
+    state.sou_menor = souMenor;
+    state.menor_responsavel = souMenor ? nomeResp : "";
     step = 1;
     render();
   };
@@ -209,6 +240,7 @@ async function doSubmit() {
   try {
     const payload = {
       consentimento_imagens: state.consentimento,
+      sou_menor: !!state.sou_menor,
       menor_responsavel: state.menor_responsavel || null,
       imagens: state.imagens.filter(Boolean),
       respostas: state.respostas,
@@ -299,7 +331,7 @@ async function renderListaAnalises() {
     `;
     document.getElementById("btnNovaAnalise").onclick = () => {
       step = 0;
-      state = { consentimento: false, menor_responsavel: "", imagens: [], respostas: {} };
+      state = { consentimento: false, sou_menor: false, menor_responsavel: "", imagens: [], respostas: {} };
       render();
     };
     document.getElementById("btnVoltarDashboard2").onclick = () => {

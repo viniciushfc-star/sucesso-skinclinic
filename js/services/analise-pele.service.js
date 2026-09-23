@@ -6,6 +6,7 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 import { listFuncoes, createRegistro } from "./anamnesis.service.js";
+import { conteudoAnamneseDaAnalise } from "../../lib/analise-pele-storage.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -35,7 +36,7 @@ export async function listAnalisesPeleByClient(clientId) {
   const { data, error } = await withOrg(
     supabase
       .from("analise_pele")
-      .select("id, ia_preliminar, texto_validado, status, created_at")
+      .select("id, texto_validado, status, created_at")
       .eq("org_id", orgId)
       .eq("client_id", clientId)
       .order("created_at", { ascending: false })
@@ -90,11 +91,11 @@ export async function incorporarAnalisePeleNaAnamnese(id) {
   const pele = funcoes.find((f) => f.slug === "rosto_pele");
   if (!pele) throw new Error("Função Pele (rosto_pele) não encontrada na anamnese. Cadastre as funções padrão.");
   const { data: user } = await supabase.auth.getUser();
-  const conteudo = [analise.ia_preliminar, analise.texto_validado].filter(Boolean).join("\n\n— Validação profissional:\n");
+  const conteudo = conteudoAnamneseDaAnalise(analise);
   const registro = await createRegistro({
     clientId: analise.client_id,
     funcaoId: pele.id,
-    conteudo: conteudo || "Análise de pele (IA + validação) incorporada.",
+    conteudo,
     ficha: analise.respostas && typeof analise.respostas === "object" ? analise.respostas : {},
     fotos: Array.isArray(analise.imagens) ? analise.imagens : [],
     conduta_tratamento: null,
