@@ -26,7 +26,15 @@ const TABLES = [
   "audit_logs",
   "organization_invites",
   "profiles",
+  "ocr_notas",
+  "market_radar_refs",
 ];
+
+function isMissingRelation(error) {
+  const code = String(error?.code || "");
+  const msg = String(error?.message || "");
+  return code === "42P01" || code === "PGRST205" || /does not exist|schema cache/i.test(msg);
+}
 
 function restClient(url, anon, token) {
   return createClient(url, anon, {
@@ -146,6 +154,10 @@ async function main() {
       continue;
     }
     if (error) {
+      if (isMissingRelation(error) && (table === "ocr_notas" || table === "market_radar_refs")) {
+        results.push({ table, ok: true, detail: "tabela ainda não existe no live (migration pendente)" });
+        continue;
+      }
       results.push({ table, ok: false, detail: `select_erro ${error.message}` });
       continue;
     }
@@ -201,7 +213,8 @@ async function main() {
       ["/api/copiloto", { org_id: victimOrg, pergunta: "probe rls" }],
       ["/api/preco", { org_id: victimOrg, procedimento: "probe" }],
       ["/api/marketing", { org_id: victimOrg, pergunta: "probe" }],
-      ["/api/whatsapp-send", { org_id: victimOrg, to: "5500000000000", text: "probe" }],
+      ["/api/whatsapp-send", { org_id: victimOrg, phone: "11999998888", message: "probe" }],
+      ["/api/audit-log", { org_id: victimOrg, action: "rls.probe" }],
       [
         "/api/create-portal-session",
         { org_id: victimOrg, client_id: "00000000-0000-0000-0000-000000000001" },

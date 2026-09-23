@@ -1,20 +1,18 @@
 /**
  * Envia WhatsApp pela Cloud API (Meta) quando configurada.
  * POST /api/whatsapp-send  { phone, message, org_id }
+ * Destino tem de ser telefone de clients ou agenda_waitlist da org.
+ * wa.me no frontend continua livre se a API recusar.
  */
-import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
-
-function digitsPhone(raw) {
-  const d = String(raw || "").replace(/\D/g, "");
-  if (d.length === 10 || d.length === 11) return "55" + d;
-  return d;
-}
+import { getAdminClient, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
+import { canonicalPhoneDigits, orgOwnsWhatsappDestination } from "../lib/phone-match.js";
 
 export default async function whatsappSend(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
 
+  let auth;
   try {
-    await requireStaffAccess(req, { permission: "whatsapp:send" });
+    auth = await requireStaffAccess(req, { permission: "whatsapp:send" });
   } catch (e) {
     return sendAuthError(res, e);
   }
@@ -25,10 +23,21 @@ export default async function whatsappSend(req, res) {
     return res.status(200).json({ sent: false, fallback: true, reason: "whatsapp_nao_configurado" });
   }
 
-  const phone = digitsPhone(req.body?.phone);
+  const phone = canonicalPhoneDigits(req.body?.phone);
   const message = String(req.body?.message || "").trim();
   if (phone.length < 12 || !message) {
     return res.status(400).json({ error: "Telefone ou mensagem inválidos" });
+  }
+
+  let owned = false;
+  try {
+    owned = await orgOwnsWhatsappDestination(getAdminClient(), auth.orgId, phone);
+  } catch (e) {
+    console.error("[whatsapp-send] ownership", e?.message || e);
+    return res.status(500).json({ error: "Erro interno" });
+  }
+  if (!owned) {
+    return res.status(403).json({ error: "Sem permissão", reason: "telefone_fora_da_org" });
   }
 
   const apiUrl = `https://graph.facebook.com/v21.0/${phoneId}/messages`;

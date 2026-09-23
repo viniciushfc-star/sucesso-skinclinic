@@ -100,23 +100,11 @@ export default async function handler(req, res) {
         duplicado: true,
       });
     }
-    if (errInsert.message && /webhook_event_id/i.test(errInsert.message)) {
-      const fallback = rows.map(({ webhook_event_id, ...rest }) => rest);
-      const { error: err2 } = await supabase.from("financeiro").insert(fallback);
-      if (err2) {
-        console.error("[webhook-transacoes] insert error", err2);
-        req.webhookOrgId = conta.org_id;
-        res.locals = res.locals || {};
-        res.locals.obsMessage = String(err2.message || "").slice(0, 180);
-        return res.status(500).json({ error: "Erro ao gravar transações" });
-      }
-    } else {
-      console.error("[webhook-transacoes] insert error", errInsert);
-      req.webhookOrgId = conta.org_id;
-      res.locals = res.locals || {};
-      res.locals.obsMessage = String(errInsert.message || "").slice(0, 180);
-      return res.status(500).json({ error: "Erro ao gravar transações" });
-    }
+    console.error("[webhook-transacoes] insert error", errInsert);
+    req.webhookOrgId = conta.org_id;
+    res.locals = res.locals || {};
+    res.locals.obsMessage = String(errInsert.message || "").slice(0, 180);
+    return res.status(500).json({ error: "Erro ao gravar transações" });
   }
 
   await supabase

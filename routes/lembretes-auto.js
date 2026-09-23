@@ -9,6 +9,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { isCronAuthorized, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
+import { canonicalPhoneDigits } from "../lib/phone-match.js";
 
 function getAdmin() {
   const url = process.env.SUPABASE_URL;
@@ -17,12 +18,6 @@ function getAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-
-function digitsPhone(raw) {
-  const d = String(raw || "").replace(/\D/g, "");
-  if (d.length === 10 || d.length === 11) return "55" + d;
-  return d;
-}
 
 function formatDateBr(isoDate) {
   if (!isoDate) return "";
@@ -144,11 +139,17 @@ export default async function lembretesAuto(req, res) {
       .from("clients")
       .select("id, name, email, phone")
       .eq("id", ag.cliente_id)
+      .eq("org_id", ag.org_id)
       .maybeSingle();
+
+    if (!cli) {
+      resultados.push({ id: ag.id, ok: false, envios: [{ sent: false, reason: "cliente_outra_org" }] });
+      continue;
+    }
 
     const nome = cli?.name || "Cliente";
     const email = (cli?.email || "").trim();
-    const tel = digitsPhone(cli?.phone);
+    const tel = canonicalPhoneDigits(cli?.phone);
     const dataFmt = formatDateBr(ag.data);
     const hora = ag.hora ? String(ag.hora).slice(0, 5) : "";
 

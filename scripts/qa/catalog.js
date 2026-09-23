@@ -126,6 +126,7 @@ export const POST_APIS = [
   "/api/send-invite-email",
   "/api/lembretes-auto",
   "/api/whatsapp-send",
+  "/api/audit-log",
   "/api/google-calendar/sync",
   "/api/google-calendar/disconnect",
 ];
@@ -194,6 +195,7 @@ export const API_PERM = {
   "/api/skincare": { perm: "ia:assist", gestor: true, master: true, funcionario: false },
   "/api/skincare-ai": { perm: "ia:assist", gestor: true, master: true, funcionario: false },
   "/api/whatsapp-send": { perm: "whatsapp:send", gestor: true, master: true, funcionario: false },
+  "/api/audit-log": { perm: "dashboard:view", gestor: true, master: true, funcionario: true },
   "/api/create-portal-session": { perm: "clientes:manage", gestor: true, master: true, funcionario: false },
   "/api/ops-summary": { perm: "auditoria:view", gestor: true, master: true, funcionario: false },
   "/api/send-invite-email": { perm: "team:invite", gestor: true, master: true, funcionario: false },

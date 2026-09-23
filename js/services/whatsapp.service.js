@@ -2,7 +2,8 @@ import { supabase } from "../core/supabase.js";
 import { apiFetch } from "../core/api-fetch.js";
 
 /**
- * Tenta envio pela Cloud API; se não estiver configurada, abre o WhatsApp (wa.me).
+ * Tenta envio pela Cloud API (só telefone de cliente/espera da org no servidor).
+ * Se a API recusar ou não estiver configurada, abre o WhatsApp (wa.me) — envio humano.
  * Nunca envia lista: um telefone por chamada.
  */
 export async function sendWhatsapp(telefone, mensagem, meta = {}) {

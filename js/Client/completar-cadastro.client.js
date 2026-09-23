@@ -112,7 +112,7 @@ function renderForm(client) {
           <option value="Outro" ${client.sex === "Outro" ? "selected" : ""}>Outro</option>
         </select>
         <label>Observações (opcional)</label>
-        <textarea id="regNotes" rows="2" placeholder="Alguma informação que a clínica deva saber">${escapeHtml(client.notes || "")}</textarea>
+        <textarea id="regNotes" rows="2" placeholder="O que você quer que a clínica saiba (alergia, preferência). A clínica não envia anotações internas neste campo."></textarea>
 
         <div class="client-termo-wrap">
           <h3 class="client-termo-title">Termo de consentimento</h3>

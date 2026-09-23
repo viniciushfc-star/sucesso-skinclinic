@@ -89,6 +89,7 @@ async function registerRoutesOnce() {
   await useApi("post", "/api/send-invite-email", () => import("./routes/send-invite-email.js"));
   await useApi("post", "/api/lembretes-auto", () => import("./routes/lembretes-auto.js"));
   await useApi("post", "/api/whatsapp-send", () => import("./routes/whatsapp-send.js"));
+  await useApi("post", "/api/audit-log", () => import("./routes/audit-log.js"));
   await useApi("get", "/api/lembretes-auto", () => import("./routes/lembretes-auto.js"));
   await useApi("get", "/api/integracoes-status", () => import("./routes/integracoes-status.js"));
   await useApi("get", "/api/ops-summary", () => import("./routes/ops-summary.js"));

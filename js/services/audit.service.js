@@ -1,7 +1,6 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
-import { getSession } from "../core/auth.js";
-import { getRole } from "./permissions.service.js";
+import { apiFetch } from "../core/api-fetch.js";
 
 /**
  * Registra um evento de auditoria de negócio
@@ -18,26 +17,15 @@ export async function audit({
     const orgId = getActiveOrg();
     if (!orgId) return;
 
-    const session = await getSession();
-    const user = session?.user;
-    if (!user) return;
-
-    const role = await getRole();
-
-    await supabase.from("audit_logs").insert({
-      org_id: orgId,
-      user_id: user.id,
-      user_email: user.email,
-
-      role_technical: role,
-      job_title: metadata.job_title || null,
-
-      action,
-      table_name: tableName,
-      record_id: recordId,
-
-      permission_used: permissionUsed,
-      metadata
+    await apiFetch("/api/audit-log", {
+      method: "POST",
+      json: {
+        action,
+        tableName,
+        recordId,
+        permissionUsed,
+        metadata,
+      },
     });
 
   } catch (err) {
