@@ -135,11 +135,16 @@ export default async function lembretesAuto(req, res) {
   const resultados = [];
 
   for (const ag of pendentes) {
+    if (orgFiltro && String(ag.org_id) !== String(orgFiltro)) {
+      resultados.push({ id: ag.id, ok: false, envios: [{ sent: false, reason: "cliente_outra_org" }] });
+      continue;
+    }
+    const orgDoCliente = orgFiltro || ag.org_id;
     const { data: cli } = await admin
       .from("clients")
       .select("id, name, email, phone")
       .eq("id", ag.cliente_id)
-      .eq("org_id", ag.org_id)
+      .eq("org_id", orgDoCliente)
       .maybeSingle();
 
     if (!cli) {
