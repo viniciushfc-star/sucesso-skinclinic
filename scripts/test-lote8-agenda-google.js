@@ -15,7 +15,7 @@ import {
   busyMenosAgendaClinica,
   labelOcupadoPessoal,
 } from "../js/utils/agenda-ocupacao.js";
-import { buildClinicBusyEvent } from "../lib/google-calendar.js";
+import { buildClinicBusyEvent, connectionNeedsReconnect } from "../lib/google-calendar.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -90,7 +90,32 @@ describe("Lote 8 agenda esporádico / Google", () => {
     assert.match(auth, /GOOGLE_CALENDAR_SCOPES/);
     assert.match(agenda, /listExternalBlocksForRange/);
     assert.match(agenda, /occupyProfessionalCalendar/);
+    assert.match(agenda, /needs_reconnect/);
     assert.match(svc, /conflitoExternoComDeslocamento/);
     assert.match(svc, /avaliarJornadaClinica/);
+    const status = readFileSync(join(ROOT, "routes/google-calendar/status.js"), "utf8");
+    assert.match(status, /connectionNeedsReconnect/);
+    const team = readFileSync(join(ROOT, "js/views/team.views.js"), "utf8");
+    assert.match(team, /Reconectar Google/);
+  });
+
+  it("conexão antiga pede reconectar; com os dois escopos não pede", () => {
+    assert.equal(connectionNeedsReconnect({}), true);
+    assert.equal(connectionNeedsReconnect({ granted_scopes: "https://www.googleapis.com/auth/calendar.readonly" }), true);
+    assert.equal(
+      connectionNeedsReconnect({
+        granted_scopes:
+          "https://www.googleapis.com/auth/calendar.freebusy https://www.googleapis.com/auth/calendar.events",
+      }),
+      false
+    );
+    assert.equal(
+      connectionNeedsReconnect({
+        granted_scopes:
+          "https://www.googleapis.com/auth/calendar.freebusy https://www.googleapis.com/auth/calendar.events",
+        reconnect_needed: true,
+      }),
+      true
+    );
   });
 });

@@ -80,7 +80,9 @@ export async function init() {
     const faturamentoUser = (faturamentoList || []).find((f) => f.user_id === userId)
     const afazerUser = (afazeresResumo || []).find((a) => a.user_id === userId)
     const indiceUser = (indiceCuidado || []).find((i) => i.user_id === userId)
-    const connected = (googleStatus.connections || []).some((c) => c.user_id === userId)
+    const conn = (googleStatus.connections || []).find((c) => c.user_id === userId)
+    const connected = !!conn
+    const needsReconnect = !!conn?.needs_reconnect
     const connectUrl = getConnectUrl(userId)
 
     const nome = (member.display_name || member.name || (member.email || "").split("@")[0] || "Profissional").trim()
@@ -132,7 +134,13 @@ export async function init() {
             <p><strong>E-mail:</strong> ${escapeHtml(member.email || "—")}</p>
             <p><strong>Função na empresa:</strong> ${escapeHtml(cargo)}</p>
             <p><strong>Status:</strong> ${escapeHtml(member.status || "—")}</p>
-            <p><strong>Google Agenda:</strong> ${connected ? "Conectada" : "Não conectada"} ${connectUrl && !connected ? ` · <a href="${connectUrl}" class="btn-link" id="btnGoogleConnectProf">Conectar</a>` : ""}</p>
+            <p><strong>Google Agenda:</strong> ${
+              needsReconnect
+                ? `Reconectar · a clínica só vê horário ocupado, sem o título dos compromissos. ${connectUrl ? `<a href="${connectUrl}" class="btn-link" id="btnGoogleConnectProf">Reconectar</a>` : ""}`
+                : connected
+                  ? "Conectada (ocupado sem detalhes pessoais)"
+                  : "Não conectada"
+            } ${connectUrl && !connected && !needsReconnect ? ` · <a href="${connectUrl}" class="btn-link" id="btnGoogleConnectProf">Conectar</a>` : ""}</p>
             ${procedimentosNomes.length ? `<p><strong>Procedimentos que realiza:</strong> ${procedimentosNomes.map((n) => escapeHtml(n)).join(", ")}</p>` : "<p><strong>Procedimentos:</strong> Não definidos. Ajuste em Configurações → Equipe.</p>"}
           </div>
         </div>

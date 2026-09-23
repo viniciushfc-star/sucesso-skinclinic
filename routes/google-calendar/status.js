@@ -4,6 +4,7 @@
  */
 
 import { requireStaffAccess, sendAuthError, getAdminClient } from "../../lib/api-auth.js";
+import { connectionNeedsReconnect } from "../../lib/google-calendar.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -19,20 +20,28 @@ export default async function handler(req, res) {
   }
 
   const supabase = getAdminClient();
-  const { data: rows, error } = await supabase
+  let q = await supabase
     .from("google_calendar_connections")
-    .select("user_id, last_sync_at, created_at")
+    .select("user_id, last_sync_at, created_at, granted_scopes, reconnect_needed")
     .eq("org_id", auth.orgId);
 
-  if (error) {
-    console.error("[google-calendar/status]", error);
+  if (q.error && /granted_scopes|reconnect_needed|schema cache|column/i.test(q.error.message || "")) {
+    q = await supabase
+      .from("google_calendar_connections")
+      .select("user_id, last_sync_at, created_at")
+      .eq("org_id", auth.orgId);
+  }
+
+  if (q.error) {
+    console.error("[google-calendar/status]", q.error);
     return res.status(500).json({ error: "Erro interno" });
   }
 
-  const connections = (rows || []).map((r) => ({
+  const connections = (q.data || []).map((r) => ({
     user_id: r.user_id,
     last_sync_at: r.last_sync_at,
     connected_at: r.created_at,
+    needs_reconnect: connectionNeedsReconnect(r),
   }));
 
   return res.status(200).json({ connections });

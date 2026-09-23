@@ -1824,7 +1824,9 @@ async function insertAgendaRow(payload) {
   }
   if (error) throw error
   if (data?.id && payload.user_id) {
-    occupyProfessionalCalendar(data.id).catch(() => {})
+    occupyProfessionalCalendar(data.id).then((r) => {
+      if (r?.needs_reconnect) toast("Este profissional precisa reconectar o Google. A clínica não vê o título dos compromissos pessoais.")
+    }).catch(() => {})
   }
   return data
 }
@@ -2142,7 +2144,9 @@ async function updateAgenda(id){
   closeModal()
   renderAgenda()
   toast("Agendamento atualizado!")
-  occupyProfessionalCalendar(id).catch(() => {})
+  occupyProfessionalCalendar(id).then((r) => {
+    if (r?.needs_reconnect) toast("Este profissional precisa reconectar o Google. A clínica não vê o título dos compromissos pessoais.")
+  }).catch(() => {})
 
  }catch(err){
 

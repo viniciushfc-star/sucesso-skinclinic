@@ -166,8 +166,10 @@ export async function renderTeam(){
   } catch (_) {}
   const connectedUserIds = new Set((googleStatus.connections || []).map((c) => c.user_id))
   const lastSyncByUser = {}
+  const reconnectByUser = {}
   for (const c of googleStatus.connections || []) {
     lastSyncByUser[c.user_id] = c.last_sync_at
+    reconnectByUser[c.user_id] = !!c.needs_reconnect
   }
 
  const showManage = showManageMode
@@ -186,6 +188,7 @@ export async function renderTeam(){
    const connected = connectedUserIds.has(u.id)
    const lastSync = lastSyncByUser[u.id]
    const lastSyncStr = lastSync ? new Date(lastSync).toLocaleString("pt-BR") : ""
+   const needsReconnect = !!reconnectByUser[u.id]
    const connectUrl = getConnectUrl(u.id)
    const rl = ROLE_LABEL[u.role] || u.role
    const nome = (u.display_name || u.nome || nameFromEmail(u.email)).replace(/</g, "&lt;")
@@ -215,7 +218,10 @@ export async function renderTeam(){
      </div>` : ""}
    </div>
    <div class="team-card-actions">
-     ${connected
+     ${connected && needsReconnect
+       ? `<a href="${connectUrl}" class="btn-primary btnGoogleConnect" data-user="${u.id}" title="Reconectar para ocupar horário sem ver a vida pessoal">Reconectar Google</a>
+          <small class="team-google-last-sync">A clínica só vê ocupado, sem o título dos compromissos.</small>`
+       : connected
        ? `<button type="button" class="btn-secondary btnGoogleSync" data-user="${u.id}" title="Sincronizar Google Agenda">Sincronizar</button>
           <button type="button" class="btn-small btnGoogleDisconnect" data-user="${u.id}" title="Desconectar Google Agenda">Desconectar</button>
           ${lastSyncStr ? `<small class="team-google-last-sync">Sync: ${lastSyncStr}</small>` : ""}`

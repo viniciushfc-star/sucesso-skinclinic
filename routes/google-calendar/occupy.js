@@ -72,6 +72,7 @@ export default async function handler(req, res) {
 
   const accessToken = await getGoogleAccessToken(conn.refresh_token);
   if (!accessToken) {
+    await markReconnect(supabase, auth.orgId, userId);
     return res.status(200).json(publicSubmitOccupyBody({ ok: false, needs_reconnect: true }));
   }
 
@@ -113,11 +114,21 @@ export default async function handler(req, res) {
     return res.status(200).json(publicSubmitOccupyBody({ ok: true }));
   } catch (err) {
     if (err?.message === "needs_reconnect" || err?.status === 403) {
+      await markReconnect(supabase, auth.orgId, userId);
       return res.status(200).json(publicSubmitOccupyBody({ ok: false, needs_reconnect: true }));
     }
     console.error("[google-calendar/occupy]");
     return res.status(200).json(publicSubmitOccupyBody({ ok: false, skipped: true }));
   }
+}
+
+async function markReconnect(supabase, orgId, userId) {
+  if (!orgId || !userId) return;
+  await supabase
+    .from("google_calendar_connections")
+    .update({ reconnect_needed: true })
+    .eq("org_id", orgId)
+    .eq("user_id", userId);
 }
 
 async function releaseMapped(supabase, mapping, orgId, userId, agendaId) {

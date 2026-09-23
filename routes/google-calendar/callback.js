@@ -6,6 +6,7 @@
 
 import { getAdminClient } from "../../lib/api-auth.js";
 import { verifySignedOAuthState } from "../../lib/oauth-state.js";
+import { GOOGLE_CALENDAR_SCOPES } from "../../lib/google-calendar.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -85,16 +86,23 @@ export default async function handler(req, res) {
   }
 
   const supabase = getAdminClient();
-  const { error } = await supabase.from("google_calendar_connections").upsert(
-    {
-      org_id: orgId,
-      user_id: userId,
-      refresh_token: refreshToken,
-      calendar_id: "primary",
-      last_sync_at: null,
-    },
-    { onConflict: "org_id,user_id" }
-  );
+  const row = {
+    org_id: orgId,
+    user_id: userId,
+    refresh_token: refreshToken,
+    calendar_id: "primary",
+    last_sync_at: null,
+    granted_scopes: String(tokens.scope || GOOGLE_CALENDAR_SCOPES),
+    reconnect_needed: false,
+  };
+  let { error } = await supabase.from("google_calendar_connections").upsert(row, { onConflict: "org_id,user_id" });
+  if (error && /granted_scopes|reconnect_needed|schema cache|column/i.test(error.message || "")) {
+    const fallback = { ...row };
+    delete fallback.granted_scopes;
+    delete fallback.reconnect_needed;
+    const retry = await supabase.from("google_calendar_connections").upsert(fallback, { onConflict: "org_id,user_id" });
+    error = retry.error;
+  }
 
   if (error) {
     console.error("[google-calendar callback] upsert failed");
