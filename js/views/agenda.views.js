@@ -28,7 +28,8 @@ import {
  checkSalaAvailable,
  checkProfessionalAvailableWithRespiro,
  getAvailableSalas,
- createExternalBlock
+ createExternalBlock,
+ listExternalBlocksForRange
 } from "../services/appointments.service.js"
 
 import { listSalas, listSalasQueSuportamTipo } from "../services/salas.service.js"
@@ -57,7 +58,8 @@ import { getProtocolos, getProtocolosAplicadosByAgendaId, createProtocoloAplicad
 import { getResumoPorProduto } from "../services/estoque-entradas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
-import { listAfazeresByPrazo } from "../services/afazeres.service.js"
+import { occupyProfessionalCalendar } from "../services/google-calendar.service.js"
+import { labelOcupadoPessoal, rangesOverlap } from "../utils/agenda-ocupacao.js"
 
 /* =====================
    ESTADO (calendário + dia selecionado)
@@ -334,8 +336,12 @@ async function renderWeekGrid(professionalId = null) {
   }
 
   let items = []
+  let externals = []
   try {
     items = await listAppointmentsByRange(start, end, professionalId)
+    if (professionalId) {
+      externals = await listExternalBlocksForRange(start, end, professionalId).catch(() => [])
+    }
   } catch (err) {
     console.error("[AGENDA] semana", err)
     grid.innerHTML = `<p class="agenda-empty">Não foi possível carregar a semana.</p>`
@@ -364,8 +370,10 @@ async function renderWeekGrid(professionalId = null) {
     html += `<div class="agenda-week-row"><span class="agenda-week-gutter">${hh}:00</span>`
     for (let i = 0; i < WEEK_DAY_COUNT; i++) {
       const ds = addDaysStr(start, i)
+      const hourStart = new Date(`${ds}T${hh}:00:00`)
+      const hourEnd = new Date(hourStart.getTime() + 60 * 60000)
       const hourItems = (byDate[ds] || []).filter((apt) => Math.floor(parseHoraToMinutes(apt.hora) / 60) === h)
-      const blocks = hourItems
+      const clinicBlocks = hourItems
         .map((apt) => {
           const cliente = apt.clientes || apt.clients || {}
           const isEvent = apt.item_type === "event"
@@ -378,7 +386,20 @@ async function renderWeekGrid(professionalId = null) {
           </button>`
         })
         .join("")
-      html += `<div class="agenda-week-cell" data-date="${ds}" data-hour="${hh}:00">${blocks}</div>`
+      const ocupados = (externals || [])
+        .filter((b) => rangesOverlap(hourStart.getTime(), hourEnd.getTime(), new Date(b.start_at).getTime(), new Date(b.end_at).getTime()))
+        .map((b) => {
+          const ini = new Date(b.start_at)
+          const fim = new Date(b.end_at)
+          const t0 = `${String(ini.getHours()).padStart(2, "0")}:${String(ini.getMinutes()).padStart(2, "0")}`
+          const t1 = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`
+          return `<span class="agenda-week-block agenda-week-block--ocupado" title="Agenda pessoal — sem detalhes">
+            <b>${escapeHtml(labelOcupadoPessoal())}</b>
+            <span>${t0}–${t1}</span>
+          </span>`
+        })
+        .join("")
+      html += `<div class="agenda-week-cell" data-date="${ds}" data-hour="${hh}:00">${clinicBlocks}${ocupados}</div>`
     }
     html += `</div>`
   }
@@ -394,6 +415,7 @@ async function renderWeekGrid(professionalId = null) {
   grid.querySelectorAll(".agenda-week-block").forEach((el) => {
     el.onclick = (e) => {
       e.stopPropagation()
+      if (!el.dataset.id) return
       openSlotPanel(el.dataset.id)
     }
   })
@@ -429,20 +451,104 @@ function renderDayList(date, professionalId = null) {
     dayTitleEl.textContent = `Agendamentos do dia ${d}/${m}/${y}`
   }
 
-  listAppointmentsByDate(date, professionalId)
-    .then((data) => {
+  Promise.all([
+    listAppointmentsByDate(date, professionalId),
+    professionalId ? listExternalBlocksForRange(date, date, professionalId).catch(() => []) : Promise.resolve([]),
+  ])
+    .then(([data, externals]) => {
       const cliente = (a) => a.clientes || a.clients || {}
       const hora = (a) => a.hora ?? ""
       const isEvent = (a) => a.item_type === "event"
       const items = data || []
 
-      if (items.length === 0) {
+      if (items.length === 0 && !(externals || []).length) {
         listaAgenda.innerHTML = `
           <p class="agenda-empty">Nenhum agendamento neste dia. Use o botão <strong>Criar</strong> para agendar.</p>
         `
         renderAgendaAfazeres(date)
         return
       }
+
+      const totalHours = TIMELINE_END_HOUR - TIMELINE_START_HOUR
+      const totalHeight = totalHours * TIMELINE_PX_PER_HOUR
+      const hourLabels = []
+      for (let h = TIMELINE_START_HOUR; h < TIMELINE_END_HOUR; h++) {
+        hourLabels.push(`<div class="agenda-timeline-hour" style="height:${TIMELINE_PX_PER_HOUR}px">${String(h).padStart(2, "0")}:00</div>`)
+      }
+
+      const startMinutesBase = TIMELINE_START_HOUR * 60
+      const eventBlocks = items
+        .map((a) => {
+          const startMin = parseHoraToMinutes(a.hora)
+          const durationMin = Math.max(15, Number(a.duration_minutes) || 60)
+          const top = ((startMin - startMinutesBase) / 60) * TIMELINE_PX_PER_HOUR
+          const height = Math.max(44, (durationMin / 60) * TIMELINE_PX_PER_HOUR - 4)
+          const nome = isEvent(a)
+            ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
+            : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")
+          const titulo = nome.replace(/"/g, "&quot;").replace(/</g, "&lt;")
+          return `
+    <div class="calendar-event calendar-event--block ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
+         style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
+         data-id="${a.id}"
+         data-tel="${(cliente(a).telefone || cliente(a).phone || "").replace(/"/g, "&quot;")}"
+         data-email="${(cliente(a).email || "").replace(/"/g, "&quot;")}">
+      <div class="calendar-event-block-time">${hora(a)}${durationMin !== 60 ? ` · ${durationMin} min` : ""}</div>
+      <div class="calendar-event-block-name" title="${titulo}">${titulo}</div>
+      <div class="calendar-event-block-actions">
+        ${!isEvent(a) && a.reminder_sent_at ? `<span class="agenda-lembrete-enviado" title="Lembrete enviado">✓</span>` : ""}
+        ${!isEvent(a) ? `<button type="button" class="btn-lembrete btn-icon-sm" data-id="${a.id}" title="Lembrete">📋</button>` : ""}
+        ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete btn-icon-sm" data-id="${a.id}" title="E-mail">✉️</button>` : ""}
+        ${!isEvent(a) ? `<button class="btn-whats btn-icon-sm" title="WhatsApp">📲</button>` : ""}
+      </div>
+    </div>`
+        })
+        .join("")
+
+      const ocupadoBlocks = (externals || []).map((b) => {
+        const ini = new Date(b.start_at)
+        const fim = new Date(b.end_at)
+        const startMin = ini.getHours() * 60 + ini.getMinutes()
+        const durationMin = Math.max(15, (fim.getTime() - ini.getTime()) / 60000)
+        const top = ((startMin - startMinutesBase) / 60) * TIMELINE_PX_PER_HOUR
+        const height = Math.max(44, (durationMin / 60) * TIMELINE_PX_PER_HOUR - 4)
+        const t0 = `${String(ini.getHours()).padStart(2, "0")}:${String(ini.getMinutes()).padStart(2, "0")}`
+        const t1 = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`
+        const titulo = labelOcupadoPessoal()
+        return `
+    <div class="calendar-event calendar-event--block calendar-event--ocupado"
+         style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
+         title="Agenda pessoal — a clínica não vê o conteúdo">
+      <div class="calendar-event-block-time">${t0}–${t1}</div>
+      <div class="calendar-event-block-name">${escapeHtml(titulo)}</div>
+    </div>`
+      }).join("")
+
+      listaAgenda.innerHTML = `
+        <div class="agenda-day-timeline">
+          <div class="agenda-timeline-hours">${hourLabels.join("")}</div>
+          <div class="agenda-timeline-events" style="min-height:${totalHeight}px">
+            ${eventBlocks}${ocupadoBlocks}
+          </div>
+        </div>`
+
+      bindEditEvents()
+      bindLembreteButtons(items, date)
+      bindEmailLembreteButtons(items, date)
+      notificarSemResponsavel().catch(() => {})
+
+      const firstBlock = listaAgenda.querySelector(".calendar-event--block")
+      if (firstBlock) {
+        firstBlock.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      }
+
+      renderAgendaAfazeres(date)
+    })
+    .catch((err) => {
+      console.error("[AGENDA] erro lista dia", err)
+      listaAgenda.innerHTML = `<p class="agenda-empty">Erro ao carregar agendamentos.</p>`
+    })
+}
 
       const totalHours = TIMELINE_END_HOUR - TIMELINE_START_HOUR
       const totalHeight = totalHours * TIMELINE_PX_PER_HOUR
@@ -828,10 +934,11 @@ async function openCreateModal(opts = {}){
     <p class="agenda-retorno-hint">Marque para consultas de retorno (ex.: pós-botox). O horário ocupa a agenda, mas não entra no faturamento previsto.</p>
    </div>
 
-   <p class="agenda-modal-respiro-hint">
-    <strong>Respiro automático:</strong> ${config.respiro_sala_minutos} min para sala, ${config.respiro_profissional_minutos} min para profissional.
-    <br><small>Selecione o procedimento primeiro para ver só salas e profissionais compatíveis.</small>
-   </p>
+    <p class="agenda-modal-respiro-hint">
+     <strong>Respiro automático:</strong> ${config.respiro_sala_minutos} min para sala, ${config.respiro_profissional_minutos} min para profissional.
+     <br><small>Profissional esporádico com Google: a clínica vê só ocupado/livre (sem o conteúdo da agenda pessoal). Ao salvar, o horário entra no Google dele como “Atendimento na clínica”, com folga para chegar e para o próximo compromisso.</small>
+     <br><small>Selecione o procedimento primeiro para ver só salas e profissionais compatíveis.</small>
+    </p>
    <div class="agenda-external-block">
     <label>
       <input type="checkbox" id="onlyExternalBlock">
@@ -1021,7 +1128,8 @@ async function refreshProfStatus(profEl, dataEl, horaEl, procDurationEl, exclude
    statusEl.className = "agenda-prof-status agenda-prof-ok"
   } else {
    const c = result.conflito
-   const conflitoText = `${(c.procedimento || "").replace(/</g, "&lt;")} às ${c.inicio || ""}–${c.fim || ""}` + (c.respiroNecessario ? ` (+${c.respiroNecessario} min de descanso)` : "")
+   const motivo = c.motivo ? ` ${String(c.motivo).replace(/</g, "&lt;")}` : ""
+   const conflitoText = `${(c.procedimento || "").replace(/</g, "&lt;")} às ${c.inicio || ""}–${c.fim || ""}` + (c.respiroNecessario ? ` (+${c.respiroNecessario} min de deslocamento/descanso)` : "") + motivo
    const disponiveisBtns = await buildDisponiveisButtons(date, time, duration, procedureId, profEl, dataEl, horaEl, procDurationEl, excludeAgendaId)
    statusEl.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. ${disponiveisBtns ? `<span class="agenda-prof-disponiveis-label">Disponíveis neste horário:</span> ${disponiveisBtns}` : ""}`
    statusEl.className = "agenda-prof-status agenda-prof-busy"
@@ -1318,6 +1426,7 @@ async function openEditModal(id){
 
     <p class="agenda-modal-respiro-hint">
      <strong>Respiro automático:</strong> ${config.respiro_sala_minutos} min para sala, ${config.respiro_profissional_minutos} min para profissional.
+     <br><small>Agenda pessoal (Google): só aparece ocupado, sem detalhes. O horário da clínica também ocupa o Google dele, com tempo de deslocamento.</small>
     </p>
    `,
 
@@ -1695,16 +1804,21 @@ async function submitDarBaixa(item) {
 }
 
 async function insertAgendaRow(payload) {
-  let { error } = await supabase.from("agenda").insert(payload)
+  let { data, error } = await supabase.from("agenda").insert(payload).select("id").single()
   if (error && /plano_id|sessao_plano|sessoes_plano/i.test(error.message || "")) {
     const fallback = { ...payload }
     delete fallback.plano_id
     delete fallback.sessao_plano
     delete fallback.sessoes_plano
-    const retry = await supabase.from("agenda").insert(fallback)
+    const retry = await supabase.from("agenda").insert(fallback).select("id").single()
     error = retry.error
+    data = retry.data
   }
   if (error) throw error
+  if (data?.id && payload.user_id) {
+    occupyProfessionalCalendar(data.id).catch(() => {})
+  }
+  return data
 }
 
 /* =====================
@@ -2020,6 +2134,7 @@ async function updateAgenda(id){
   closeModal()
   renderAgenda()
   toast("Agendamento atualizado!")
+  occupyProfessionalCalendar(id).catch(() => {})
 
  }catch(err){
 
@@ -2041,10 +2156,10 @@ function bindEditEvents(){
   )
   .forEach(card=>{
    card.onclick =
-    () =>
-     openSlotPanel(
-      card.dataset.id
-    )
+    () => {
+      if (!card.dataset.id) return
+      openSlotPanel(card.dataset.id)
+    }
   })
 
  document

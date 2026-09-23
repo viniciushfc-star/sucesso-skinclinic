@@ -3,11 +3,16 @@ import { getActiveOrg, getOrgMembers, withOrg } from "../core/org.js";
 import { getAgendaConfig } from "./agenda-config.service.js";
 import { getProcedure } from "./procedimentos.service.js";
 import { getProfessionalIdsWhoCanDoProcedure } from "./professional-procedures.service.js";
+import {
+  DEFAULT_TRAVEL_MINUTES,
+  conflitoExternoComDeslocamento,
+  avaliarJornadaClinica,
+} from "../utils/agenda-ocupacao.js";
 
-// Tempo de deslocamento padrão entre clínicas (minutos) para profissionais freelancers.
-// Dentro da mesma clínica, usamos apenas o respiro configurado; o deslocamento é aplicado
-// apenas aos blocos externos (external_calendar_blocks), que representam outros locais / agendas.
-const DEFAULT_TRAVEL_MINUTES = 40;
+function travelFromConfig(config) {
+  const n = Number(config?.deslocamento_minutos);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_TRAVEL_MINUTES;
+}
 
 function getOrgOrThrow(){
  const orgId = getActiveOrg();
@@ -260,8 +265,11 @@ export async function getAvailableProfessionals(date, time, durationMinutes = 60
   }
 
   const { start: slotStart, end: slotEnd } = slotToRange(date, time, durationMinutes);
-  // Para blocos externos, consideramos deslocamento antes/depois do compromisso
-  const travelMs = DEFAULT_TRAVEL_MINUTES * 60000;
+  let travelMin = DEFAULT_TRAVEL_MINUTES;
+  try {
+    travelMin = travelFromConfig(await getAgendaConfig());
+  } catch (_) {}
+  const travelMs = travelMin * 60000;
   const slotStartWithTravel = new Date(slotStart.getTime() - travelMs);
   const slotEndWithTravel = new Date(slotEnd.getTime() + travelMs);
   const slotStartWithTravelISO = slotStartWithTravel.toISOString();
@@ -281,11 +289,29 @@ export async function getAvailableProfessionals(date, time, durationMinutes = 60
 
   const { data: blocks } = await supabase
     .from("external_calendar_blocks")
-    .select("user_id")
+    .select("user_id, start_at, end_at")
     .eq("org_id", orgId)
     .lt("start_at", slotEndWithTravelISO)
     .gt("end_at", slotStartWithTravelISO);
-  for (const b of blocks || []) if (b.user_id) busy.add(b.user_id);
+  for (const b of blocks || []) {
+    if (!b.user_id) continue;
+    if (conflitoExternoComDeslocamento(slotStart, slotEnd, [b], travelMin)) busy.add(b.user_id);
+  }
+
+  for (const uid of userIds) {
+    if (busy.has(uid)) continue;
+    const clinicSlots = agendaRows
+      .filter((row) => row.user_id === uid)
+      .map((row) => {
+        const rowHora = (row.hora || "00:00").slice(0, 5);
+        const rowStart = new Date(row.data + "T" + rowHora + ":00");
+        const rowDuration = row.duration_minutes || 60;
+        return { start: rowStart, end: new Date(rowStart.getTime() + rowDuration * 60000) };
+      });
+    clinicSlots.push({ start: slotStart, end: slotEnd });
+    const jornada = avaliarJornadaClinica(clinicSlots);
+    if (!jornada.ok) busy.add(uid);
+  }
 
   return userIds.filter((id) => !busy.has(id));
 }
@@ -357,11 +383,12 @@ export async function checkProfessionalAvailableWithRespiro(professionalId, date
   if (!professionalId) return { disponivel: true };
   const orgId = getOrgOrThrow();
 
-  // Busca configuração de respiro
   let respiroMinutos = 5;
+  let travelMin = DEFAULT_TRAVEL_MINUTES;
   try {
     const config = await getAgendaConfig();
     respiroMinutos = config.respiro_profissional_minutos || 5;
+    travelMin = travelFromConfig(config);
   } catch (_) {}
 
   const { start: slotStart, end: slotEnd } = slotToRange(date, time, durationMinutes);
@@ -373,10 +400,13 @@ export async function checkProfessionalAvailableWithRespiro(professionalId, date
   if (excludeAgendaId) q = q.neq("id", excludeAgendaId);
   const { data: rows } = await q;
 
+  const clinicSlots = [];
   for (const row of rows || []) {
     const rowHora = (row.hora || "00:00").slice(0, 5);
     const rowStart = new Date(date + "T" + rowHora + ":00");
     const rowDuration = row.duration_minutes || 60;
+    const rowEnd = new Date(rowStart.getTime() + rowDuration * 60000);
+    clinicSlots.push({ start: rowStart, end: rowEnd });
     const rowEndWithRespiro = new Date(rowStart.getTime() + (rowDuration + respiroMinutos) * 60000);
     const rowStartMinusRespiro = new Date(rowStart.getTime() - respiroMinutos * 60000);
 
@@ -393,34 +423,33 @@ export async function checkProfessionalAvailableWithRespiro(professionalId, date
     }
   }
 
-  // Verifica blocos de calendário externo (sem respiro)
-  const travelMs = DEFAULT_TRAVEL_MINUTES * 60000;
+  clinicSlots.push({ start: slotStart, end: slotEnd });
+  const jornada = avaliarJornadaClinica(clinicSlots);
+  if (!jornada.ok) {
+    return {
+      disponivel: false,
+      conflito: {
+        inicio: formatTime(slotStart),
+        fim: formatTime(slotEnd),
+        procedimento: "Jornada do profissional",
+        motivo: jornada.motivo,
+        respiroNecessario: 0,
+      },
+    };
+  }
+
+  const travelMs = travelMin * 60000;
   const { data: blocks } = await supabase
     .from("external_calendar_blocks")
     .select("start_at, end_at")
     .eq("org_id", orgId)
     .eq("user_id", professionalId)
-    .lt("start_at", slotEnd.toISOString())
-    .gt("end_at", slotStart.toISOString());
+    .lt("start_at", new Date(slotEnd.getTime() + travelMs).toISOString())
+    .gt("end_at", new Date(slotStart.getTime() - travelMs).toISOString());
 
-  if (blocks && blocks.length > 0) {
-    for (const b of blocks) {
-      const bStart = new Date(b.start_at);
-      const bEnd = new Date(b.end_at);
-      const bStartWithTravel = new Date(bStart.getTime() - travelMs);
-      const bEndWithTravel = new Date(bEnd.getTime() + travelMs);
-      if (slotStart < bEndWithTravel && slotEnd > bStartWithTravel) {
-        return {
-          disponivel: false,
-          conflito: {
-            inicio: "—",
-            fim: "—",
-            procedimento: "Compromisso externo (Google, etc.)",
-            respiroNecessario: DEFAULT_TRAVEL_MINUTES,
-          },
-        };
-      }
-    }
+  const ext = conflitoExternoComDeslocamento(slotStart, slotEnd, blocks || [], travelMin);
+  if (ext) {
+    return { disponivel: false, conflito: ext };
   }
 
   return { disponivel: true };
@@ -448,6 +477,26 @@ export async function getAvailableSalas(date, time, durationMinutes = 60, exclud
     disponiveis.push(sala);
   }
   return disponiveis;
+}
+
+/**
+ * Blocos da agenda pessoal (só início/fim). Sem título.
+ */
+export async function listExternalBlocksForRange(startDate, endDate, professionalId) {
+  if (!professionalId) return [];
+  const orgId = getOrgOrThrow();
+  const startIso = new Date(`${startDate}T00:00:00`).toISOString();
+  const endIso = new Date(`${endDate}T23:59:59`).toISOString();
+  const { data, error } = await supabase
+    .from("external_calendar_blocks")
+    .select("start_at, end_at")
+    .eq("org_id", orgId)
+    .eq("user_id", professionalId)
+    .lt("start_at", endIso)
+    .gt("end_at", startIso)
+    .order("start_at");
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**

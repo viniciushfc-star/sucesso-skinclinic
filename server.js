@@ -99,6 +99,7 @@ async function registerRoutesOnce() {
   await useApi("get", "/api/google-calendar/callback", () => import("./routes/google-calendar/callback.js"));
   await useApi("get", "/api/google-calendar/status", () => import("./routes/google-calendar/status.js"));
   await useApi("post", "/api/google-calendar/sync", () => import("./routes/google-calendar/sync.js"));
+  await useApi("post", "/api/google-calendar/occupy", () => import("./routes/google-calendar/occupy.js"));
   await useApi("post", "/api/google-calendar/disconnect", () => import("./routes/google-calendar/disconnect.js"));
 }
 

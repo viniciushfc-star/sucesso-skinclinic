@@ -1,14 +1,12 @@
 ﻿/**
- * Sincroniza a agenda Google do profissional com external_calendar_blocks.
+ * Sincroniza ocupação (FreeBusy) → external_calendar_blocks.
  * POST /api/google-calendar/sync
- * Body: { userId, orgId } ou apenas orgId (sincroniza todos os usuários conectados da org).
- * Requer Authorization: Bearer <supabase_jwt> (usuário da org).
+ * Só start/end. Não grava título. Eventos da própria clínica não viram “agenda pessoal”.
  */
 
 import { requireStaffAccess, sendAuthError, getAdminClient } from "../../lib/api-auth.js";
-
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+import { getGoogleAccessToken, fetchFreeBusy } from "../../lib/google-calendar.js";
+import { busyMenosAgendaClinica } from "../../js/utils/agenda-ocupacao.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -63,14 +61,38 @@ export default async function handler(req, res) {
   let totalBlocks = 0;
 
   for (const conn of connections) {
-    const accessToken = await getAccessToken(conn.refresh_token);
+    const accessToken = await getGoogleAccessToken(conn.refresh_token);
     if (!accessToken) continue;
 
-    const events = await fetchCalendarEvents(accessToken, timeMinStr, timeMaxStr);
-    if (!events.length) {
-      await supabase.from("google_calendar_connections").update({ last_sync_at: new Date().toISOString() }).eq("id", conn.id);
+    let busy = [];
+    try {
+      busy = await fetchFreeBusy(accessToken, conn.calendar_id || "primary", timeMinStr, timeMaxStr);
+    } catch (err) {
+      if (err?.status === 403) continue;
+      console.error("[google-calendar/sync] freebusy");
       continue;
     }
+
+    const { data: agendaRows } = await supabase
+      .from("agenda")
+      .select("data, hora, duration_minutes")
+      .eq("org_id", orgId)
+      .eq("user_id", conn.user_id)
+      .is("cancelled_at", null)
+      .gte("data", timeMinStr.slice(0, 10))
+      .lte("data", timeMaxStr.slice(0, 10));
+
+    const clinicSlots = (agendaRows || []).map((row) => {
+      const hora = String(row.hora || "00:00").slice(0, 5);
+      const start = new Date(`${row.data}T${hora}:00`);
+      const end = new Date(start.getTime() + (Number(row.duration_minutes) || 60) * 60000);
+      return { start, end };
+    });
+
+    const personal = busyMenosAgendaClinica(
+      (busy || []).map((b) => ({ start: b.start, end: b.end })),
+      clinicSlots
+    );
 
     await supabase
       .from("external_calendar_blocks")
@@ -80,12 +102,9 @@ export default async function handler(req, res) {
       .gte("start_at", timeMinStr)
       .lt("start_at", timeMaxStr);
 
-    for (const ev of events) {
-      const start = ev.start?.dateTime || ev.start?.date;
-      const end = ev.end?.dateTime || ev.end?.date;
-      if (!start || !end) continue;
-      const startAt = new Date(start).toISOString();
-      const endAt = new Date(end).toISOString();
+    for (const b of personal) {
+      const startAt = new Date(b.start).toISOString();
+      const endAt = new Date(b.end).toISOString();
       if (endAt <= startAt) continue;
       const { error: insErr } = await supabase.from("external_calendar_blocks").insert({
         org_id: orgId,
@@ -101,39 +120,3 @@ export default async function handler(req, res) {
 
   return res.status(200).json({ ok: true, blocksCreated: totalBlocks });
 }
-
-async function getAccessToken(refreshToken) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-    grant_type: "refresh_token",
-  });
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.access_token || null;
-}
-
-async function fetchCalendarEvents(accessToken, timeMin, timeMax) {
-  const params = new URLSearchParams({
-    timeMin,
-    timeMax,
-    singleEvents: "true",
-    orderBy: "startTime",
-  });
-  const res = await fetch(`${CALENDAR_EVENTS_URL}?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.items || [];
-}
-

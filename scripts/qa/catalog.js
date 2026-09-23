@@ -128,6 +128,7 @@ export const POST_APIS = [
   "/api/whatsapp-send",
   "/api/audit-log",
   "/api/google-calendar/sync",
+  "/api/google-calendar/occupy",
   "/api/google-calendar/disconnect",
 ];
 
@@ -201,6 +202,7 @@ export const API_PERM = {
   "/api/send-invite-email": { perm: "team:invite", gestor: true, master: true, funcionario: false },
   "/api/analise-pele-fotos": { perm: "clientes:view", gestor: true, master: true, funcionario: true },
   "/api/google-calendar/sync": { perm: "dashboard:view", gestor: true, master: true, funcionario: true },
+  "/api/google-calendar/occupy": { perm: "dashboard:view", gestor: true, master: true, funcionario: true },
   "/api/google-calendar/disconnect": { perm: "dashboard:view", gestor: true, master: true, funcionario: true },
   "/api/lembretes-auto": { perm: "dashboard:view", gestor: true, master: true, funcionario: true },
 };

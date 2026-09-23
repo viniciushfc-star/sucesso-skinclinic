@@ -6,9 +6,9 @@
 
 import { requireStaffAccess, sendAuthError } from "../../lib/api-auth.js";
 import { createSignedOAuthState, getOAuthStateSecret } from "../../lib/oauth-state.js";
+import { GOOGLE_CALENDAR_SCOPES } from "../../lib/google-calendar.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -56,7 +56,7 @@ export default async function handler(req, res) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: SCOPE,
+    scope: GOOGLE_CALENDAR_SCOPES,
     state,
     access_type: "offline",
     prompt: "consent",

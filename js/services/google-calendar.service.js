@@ -48,6 +48,17 @@ export async function syncCalendar(userId = null) {
   return data;
 }
 
+export async function occupyProfessionalCalendar(agendaId, action = "occupy") {
+  if (!agendaId) return { skipped: true };
+  const res = await apiFetch("/api/google-calendar/occupy", {
+    method: "POST",
+    json: { agenda_id: agendaId, action },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, skipped: true };
+  return data;
+}
+
 export async function disconnectCalendar(userId) {
   const orgId = getActiveOrg();
   if (!orgId || !userId) throw new Error("Dados insuficientes");

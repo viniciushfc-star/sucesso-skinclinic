@@ -93,7 +93,7 @@ function checkGoogleCalendarCallback() {
   const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "")
   const status = params.get("google_calendar")
   if (status === "connected") {
-    toast("Google Agenda conectada. Use \"Sincronizar agora\" para atualizar os blocos de indisponibilidade.")
+    toast("Google Agenda conectada. Sincronize para ver ocupado/livre. Reconecte se a conexão for antiga, para a clínica poder ocupar o horário (sem dados do paciente).")
     if (window.history.replaceState) {
       const url = new URL(window.location.href)
       url.searchParams.delete("google_calendar")
