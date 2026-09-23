@@ -1148,11 +1148,7 @@ async function loadClientName(clientId, el) {
       el.textContent = data.name;
       return;
     }
-  } catch (_) {}
-  try {
-    const { data } = await supabase.from("clientes").select("nome").eq("id", clientId).single();
-    if (data?.nome) el.textContent = data.nome;
-    else el.textContent = "—";
+    el.textContent = "—";
   } catch (_) {
     el.textContent = "—";
   }

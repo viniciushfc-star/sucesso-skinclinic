@@ -12,13 +12,12 @@ async function countUniqueClients(orgId = null) {
     } catch (_) {}
   }
   await load("clients")
-  await load("clientes")
   return ids.size
 }
 
 /**
  * Métricas do dashboard (clientes, agendamentos hoje, faturamento mês).
- * Conta IDs únicos em `clients` e na tabela legado `clientes`.
+ * Conta IDs em `clients` (canônico).
  */
 export async function getMasterMetrics() {
 

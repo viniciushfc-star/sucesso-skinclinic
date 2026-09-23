@@ -117,11 +117,6 @@ export async function getProtocolosAplicadosHoje() {
   if (ids.length > 0) {
     const { data: clients } = await supabase.from("clients").select("id, name").in("id", ids);
     (clients ?? []).forEach((c) => (names[c.id] = c.name));
-    const missing = ids.filter((id) => !names[id]);
-    if (missing.length) {
-      const { data: legacy } = await supabase.from("clientes").select("id, nome").in("id", missing);
-      (legacy ?? []).forEach((c) => (names[c.id] = c.nome));
-    }
   }
   return (data ?? []).map((r) => ({ ...r, client_name: names[r.client_id] ?? "—" }));
 }

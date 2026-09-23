@@ -32,63 +32,10 @@ export const CLIENT_STATES = {
 };
 
 /* =========================
-   READ
+   READ — fonte canônica: clients
 ========================= */
 
-function phoneDigits(p) {
-  return String(p || "").replace(/\D/g, "");
-}
-
-function alreadyHasLegacyCliente(canonicalList, legacy) {
-  const email = (legacy.email || "").trim().toLowerCase();
-  const phone = phoneDigits(legacy.telefone || legacy.phone);
-  const legacyId = legacy.id != null ? String(legacy.id) : "";
-  return (canonicalList || []).some((c) => {
-    if (c.legacy_cliente_id != null && String(c.legacy_cliente_id) === legacyId) return true;
-    if (c.id != null && String(c.id) === legacyId) return true;
-    const e = (c.email || "").trim().toLowerCase();
-    if (email && e && e === email) return true;
-    const p = phoneDigits(c.phone);
-    if (phone.length >= 8 && p === phone) return true;
-    return false;
-  });
-}
-
-export function mapLegacyClienteRow(c) {
-  return {
-    id: c.id,
-    org_id: c.org_id,
-    name: c.nome || c.name || "Cliente",
-    email: c.email || null,
-    phone: c.telefone || c.phone || null,
-    created_at: c.created_at,
-    state: c.state || "em_acompanhamento",
-    status: c.status || "active",
-    is_paciente_modelo: !!c.is_paciente_modelo,
-    model_discount_pct: c.model_discount_pct ?? null,
-    legacy_cliente_id: c.id,
-  };
-}
-
-async function appendLegacyClientes(orgId, list) {
-  try {
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("id, org_id, nome, telefone, email, created_at")
-      .eq("org_id", orgId);
-    if (error || !data?.length) return list;
-    const extra = [];
-    for (const row of data) {
-      if (!row?.id || alreadyHasLegacyCliente(list, row)) continue;
-      extra.push(mapLegacyClienteRow(row));
-    }
-    return extra.length ? [...(list || []), ...extra] : list;
-  } catch (_) {
-    return list;
-  }
-}
-
-/** Lista para selects (agenda): `clients` + linhas só em `clientes`. */
+/** Lista para selects (agenda): só `clients`. */
 export async function listClientesForSelect() {
   const orgId = getOrgOrThrow();
   let { data, error } = await supabase
@@ -110,8 +57,7 @@ export async function listClientesForSelect() {
     ...c,
     nome: c.name || c.nome,
   }));
-  const merged = await appendLegacyClientes(orgId, list);
-  return merged.map((c) => ({
+  return list.map((c) => ({
     id: c.id,
     name: c.name || c.nome,
     nome: c.name || c.nome,
@@ -151,7 +97,7 @@ export async function getClientes(filters = {}) {
 
   if (error) throw error;
 
-  let list = await appendLegacyClientes(orgId, data || []);
+  let list = data || [];
   if (filters.state) {
     list = list.filter((c) => (c.state || "em_acompanhamento") === filters.state);
   }
@@ -288,17 +234,8 @@ export async function getClientById(clientId) {
     .maybeSingle();
 
   if (error) throw error;
-  if (data) return withSignedField(data, "avatar_url", "client-photos");
-
-  const { data: legacy, error: errL } = await supabase
-    .from("clientes")
-    .select("id, org_id, nome, telefone, email, created_at")
-    .eq("id", clientId)
-    .eq("org_id", orgId)
-    .maybeSingle();
-  if (errL) throw errL;
-  if (!legacy) throw new Error("Cliente não encontrado");
-  return mapLegacyClienteRow(legacy);
+  if (!data) throw new Error("Cliente não encontrado");
+  return withSignedField(data, "avatar_url", "client-photos");
 }
 
 /* =========================
