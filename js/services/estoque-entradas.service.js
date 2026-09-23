@@ -7,6 +7,7 @@ import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 import { audit } from "./audit.service.js";
 import { createAfazer, TIPOS_AFAZERES } from "./afazeres.service.js";
+import { custoRealFromUsage } from "../utils/estoque-custo.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -323,7 +324,7 @@ export async function getProdutosProximosVencer(dias = 60) {
 export async function getCustoRealProcedimento(procedureId) {
   const { getProcedureStockUsage } = await import("./procedimentos.service.js");
   const usage = await getProcedureStockUsage(procedureId);
-  if (usage.length === 0) return { custoReal: 0, itens: [] };
+  if (usage.length === 0) return { custoReal: null, incompleto: false, itens: [] };
 
   const resumo = await getResumoPorProduto();
   const custoPorNome = {};
@@ -332,20 +333,7 @@ export async function getCustoRealProcedimento(procedureId) {
     if (nome) custoPorNome[nome.toLowerCase()] = r.custo_medio != null ? Number(r.custo_medio) : null;
   }
 
-  let custoReal = 0;
-  const itens = usage.map((u) => {
-    const key = u.item_ref.toLowerCase();
-    let custo_unitario = custoPorNome[key] ?? null;
-    if (custo_unitario == null) {
-      const partial = Object.keys(custoPorNome).find((k) => k.includes(key) || key.includes(k));
-      if (partial) custo_unitario = custoPorNome[partial];
-    }
-    const subtotal = (custo_unitario != null ? custo_unitario : 0) * u.quantity_used;
-    custoReal += subtotal;
-    return { item_ref: u.item_ref, quantity_used: u.quantity_used, custo_unitario, subtotal };
-  });
-
-  return { custoReal, itens };
+  return custoRealFromUsage(usage, custoPorNome);
 }
 
 /**

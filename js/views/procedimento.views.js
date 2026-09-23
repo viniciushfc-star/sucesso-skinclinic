@@ -473,7 +473,7 @@ async function openCreateModal() {
     <p class="procedimento-modal-hint">Use para o termo se adaptar ao procedimento: o advogado pode redigir uma cláusula por tipo de serviço.</p>
       <div class="procedimento-pricing-block">
       <h4>🤖 Apoio à precificação (IA)</h4>
-      <p class="procedimento-modal-hint" style="margin:0 0 8px;">A IA sugere um valor com base em custo, margem e duração. Você decide se aplica.</p>
+      <p class="procedimento-modal-hint" style="margin:0 0 8px;">A IA calcula um valor pela estrutura de custos. Não é preço de mercado. Você decide se aplica.</p>
       <button type="button" id="btnSugerirPreco" class="btn-secondary">Sugerir valor com IA</button>
       <div id="procPricingResult" class="procedimento-pricing-suggestion hidden" aria-live="polite"></div>
     </div>
@@ -528,7 +528,7 @@ async function openEditModal(id) {
       <p class="procedimento-modal-hint">Use para o termo se adaptar ao procedimento: o advogado pode redigir uma cláusula por tipo de serviço.</p>
       <div class="procedimento-pricing-block">
         <h4>🤖 Apoio à precificação (IA)</h4>
-        <p class="procedimento-modal-hint" style="margin:0 0 8px;">A IA sugere um valor com base em custo, margem e duração. Você decide se aplica.</p>
+        <p class="procedimento-modal-hint" style="margin:0 0 8px;">A IA calcula um valor pela estrutura de custos. Não é preço de mercado. Você decide se aplica.</p>
         <button type="button" id="btnSugerirPreco" class="btn-secondary">Sugerir valor com IA</button>
         <div id="procPricingResult" class="procedimento-pricing-suggestion hidden" aria-live="polite"></div>
       </div>
@@ -579,7 +579,7 @@ async function openEditModal(id) {
             <li>Custo estrutural (${escapeHtml(eco.rateioMetodoLabel || "não informado")}): <strong>${brl(eco.custoEstrutural)}</strong>${eco.rateioDetalhe ? ` — ${escapeHtml(eco.rateioDetalhe)}` : ""}</li>
             <li>Lucro estimado: <strong>${brl(eco.lucro)}</strong> · margem ${eco.margemPct != null ? eco.margemPct.toFixed(1).replace(".", ",") + "%" : "não informado"}</li>
             <li>Lucro / hora: <strong>${brl(eco.lucroHora)}</strong></li>
-            <li>Preço de equilíbrio: <strong>${brl(eco.precoEquilibrio)}</strong> · mínimo (margem alvo): <strong>${brl(eco.precoMinimo)}</strong> · recomendado: <strong>${brl(eco.precoRecomendado)}</strong></li>
+            <li>Preço de equilíbrio: <strong>${brl(eco.precoEquilibrio)}</strong> · mínimo (margem alvo): <strong>${brl(eco.precoMinimo)}</strong> · calculado (estrutura de custos, não mercado): <strong>${brl(eco.precoCalculado)}</strong></li>
           </ul>
           <p class="procedimento-modal-hint">Sugestões não alteram o valor cobrado. Você decide.</p>
         `;
@@ -989,7 +989,7 @@ function bindPricingSuggestion() {
       const custos = { duracao_minutos: duracao };
       if (custoMaterial != null) custos.custo_material_estimado = custoMaterial;
       const protocolo = { nome, margem_minima_desejada: margemMin };
-      const res = await gerarPreco({ custos, protocolo, mercado: {} });
+      const res = await gerarPreco({ custos, protocolo });
 
       const raw = (res && res.content) ? res.content : (typeof res === "string" ? res : "");
       const jsonStr = raw.replace(/```json?\s*/g, "").replace(/```\s*$/g, "").trim();
@@ -997,9 +997,9 @@ function bindPricingSuggestion() {
       try {
         data = JSON.parse(jsonStr);
       } catch (_) {
-        data = typeof res === "object" && res.preco_ideal != null ? res : {};
+        data = typeof res === "object" && (res.preco_calculado != null || res.preco_ideal != null) ? res : {};
       }
-      precoIdeal = data.preco_ideal ?? data.preco_ideal;
+      precoIdeal = data.preco_calculado ?? data.preco_ideal;
       if (precoIdeal == null) precoIdeal = data.preco_min;
       justificativa = data.justificativa || "";
     } catch (e) {
@@ -1008,13 +1008,13 @@ function bindPricingSuggestion() {
 
     if (precoIdeal == null && custoMaterial != null && margemMin != null && margemMin < 100) {
       precoIdeal = custoMaterial / (1 - margemMin / 100);
-      justificativa = "Sugestão por fórmula: custo ÷ (1 − margem%). Você pode ajustar.";
+      justificativa = "Cálculo pela estrutura: custo ÷ (1 − margem%). Não é preço de mercado. Você pode ajustar.";
     }
 
     if (precoIdeal != null) {
       const valorStr = Number(precoIdeal).toFixed(2).replace(".", ",");
       resultEl.innerHTML = `
-        <p><span class="valor-sugerido">Valor sugerido: R$ ${valorStr}</span></p>
+        <p><span class="valor-sugerido">Preço calculado (estrutura de custos): R$ ${valorStr}</span></p>
         ${justificativa ? `<p>${escapeHtml(justificativa)}</p>` : ""}
         <button type="button" class="btn-secondary" id="btnAplicarPreco">Aplicar ao valor cobrado</button>
       `;
