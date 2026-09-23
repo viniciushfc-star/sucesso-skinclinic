@@ -133,7 +133,8 @@ describe("Lote 1 telefone org", () => {
   it("lembretes filtram clients pela org do agendamento", () => {
     const src = readFileSync(join(ROOT, "routes", "lembretes-auto.js"), "utf8");
     assert.match(src, /\.eq\("id", ag\.cliente_id\)/);
-    assert.match(src, /\.eq\("org_id", ag\.org_id\)/);
+    assert.match(src, /orgFiltro && String\(ag\.org_id\) !== String\(orgFiltro\)/);
+    assert.match(src, /orgDoCliente/);
     assert.match(src, /cliente_outra_org/);
   });
 });
@@ -141,7 +142,9 @@ describe("Lote 1 telefone org", () => {
 describe("Lote 1 webhook sem fallback", () => {
   it("não grava financeiro sem webhook_event_id", () => {
     const src = readFileSync(join(ROOT, "routes", "webhook-transacoes.js"), "utf8");
-    assert.match(src, /webhook_event_id/);
+    assert.match(src, /webhook_event_id: eventId/);
+    assert.match(src, /identidade idempotente/);
+    assert.doesNotMatch(src, /accountId\}:\$\{date\}/);
     assert.equal(src.includes("fallback"), false);
     assert.doesNotMatch(src, /webhook_event_id, \.\.\.rest/);
   });

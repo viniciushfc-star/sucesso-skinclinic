@@ -58,17 +58,22 @@ export default async function handler(req, res) {
     .limit(1);
   const userId = members?.[0]?.user_id ?? null;
 
-  const rows = rawTransactions
-    .map((t) => {
+  const rows = [];
+  let semIdentidade = 0;
+  for (const t of rawTransactions) {
       const date = normalizeDate(t.date);
       const amount = Number(t.amount);
       const description = (t.description || t.descricao || "").trim().slice(0, 500) || "Transação em tempo real";
       const type = (t.type || "").toLowerCase();
       const tipo = type === "credit" || type === "entrada" || type === "c" || amount > 0 ? "entrada" : "saida";
       const valor = Math.abs(amount);
-      if (!date || !Number.isFinite(valor) || valor <= 0) return null;
+      if (!date || !Number.isFinite(valor) || valor <= 0) continue;
       const eventId = String(t.id || t.transaction_id || t.external_id || "").trim().slice(0, 120);
-      return {
+      if (!eventId) {
+        semIdentidade += 1;
+        continue;
+      }
+      rows.push({
         org_id: conta.org_id,
         user_id: userId,
         descricao: description,
@@ -80,12 +85,15 @@ export default async function handler(req, res) {
         conta_origem: conta.nome_exibicao,
         categoria_saida: null,
         procedure_id: null,
-        webhook_event_id: eventId || `${accountId}:${date}:${valor}:${description}`.slice(0, 180),
-      };
-    })
-    .filter(Boolean);
+        webhook_event_id: eventId,
+      });
+  }
 
   if (rows.length === 0) {
+    if (semIdentidade > 0) {
+      recordWebhookFailure({ status: 400, message: "evento sem webhook_event_id", orgId: conta.org_id });
+      return res.status(400).json({ error: "Evento sem identidade idempotente. Recusado." });
+    }
     return res.status(400).json({ error: "Nenhuma transação válida (date, amount obrigatórios)" });
   }
 
