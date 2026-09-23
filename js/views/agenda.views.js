@@ -93,14 +93,14 @@ function ensureAgendaPanel() {
   view.appendChild(agendaPanelEl)
 }
 
-export function init() {
+export async function init() {
   ensureAgendaPanel()
   selectedDate = getTodayStr()
   const t = new Date()
   calendarYear = t.getFullYear()
   calendarMonth = t.getMonth() + 1
   bindUI()
-  renderCalendarAndDay()
+  await renderCalendarAndDay()
   renderAniversariantes()
   if (sessionStorage.getItem("agendaPrefillClientId")) {
     openCreateModal()
@@ -220,8 +220,8 @@ async function renderCalendarAndDay() {
     }
 
     renderCalendar(countsByDay)
-    await renderWeekGrid(professionalId)
-    await renderDayList(selectedDate, professionalId)
+    const weekItems = await renderWeekGrid(professionalId)
+    await renderDayList(selectedDate, professionalId, weekItems)
   } catch (err) {
     console.error("[AGENDA] erro render", err)
     toast("Erro ao carregar agenda")
@@ -322,7 +322,7 @@ function escapeHtml(s) {
 async function renderWeekGrid(professionalId = null) {
   const grid = document.getElementById("agendaWeekGrid")
   const weekTitle = document.getElementById("agendaWeekTitle")
-  if (!grid) return
+  if (!grid) return []
 
   const start = mondayOf(selectedDate)
   const end = addDaysStr(start, WEEK_DAY_COUNT - 1)
@@ -345,7 +345,7 @@ async function renderWeekGrid(professionalId = null) {
   } catch (err) {
     console.error("[AGENDA] semana", err)
     grid.innerHTML = `<p class="agenda-empty">Não foi possível carregar a semana.</p>`
-    return
+    return []
   }
 
   const byDate = {}
@@ -426,6 +426,7 @@ async function renderWeekGrid(professionalId = null) {
       openCreateModal({ hora: cell.dataset.hour })
     }
   })
+  return items
 }
 
 /** Converte "09:00" ou "9:00" em minutos desde meia-noite. */
@@ -441,7 +442,7 @@ const TIMELINE_START_HOUR = 6
 const TIMELINE_END_HOUR = 22
 const TIMELINE_PX_PER_HOUR = 64
 
-function renderDayList(date, professionalId = null) {
+function renderDayList(date, professionalId = null, weekItems = null) {
   const listaAgenda = document.getElementById("listaAgenda")
   const dayTitleEl = document.getElementById("agendaDayTitle")
   if (!listaAgenda) return
@@ -451,8 +452,15 @@ function renderDayList(date, professionalId = null) {
     dayTitleEl.textContent = `Agendamentos do dia ${d}/${m}/${y}`
   }
 
+  const dayFromWeek = Array.isArray(weekItems)
+    ? weekItems.filter((a) => a?.data === date)
+    : null
+  const appointmentsP = dayFromWeek
+    ? Promise.resolve(dayFromWeek)
+    : listAppointmentsByDate(date, professionalId)
+
   Promise.all([
-    listAppointmentsByDate(date, professionalId),
+    appointmentsP,
     professionalId ? listExternalBlocksForRange(date, date, professionalId).catch(() => []) : Promise.resolve([]),
   ])
     .then(([data, externals]) => {

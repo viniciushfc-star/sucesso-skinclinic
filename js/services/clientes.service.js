@@ -42,13 +42,15 @@ export async function listClientesForSelect() {
     .from("clients")
     .select("id, name, email, phone, legacy_cliente_id, is_paciente_modelo, model_discount_pct")
     .eq("org_id", orgId)
-    .order("name", { ascending: true });
+    .order("name", { ascending: true })
+    .limit(400);
   if (error) {
     const retry = await supabase
       .from("clients")
       .select("id, name, email, phone, is_paciente_modelo, model_discount_pct")
       .eq("org_id", orgId)
-      .order("name", { ascending: true });
+      .order("name", { ascending: true })
+      .limit(400);
     data = retry.data;
     error = retry.error;
   }
@@ -79,7 +81,7 @@ export async function getClientes(filters = {}) {
 
   let query = supabase
     .from("clients")
-    .select("*")
+    .select("id, name, email, phone, cpf, state, status, avatar_url, created_at, birth_date, is_paciente_modelo, model_discount_pct")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
@@ -91,6 +93,16 @@ export async function getClientes(filters = {}) {
   }
   if (filters.created_after) {
     query = query.gte("created_at", filters.created_after);
+  }
+
+  if (filters.search && filters.search.trim()) {
+    const term = filters.search.trim();
+    const safe = term.replace(/[%(),]/g, " ").trim();
+    if (safe) query = query.or(`name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%`);
+  }
+  const limit = Number(filters.limit);
+  if (Number.isFinite(limit) && limit > 0) {
+    query = query.limit(Math.min(limit, 500));
   }
 
   const { data, error } = await query;

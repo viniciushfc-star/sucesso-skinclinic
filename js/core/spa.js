@@ -617,6 +617,10 @@ async function renderRoute(route) {
       overlay.classList.add("hidden");
       overlay.setAttribute("aria-busy", "false");
     }
+    const main = document.getElementById("mainContent");
+    if (main && typeof main.focus === "function") {
+      try { main.focus({ preventScroll: true }); } catch (_) { main.focus(); }
+    }
   }
   history.pushState({}, "", `#${route}`);
 }
@@ -635,15 +639,29 @@ async function carregarView(viewName) {
     );
 
     if (module?.init) {
-      module.init();
+      await module.init();
     }
 
     if (config?.permission !== null) {
       const notif = await import("../views/notificacoes.views.js").catch(() => null);
-      if (notif?.initHeaderNotif) notif.initHeaderNotif();
-      if (notif?.initCopilotPanel) notif.initCopilotPanel();
+      if (notif?.initHeaderNotif && !window.__scNotifBound) {
+        notif.initHeaderNotif();
+        window.__scNotifBound = true;
+      }
+      if (notif?.initCopilotPanel && !window.__scCopilotBound) {
+        notif.initCopilotPanel();
+        window.__scCopilotBound = true;
+      }
       if (notif?.updateBadge) await notif.updateBadge();
       updateAppIdentity().catch(() => {});
+    }
+    if (viewName === "dashboard") {
+      const idle = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn) => setTimeout(fn, 400);
+      idle(() => {
+        import("../views/agenda.views.js").catch(() => {});
+        import("../views/clientes.views.js").catch(() => {});
+        import("../views/crm.views.js").catch(() => {});
+      });
     }
   } catch (err) {
     console.error("Erro ao carregar view:", err?.message || err, "(view:", viewName, "| arquivo:", config?.view + ")");

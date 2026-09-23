@@ -67,7 +67,7 @@ import {
 ===================== */
 
 
-export function init(){
+export async function init(){
  bindUI()
  bindFinanceiroMainTabs()
  const openTab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null
@@ -78,7 +78,7 @@ export function init(){
    const viewEl = document.getElementById("view-financeiro")
    if (viewEl) viewEl.dataset.currentTab = "visao-geral"
  }
- renderFinanceiro()
+ await renderFinanceiro()
 }
 
 /* =====================

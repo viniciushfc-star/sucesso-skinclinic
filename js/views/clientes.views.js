@@ -26,7 +26,10 @@ let capturedPhotoDataUrl = null;
 let capturedPhotoBlob = null;
 
 export async function init() {
-  canEdit = (await checkPermission("clientes:manage")) || (await checkPermission("clientes:edit"));
+  canEdit = (await Promise.all([
+    checkPermission("clientes:manage"),
+    checkPermission("clientes:edit"),
+  ])).some(Boolean);
   await loadClientes();
   bindUI();
 }
@@ -66,6 +69,7 @@ async function loadClientes() {
     clientes = await getClientes({
       search: search || undefined,
       state: state || undefined,
+      limit: 250,
     });
     renderClientes();
   } catch (err) {

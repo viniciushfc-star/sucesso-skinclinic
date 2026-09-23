@@ -9,8 +9,16 @@ from "../services/invite.service.js";
 
 
 const ORG_KEY = "active_org_id";
+const MEMBERS_TTL_MS = 45_000;
+let membersCache = { orgId: null, at: 0, data: null };
+
+export function invalidateOrgMembersCache() {
+  membersCache = { orgId: null, at: 0, data: null };
+}
 
 export function setActiveOrg(orgId) {
+  const prev = localStorage.getItem(ORG_KEY);
+  if (prev !== orgId) invalidateOrgMembersCache();
   localStorage.setItem(ORG_KEY, orgId);
 }
 
@@ -29,6 +37,7 @@ export function withOrg(queryBuilder) {
 }
 
 export function clearActiveOrg() {
+  invalidateOrgMembersCache();
   localStorage.removeItem(ORG_KEY);
 }
 
@@ -60,15 +69,20 @@ export async function loadUserOrganizations() {
 export async function getOrgMembers() {
   const orgId = getActiveOrg();
   if (!orgId) return [];
+  const now = Date.now();
+  if (membersCache.orgId === orgId && membersCache.data && now - membersCache.at < MEMBERS_TTL_MS) {
+    return membersCache.data;
+  }
   const { data, error } = await supabase
     .from("organization_users")
     .select("user_id, role")
     .eq("org_id", orgId);
   if (error) {
     console.warn("[ORG] Erro ao carregar membros", error);
-    return [];
+    return membersCache.data && membersCache.orgId === orgId ? membersCache.data : [];
   }
-  return data ?? [];
+  membersCache = { orgId, at: now, data: data ?? [] };
+  return membersCache.data;
 }
 
 /* =========================
@@ -114,6 +128,7 @@ export async function inviteUser({ email, role }) {
     email,
     role
   });
+  invalidateOrgMembersCache();
 }
 
 
@@ -137,6 +152,7 @@ export async function removeUserFromOrg(userId) {
   if (error) {
     throw error;
   }
+  invalidateOrgMembersCache();
 }
 
 /* =========================

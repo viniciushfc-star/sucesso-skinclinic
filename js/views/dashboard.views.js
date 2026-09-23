@@ -89,10 +89,12 @@ async function loadAndRender() {
 
   if (!grid) return
 
-  const canSeeClientes = await checkPermission("clientes:view")
-  const canSeeAgendaTotal = await checkPermission("agenda:manage")
-  const canSeeMeusAtendimentos = await checkPermission("agenda:view")
-  const canSeeSaldo = await checkPermission("financeiro:view")
+  const [canSeeClientes, canSeeAgendaTotal, canSeeMeusAtendimentos, canSeeSaldo] = await Promise.all([
+    checkPermission("clientes:view"),
+    checkPermission("agenda:manage"),
+    checkPermission("agenda:view"),
+    checkPermission("financeiro:view"),
+  ]);
 
   const { startDate, endDate } = getPeriodFromUI()
 
