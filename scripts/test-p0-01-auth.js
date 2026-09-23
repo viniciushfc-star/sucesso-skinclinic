@@ -19,7 +19,10 @@ import {
 } from "../lib/api-auth.js";
 import webhookHandler from "../routes/webhook-transacoes.js";
 import { createSignedOAuthState, verifySignedOAuthState } from "../lib/oauth-state.js";
-import { secretsEqual, corsOriginFor, isBlockedStaticPath } from "../lib/http-security.js";
+import { secretsEqual, corsOriginFor, isBlockedStaticPath, shouldNoStoreHtml } from "../lib/http-security.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function mockRes() {
   const r = {
@@ -235,6 +238,15 @@ describe("P0 fail-closed e CORS", () => {
     assert.equal(isBlockedStaticPath("/.env"), true);
     assert.equal(isBlockedStaticPath("/google-key.json"), true);
     assert.equal(isBlockedStaticPath("/js/core/auth.js"), false);
+  });
+
+  it("HTML da SPA não vai para cache; API continua cacheável pelo cliente", () => {
+    assert.equal(shouldNoStoreHtml("/dashboard.html"), true);
+    assert.equal(shouldNoStoreHtml("/"), true);
+    assert.equal(shouldNoStoreHtml("/api/health"), false);
+    const vercel = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "vercel.json"), "utf8");
+    assert.match(vercel, /X-Frame-Options/);
+    assert.match(vercel, /no-store/);
   });
 
   it("tabela de permissão ausente não é fail-closed 500", () => {

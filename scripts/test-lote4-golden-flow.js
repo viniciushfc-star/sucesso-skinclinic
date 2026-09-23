@@ -30,10 +30,13 @@ describe("Lote 4 golden flow", () => {
     assert.match(src, /protocolos_aplicados/);
   });
 
-  it("aplicar protocolo ainda dispara consumo de estoque no SQL canônico", () => {
+  it("aplicar protocolo dispara consumo no SQL canônico e no service", () => {
     const sql = readFileSync(join(ROOT, "supabase/supabase-protocolo-canon.sql"), "utf8");
     assert.match(sql, /estoque_consumo_ao_aplicar_protocolo/);
     assert.match(sql, /trg_estoque_consumo_ao_aplicar_protocolo/);
+    const svc = readFileSync(join(ROOT, "js/services/protocolo-db.service.js"), "utf8");
+    assert.match(svc, /registrarConsumoEstimado/);
+    assert.match(svc, /protocolos_aplicados/);
   });
 
   it("P&L e lucro/hora não mandam alterar preço", () => {

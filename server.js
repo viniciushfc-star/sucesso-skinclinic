@@ -8,7 +8,7 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { corsOriginFor, isBlockedStaticPath } from "./lib/http-security.js";
+import { corsOriginFor, isBlockedStaticPath, applyBrowserSecurityHeaders } from "./lib/http-security.js";
 import { startApiObservation } from "./lib/observability.js";
 import { enforceHttpRateLimit } from "./lib/http-rate-limit.js";
 
@@ -28,9 +28,7 @@ app.use((req, res, next) => {
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Webhook-Secret, X-Webhook-Transactions-Secret, X-Cron-Secret");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  applyBrowserSecurityHeaders(res, req);
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
