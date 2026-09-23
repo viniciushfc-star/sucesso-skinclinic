@@ -594,7 +594,7 @@ async function renderSetupProgress() {
     })
     .join("")
   const ahaHtml = faltaAha
-    ? `<p class="setup-progress-aha">Checklist básico ok. O momento de virada: registre o <strong>primeiro protocolo aplicado</strong> no atalho da <a href="#" data-view="agenda">Agenda</a>.</p>`
+    ? `<p class="setup-progress-aha">Falta o ciclo ouro: anamnese, plano, <strong>protocolo aplicado</strong> (estoque) e um lançamento no financeiro. Atalho na <a href="#" data-view="agenda">Agenda</a>.</p>`
     : `<p class="setup-progress-import">Para entrar rápido: <a href="#" data-view="export">importar CSV com prévia</a>.</p>`
   el.innerHTML = `
     <p class="setup-progress-pct"><strong>${p.pct}% configurado</strong> (${p.done}/${p.total})</p>

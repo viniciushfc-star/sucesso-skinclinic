@@ -19,10 +19,21 @@ function headCount(table, extra = (q) => q) {
 export async function getSetupProgress() {
   const orgId = getActiveOrg();
   if (!orgId) {
-    return { pct: 0, done: 0, total: 6, steps: [], aha: false };
+    return { pct: 0, done: 0, total: 10, steps: [], aha: false };
   }
 
-  const [profile, members, procedures, nClientes, nAgenda, nEstoque, nAplicados] = await Promise.all([
+  const [
+    profile,
+    members,
+    procedures,
+    nClientes,
+    nAgenda,
+    nEstoque,
+    nAplicados,
+    nAnamnese,
+    nPlanos,
+    nFinanceiro,
+  ] = await Promise.all([
     getOrganizationProfile().catch(() => null),
     getOrgMembers().catch(() => []),
     listProcedures(false).catch(() => []),
@@ -30,6 +41,9 @@ export async function getSetupProgress() {
     headCount("agenda"),
     headCount("estoque_entradas"),
     headCount("protocolos_aplicados"),
+    headCount("anamnesis_registros"),
+    headCount("planos_terapeuticos"),
+    headCount("financeiro"),
   ]);
 
   const procs = procedures || [];
@@ -75,6 +89,30 @@ export async function getSetupProgress() {
       ok: nAgenda > 0,
       view: "agenda",
       label: "1 horário na agenda",
+    },
+    {
+      id: "anamnese",
+      ok: nAnamnese > 0,
+      view: "anamnese",
+      label: "1 anamnese (primeiro atendimento)",
+    },
+    {
+      id: "plano",
+      ok: nPlanos > 0,
+      view: "planos",
+      label: "1 plano terapêutico",
+    },
+    {
+      id: "aplicado",
+      ok: nAplicados > 0,
+      view: "agenda",
+      label: "1 protocolo aplicado (consome estoque)",
+    },
+    {
+      id: "financeiro",
+      ok: nFinanceiro > 0,
+      view: "financeiro",
+      label: "1 lançamento financeiro",
     },
   ];
 
