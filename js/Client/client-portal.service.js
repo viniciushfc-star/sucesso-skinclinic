@@ -63,7 +63,7 @@ export async function completeRegistration(token, payload) {
     p_email: payload.email || null,
     p_birth_date: payload.birth_date || null,
     p_sex: payload.sex || null,
-    p_notes: payload.notes || null,
+    p_notes: null,
     p_cpf: payload.cpf || null,
     p_consent_terms_accepted: payload.consent_terms_accepted === true,
     p_consent_image_use: payload.consent_image_use === true,

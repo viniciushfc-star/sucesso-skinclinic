@@ -1,6 +1,7 @@
 import {
   getClientByToken,
   completeRegistration,
+  reportClientEvent,
 } from "./client-portal.service.js";
 import { toast } from "./ui/toast.client.js";
 
@@ -186,13 +187,17 @@ function renderForm(client) {
           email,
           birth_date: birth_date || null,
           sex,
-          notes,
           cpf,
           consent_terms_accepted: true,
           consent_image_use: consentImageUse,
           consent_terms_version: "v1"
         }
       );
+      if (notes) {
+        try {
+          await reportClientEvent("Cadastro", notes);
+        } catch (_) {}
+      }
       toast("Cadastro enviado com sucesso!");
       app.innerHTML = `
         <section class="client-header">

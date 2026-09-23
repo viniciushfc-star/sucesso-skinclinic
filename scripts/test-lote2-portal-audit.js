@@ -23,6 +23,41 @@ describe("Lote 2 portal PII e audit", () => {
     assert.match(sql, /REVOKE INSERT ON TABLE public.audit_logs FROM authenticated/);
   });
 
+  it("FASE 4 congela identidade e tira UPDATE autenticado", () => {
+    const sql = readFileSync(
+      join(ROOT, "supabase/migrations/20260923030000_p0_audit_logs_immutable.sql"),
+      "utf8"
+    );
+    assert.match(sql, /REVOKE UPDATE ON TABLE public.audit_logs FROM authenticated/);
+    assert.match(sql, /audit_logs identity is immutable/);
+    assert.match(sql, /DROP POLICY IF EXISTS "audit_logs_insert_org"/);
+    const views = readFileSync(join(ROOT, "js/views/logs.views.js"), "utf8");
+    assert.match(views, /op: "acknowledge"/);
+    assert.match(views, /op: "star"/);
+    assert.doesNotMatch(views, /\.from\("audit_logs"\)\.update/);
+    const route = readFileSync(join(ROOT, "routes/audit-log.js"), "utf8");
+    assert.match(route, /sanitizeMetadata/);
+    assert.match(route, /delete metadata\.user_id/);
+    assert.match(route, /auditoria:acknowledge/);
+    assert.match(route, /user_id: auth\.user\.id/);
+    assert.doesNotMatch(route, /user_id:\s*req\.body/);
+  });
+
+  it("FASE 5 oculta CPF após cadastro e não grava notes internas", () => {
+    const sql = readFileSync(
+      join(ROOT, "supabase/migrations/20260923040000_p1_portal_rpc_cpf.sql"),
+      "utf8"
+    );
+    assert.match(sql, /CASE WHEN c\.registration_completed_at IS NULL THEN c\.cpf ELSE NULL END/);
+    assert.doesNotMatch(sql, /c\.notes/);
+    assert.doesNotMatch(sql, /notes = nullif\(trim\(p_notes\)/);
+    assert.match(sql, /p_notes é ignorado/);
+    const src = readFileSync(join(ROOT, "js/Client/completar-cadastro.client.js"), "utf8");
+    assert.doesNotMatch(src, /client\.notes/);
+    const svc = readFileSync(join(ROOT, "js/Client/client-portal.service.js"), "utf8");
+    assert.match(svc, /p_notes:\s*null/);
+  });
+
   it("staff grava auditoria pela API, não insert direto", () => {
     const svc = readFileSync(join(ROOT, "js/services/audit.service.js"), "utf8");
     const route = readFileSync(join(ROOT, "routes/audit-log.js"), "utf8");
