@@ -10,6 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { corsOriginFor, isBlockedStaticPath } from "./lib/http-security.js";
 import { startApiObservation } from "./lib/observability.js";
+import { enforceHttpRateLimit } from "./lib/http-rate-limit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -40,6 +41,7 @@ app.get("/api/health", (req, res) => res.json({ ok: true, service: "skinclinic-a
 /* Envolve handler async para capturar erros */
 function wrap(handler) {
   return (req, res, next) => {
+    if (!enforceHttpRateLimit(req, res)) return;
     const obs = startApiObservation(req, res);
     Promise.resolve(handler(req, res)).catch((err) => {
       obs.noteError(err);

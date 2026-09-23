@@ -14,7 +14,7 @@ import { enforceTokenLimit } from "./limits.js";
 import { enforceBudget, getUserBudgetStatus } from "./budget.js";
 import { cacheOrExecute } from "./cache.js";
 import { logAICost } from "./cost.js";
-import { hydrateMonthCostFromDb } from "../../lib/openai-cost.js";
+import { hydrateMonthCostFromDb, reserveBudget, releaseBudget } from "../../lib/openai-cost.js";
 
 export { canCallAI, tryDeterministicAnswer } from "./decision.js";
 export { summarizeContext, summarizeTransactionsContext, summarizeClientsContext, summarizeAgendaContext, summarizeGenericContext } from "./summarizer.js";
@@ -86,6 +86,10 @@ export async function askAI(opts) {
   if (!budget.allow) {
     throw new Error(budget.message || "Orçamento de IA esgotado.");
   }
+  const reserved = reserveBudget(budgetKey, 0.03);
+  if (!reserved.ok) {
+    throw new Error("Orçamento de IA esgotado (há outras análises em andamento).");
+  }
   const useCheapest = budget.useCheapestModel === true;
   const effectiveComplexity = useCheapest ? COMPLEXITY.SIMPLE : complexity;
 
@@ -126,23 +130,26 @@ export async function askAI(opts) {
   };
 
   let result;
-  if (cacheKey && cacheTtlMs > 0) {
-    result = await cacheOrExecute(cacheKey, execute, cacheTtlMs);
-  } else {
-    result = await execute();
-  }
+  try {
+    if (cacheKey && cacheTtlMs > 0) {
+      result = await cacheOrExecute(cacheKey, execute, cacheTtlMs);
+    } else {
+      result = await execute();
+    }
 
-  // 8) Log obrigatório (único ponto de registro para dashboards)
-  if (result.usage && (userId || orgId)) {
-    logAICost({
-      userId: budgetKey,
-      orgId,
-      feature,
-      model: modelName,
-      promptTokens: result.usage.prompt_tokens ?? 0,
-      completionTokens: result.usage.completion_tokens ?? 0,
-    });
+    if (result.usage && (userId || orgId)) {
+      logAICost({
+        userId: budgetKey,
+        orgId,
+        feature,
+        model: modelName,
+        promptTokens: result.usage.prompt_tokens ?? 0,
+        completionTokens: result.usage.completion_tokens ?? 0,
+      });
+    }
+    return result;
+  } finally {
+    releaseBudget(budgetKey, reserved.amount);
   }
-  return result;
 }
 

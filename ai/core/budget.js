@@ -6,6 +6,8 @@
 import {
   getCurrentMonthCostUsd,
   checkBudget,
+  reserveBudget,
+  releaseBudget,
 } from "../../lib/openai-cost.js";
 import { BUDGET_USD_PER_USER_PER_MONTH } from "../../lib/openai-config.js";
 
@@ -56,5 +58,5 @@ export function enforceBudget(userId) {
   return { allow: true };
 }
 
-export { getCurrentMonthCostUsd, checkBudget };
+export { getCurrentMonthCostUsd, checkBudget, reserveBudget, releaseBudget };
 
