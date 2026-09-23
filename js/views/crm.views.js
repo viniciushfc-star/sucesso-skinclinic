@@ -81,12 +81,9 @@ export async function init() {
       listaInativos.innerHTML = rows
         .slice(0, 80)
         .map((c) => {
-          const tel = digitsPhone(c.phone);
-          const orgId = profile.id || getActiveOrg() || "";
-          const msg = `Oi, ${c.name || ""}! Faz um tempo que você não vem na ${clinicName(profile)}. Quer que eu encaixe um horário? ${window.location.origin}/agendar.html?org=${encodeURIComponent(orgId)}`;
           return `<div class="crm-row">
-            <div><strong>${escapeHtml(c.name)}</strong><br><span class="view-hint">${c.visits ? `${c.visits} visita(s) · última ${fmtDate(c.lastDate)}` : "Ainda não agendou"} · ${c.idleDays} dia(s)</span></div>
-            ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : "<span class=\"view-hint\">Sem telefone</span>"}
+            <div><strong>${escapeHtml(c.name)}</strong><br><span class="view-hint">${c.visits ? `${c.visits} visita(s) · última ${fmtDate(c.lastDate)}` : "Ainda não agendou"} · ${c.idleDays} dia(s) · WhatsApp na fila acima</span></div>
+            ${c.id ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(c.id)}">Agendar</button>` : ""}
           </div>`;
         })
         .join("");
@@ -142,7 +139,7 @@ export async function init() {
     }
     const fila = buildCrmFila(chunks);
     if (!fila.length) {
-      listaFila.innerHTML = "<p class=\"view-hint\">Fila vazia. Quando o radar, a espera ou a fidelidade tiverem alguém, aparece aqui — um toque, uma mensagem.</p>";
+      listaFila.innerHTML = "<p class=\"view-hint\">Fila vazia. WhatsApp só aqui (máx. 15) e no Avisar da espera — um clique por pessoa.</p>";
       return;
     }
     const clinic = clinicName(profile);
@@ -175,16 +172,12 @@ export async function init() {
     listaRadar.innerHTML = rows
       .slice(0, 80)
       .map((c) => {
-        const tel = digitsPhone(c.phone);
-        const orgId = profile.id || getActiveOrg() || "";
-        const msg = `Oi, ${c.name || ""}! Vi seu acompanhamento na ${clinicName(profile)} e queria encaixar o retorno. Posso te mandar horários? ${window.location.origin}/agendar.html?org=${encodeURIComponent(orgId)}`;
         const tag = RADAR_LABEL[c.sinal] || c.sinal;
         return `<div class="crm-row">
             <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
-            <span class="view-hint">${escapeHtml(c.motivo)}</span></div>
+            <span class="view-hint">${escapeHtml(c.motivo)} · WhatsApp na fila acima</span></div>
             <div class="crm-row-actions">
               <button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${c.id}">Agendar</button>
-              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : ""}
             </div>
           </div>`;
       })
@@ -216,17 +209,9 @@ export async function init() {
       }
       listaFidel.innerHTML = rows
         .map((c) => {
-          const tel = digitsPhone(c.phone);
           const cortesia = c.falta === 0;
-          const msg = cortesia
-            ? `Oi, ${c.name}! Você completou ${c.visits} visitas na ${clinicName(profile)}. A próxima tem cortesia combinada. Quer agendar?`
-            : `Oi, ${c.name}! Falta ${c.falta} visita(s) para a cortesia da ${c.meta}ª. Te encaixo?`;
-          const review = reviewUrl
-            ? ` Oi! Se puder, avalia a gente no Google: ${reviewUrl}`
-            : "";
           return `<div class="crm-row">
-            <div><strong>${escapeHtml(c.name)}</strong><br><span class="view-hint">${c.visits} visita(s)${cortesia ? " · cortesia agora" : ` · faltam ${c.falta}`}</span></div>
-            ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg + (cortesia && reviewUrl ? review : ""))}">WhatsApp</button>` : ""}
+            <div><strong>${escapeHtml(c.name)}</strong><br><span class="view-hint">${c.visits} visita(s)${cortesia ? " · cortesia agora" : ` · faltam ${c.falta}`} · WhatsApp na fila se faltar 0–1 visita</span></div>
           </div>`;
         })
         .join("");
@@ -246,16 +231,10 @@ export async function init() {
         renderFila();
         return;
       }
-      const brinde = profile.brinde_aniversario_habilitado
-        ? " Trouxemos um brinde para você nesta visita."
-        : "";
       listaAniv.innerHTML = rows
         .map((c) => {
-          const msg = `Feliz aniversário, ${c.name}! ${brinde} Quer comemorar com um horário na ${clinicName(profile)}?`;
-          const tel = digitsPhone(c.phone);
           return `<div class="crm-row">
-            <div><strong>${escapeHtml(c.name)}</strong><br><span class="view-hint">${escapeHtml(c._quando)}</span></div>
-            ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : ""}
+            <div><strong>${escapeHtml(c.name)}</strong><br><span class="view-hint">${escapeHtml(c._quando)} · WhatsApp na fila acima</span></div>
           </div>`;
         })
         .join("");

@@ -494,7 +494,8 @@ function insightRow(card) {
   const view = escapeHtml(card.view || "dashboard")
   const title = escapeHtml(card.title || "Atenção")
   const reason = escapeHtml(card.reason || "")
-  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"><span class="cockpit-row-text"><strong>${title}</strong>${reason ? `<span class="cockpit-row-reason">${reason}</span>` : ""}</span></button>`
+  const action = escapeHtml(card.action || "")
+  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"><span class="cockpit-row-text"><strong>${title}</strong>${reason ? `<span class="cockpit-row-reason">${reason}</span>` : ""}${action ? `<span class="cockpit-row-action">${action}</span>` : ""}</span></button>`
 }
 
 async function renderCockpitMes() {

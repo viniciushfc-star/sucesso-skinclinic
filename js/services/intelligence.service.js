@@ -44,11 +44,16 @@ export function prioritizeInsights(insights, limit = INTEL_MAX_CARDS) {
       prev.title = item.title;
       prev.reason = item.reason;
       prev.view = item.view;
+      prev.action = item.action;
     }
   }
   return [...byTheme.values()]
     .sort((a, b) => b.score - a.score || String(a.theme).localeCompare(String(b.theme)))
-    .slice(0, Math.max(0, limit));
+    .slice(0, Math.max(0, limit))
+    .map((c) => ({
+      ...c,
+      action: c.action || "Abrir a tela indicada",
+    }));
 }
 
 export function buildAttentionInsights({
@@ -64,6 +69,7 @@ export function buildAttentionInsights({
       theme: "atraso",
       title: atrasos === 1 ? "1 atendimento em atraso" : `${atrasos} atendimentos em atraso`,
       reason: "O horário já passou e ainda não houve confirmação ou baixa. Abrir a agenda agora.",
+      action: "Abrir a agenda de hoje",
       view: "agenda",
       urgency: 1,
       impact: 0.75,
@@ -76,6 +82,7 @@ export function buildAttentionInsights({
       theme: "contas",
       title: contasVencidas === 1 ? "1 conta vencida" : `${contasVencidas} contas vencidas`,
       reason: "Saída em atraso. Conferir no financeiro — o sistema não paga sozinho.",
+      action: "Abrir contas a pagar",
       view: "financeiro",
       urgency: 0.9,
       impact: 0.8,
@@ -91,6 +98,7 @@ export function buildAttentionInsights({
           ? "1 análise de pele aguardando validação"
           : `${analisesPendentes} análises de pele aguardando validação`,
       reason: "Foto/resposta no portal ainda sem olho clínico. Validar ou devolver.",
+      action: "Validar a análise de pele",
       view: "analise-pele",
       urgency: 0.55,
       impact: 0.45,
@@ -106,6 +114,7 @@ export function buildAttentionInsights({
           ? "1 produto com custo em alta"
           : `${produtosRisco} produtos com custo em alta`,
       reason: "Insumo subiu. Revisar margem do procedimento. O sistema não altera preço.",
+      action: "Revisar o procedimento",
       view: "procedimento",
       urgency: 0.4,
       impact: 0.9,
@@ -118,6 +127,7 @@ export function buildAttentionInsights({
       theme: "inativos",
       title: inativos === 1 ? "1 pessoa sem retorno recente" : `${inativos} pessoas sem retorno recente`,
       reason: "Sem visita há ≥90 dias. Está no CRM — sem disparo automático de WhatsApp.",
+      action: "Abrir a fila do CRM (um clique)",
       view: "crm",
       urgency: 0.35,
       impact: 0.5,
@@ -135,6 +145,7 @@ export function buildOpportunityInsights({ espera = 0, radar = 0, lucroHora = nu
       theme: "espera",
       title: espera === 1 ? "1 pessoa na lista de espera" : `${espera} pessoas na lista de espera`,
       reason: "Encaixe manual na agenda. Intelligence não preenche horário sozinha.",
+      action: "Encaixar na agenda ou avisar na espera",
       view: "crm",
       urgency: 0.5,
       impact: 0.65,
@@ -147,6 +158,7 @@ export function buildOpportunityInsights({ espera = 0, radar = 0, lucroHora = nu
       theme: "radar",
       title: radar === 1 ? "1 pessoa no radar de retorno" : `${radar} pessoas no radar de retorno`,
       reason: "Pacote, 2ª sessão, ritmo ou sem próxima. WhatsApp só se você clicar.",
+      action: "Abrir a fila do CRM (um clique)",
       view: "crm",
       urgency: 0.45,
       impact: 0.7,
