@@ -85,6 +85,7 @@ describe("Cockpit — status da agenda", () => {
     assert.equal(statusAgendaItem({ hora: "09:00" }, "10:00").key, "atraso");
     assert.equal(statusAgendaItem({ hora: "11:00" }, "10:00").key, "espera");
     assert.equal(statusAgendaItem({ status: "confirmed", hora: "09:00" }, "10:00").key, "ok");
+    assert.equal(statusAgendaItem({ confirmed_at: "2026-09-23T12:00:00.000Z", hora: "09:00" }, "10:00").key, "ok");
   });
 });
 

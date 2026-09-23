@@ -32,11 +32,19 @@ function escapeHtml(s) {
 
 function simpleMarkdownToHtml(md) {
   if (!md) return "";
-  let s = String(md)
-    .replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, text, url) => {
-      const u = (url || "").trim();
-      const safe = /^https?:\/\//i.test(u);
-      return safe ? `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(text || "")}</a>` : escapeHtml("[" + (text || "") + "](" + u + ")");
+  const links = [];
+  let s = String(md).replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, text, url) => {
+    const rawUrl = (url || "").trim();
+    const isSafe = /^https?:\/\//i.test(rawUrl);
+    const idx = links.length;
+    links.push({ text: text || "", url: rawUrl, isSafe });
+    return "\x00L" + idx + "\x00";
+  });
+  s = escapeHtml(s)
+    .replace(/\x00L(\d+)\x00/g, (_, i) => {
+      const L = links[Number(i)];
+      if (!L || !L.isSafe) return escapeHtml("[" + (L ? L.text : "") + "](" + (L ? L.url : "") + ")");
+      return `<a href="${escapeHtml(L.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(L.text)}</a>`;
     })
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")

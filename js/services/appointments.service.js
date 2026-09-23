@@ -64,6 +64,7 @@ export async function confirmAppointment(id){
    .from("agenda")
    .update({
     cancelled_at: null,
+    confirmed_at: new Date().toISOString(),
    })
    .eq("id", id)
    .eq("org_id", orgId);
