@@ -12,6 +12,7 @@ import {
   phonesMatch,
   rowsIncludePhone,
   orgOwnsWhatsappDestination,
+  resolveWhatsappRecipient,
 } from "../lib/phone-match.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,21 +20,40 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 function mockAdmin({ clients = [], wait = [], waitError = null, clientsError = null } = {}) {
   return {
     from(table) {
-      return {
+      const filters = {};
+      const finish = () => {
+        if (table === "clients") {
+          if (clientsError) return { data: null, error: clientsError };
+          let rows = clients;
+          if (filters.id) rows = rows.filter((r) => r.id === filters.id);
+          return { data: rows, error: null };
+        }
+        if (table === "agenda_waitlist") {
+          if (waitError) return { data: null, error: waitError };
+          let rows = wait;
+          if (filters.id) rows = rows.filter((r) => r.id === filters.id);
+          return { data: rows, error: null };
+        }
+        return { data: [], error: null };
+      };
+      const api = {
         select() {
-          return {
-            eq() {
-              if (table === "clients") {
-                return Promise.resolve({ data: clientsError ? null : clients, error: clientsError });
-              }
-              if (table === "agenda_waitlist") {
-                return Promise.resolve({ data: waitError ? null : wait, error: waitError });
-              }
-              return Promise.resolve({ data: [], error: null });
-            },
-          };
+          return api;
+        },
+        eq(col, val) {
+          filters[col] = val;
+          return api;
+        },
+        maybeSingle() {
+          const { data, error } = finish();
+          if (error) return Promise.resolve({ data: null, error });
+          return Promise.resolve({ data: data?.[0] || null, error: null });
+        },
+        then(onF, onR) {
+          return Promise.resolve(finish()).then(onF, onR);
         },
       };
+      return api;
     },
   };
 }
@@ -78,13 +98,36 @@ describe("Lote 1 telefone org", () => {
     assert.equal(await orgOwnsWhatsappDestination(admin, "org-a", "11911112222"), false);
   });
 
-  it("API WhatsApp exige ownership; wa.me no cliente permanece", () => {
+  it("API WhatsApp exige client_id da org; wa.me no cliente permanece", () => {
     const api = readFileSync(join(ROOT, "routes", "whatsapp-send.js"), "utf8");
     const fe = readFileSync(join(ROOT, "js", "services", "whatsapp.service.js"), "utf8");
-    assert.match(api, /orgOwnsWhatsappDestination/);
-    assert.match(api, /telefone_fora_da_org/);
+    assert.match(api, /resolveWhatsappRecipient/);
+    assert.doesNotMatch(api, /req\.body\?\.phone/);
     assert.match(fe, /wa\.me/);
     assert.match(fe, /envio humano/);
+    assert.match(fe, /client_id/);
+  });
+
+  it("resolve: mesma org ALLOW; outra org DENY; telefone adulterado ignorado; sem telefone erro", async () => {
+    const admin = mockAdmin({
+      clients: [
+        { id: "cli-a", phone: "11988880000" },
+        { id: "cli-sem-tel", phone: "" },
+      ],
+    });
+    const a = await resolveWhatsappRecipient(admin, "org-a", { clientId: "cli-a" });
+    assert.equal(a.ok, true);
+    assert.equal(a.phone, "5511988880000");
+    const b = await resolveWhatsappRecipient(admin, "org-a", { clientId: "cli-b" });
+    assert.equal(b.ok, false);
+    assert.equal(b.reason, "cliente_outra_org");
+    assert.equal(a.phone, "5511988880000");
+    assert.notEqual(a.phone, canonicalPhoneDigits("11977779999"));
+    const d = await resolveWhatsappRecipient(admin, "org-a", { clientId: "cli-sem-tel" });
+    assert.equal(d.ok, false);
+    assert.equal(d.reason, "cliente_sem_telefone");
+    const e = await resolveWhatsappRecipient(admin, "org-a", {});
+    assert.equal(e.reason, "sem_destino_autorizado");
   });
 
   it("lembretes filtram clients pela org do agendamento", () => {

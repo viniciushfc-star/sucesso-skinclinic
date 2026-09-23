@@ -1,11 +1,11 @@
 /**
  * Envia WhatsApp pela Cloud API (Meta) quando configurada.
- * POST /api/whatsapp-send  { phone, message, org_id }
- * Destino tem de ser telefone de clients ou agenda_waitlist da org.
+ * POST /api/whatsapp-send  { client_id | waitlist_id, message }
+ * Telefone vem do registro da org. body.phone não é autoridade.
  * wa.me no frontend continua livre se a API recusar.
  */
 import { getAdminClient, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
-import { canonicalPhoneDigits, orgOwnsWhatsappDestination } from "../lib/phone-match.js";
+import { resolveWhatsappRecipient } from "../lib/phone-match.js";
 
 export default async function whatsappSend(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
@@ -23,21 +23,25 @@ export default async function whatsappSend(req, res) {
     return res.status(200).json({ sent: false, fallback: true, reason: "whatsapp_nao_configurado" });
   }
 
-  const phone = canonicalPhoneDigits(req.body?.phone);
   const message = String(req.body?.message || "").trim();
-  if (phone.length < 12 || !message) {
-    return res.status(400).json({ error: "Telefone ou mensagem inválidos" });
+  if (!message) {
+    return res.status(400).json({ error: "Mensagem inválida" });
   }
 
-  let owned = false;
+  let dest;
   try {
-    owned = await orgOwnsWhatsappDestination(getAdminClient(), auth.orgId, phone);
+    dest = await resolveWhatsappRecipient(getAdminClient(), auth.orgId, {
+      clientId: req.body?.client_id || req.body?.clientId,
+      waitlistId: req.body?.waitlist_id || req.body?.waitlistId,
+    });
   } catch (e) {
     console.error("[whatsapp-send] ownership", e?.message || e);
     return res.status(500).json({ error: "Erro interno" });
   }
-  if (!owned) {
-    return res.status(403).json({ error: "Sem permissão", reason: "telefone_fora_da_org" });
+  if (!dest.ok) {
+    const denyCross = dest.reason === "cliente_outra_org" || dest.reason === "espera_outra_org";
+    const status = denyCross ? 403 : 400;
+    return res.status(status).json({ error: "Sem permissão", reason: dest.reason || "telefone_fora_da_org" });
   }
 
   const apiUrl = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
@@ -46,10 +50,10 @@ export default async function whatsappSend(req, res) {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       messaging_product: "whatsapp",
-      to: phone,
+      to: dest.phone,
       type: "text",
-      text: { preview_url: true, body: message }
-    })
+      text: { preview_url: true, body: message },
+    }),
   });
   const detail = await response.json().catch(() => ({}));
   if (!response.ok) {

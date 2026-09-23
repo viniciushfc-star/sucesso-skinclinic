@@ -112,6 +112,7 @@ export async function init() {
     for (const r of esperaRows) {
       chunks.push({
         clientId: r.client_id || null,
+        waitlistId: r.id,
         name: r.nome,
         phone: r.phone,
         sinal: "espera",
@@ -155,7 +156,7 @@ export async function init() {
             <span class="view-hint">${escapeHtml(c.motivo || "")}</span></div>
             <div class="crm-row-actions">
               ${c.clientId ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(c.clientId)}">Agendar</button>` : ""}
-              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_fila" data-sinal="${escapeHtml(c.sinal || "")}" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : "<span class=\"view-hint\">Sem telefone</span>"}
+              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_fila" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId || "")}" data-waitlist-id="${escapeHtml(c.waitlistId || "")}" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : "<span class=\"view-hint\">Sem telefone</span>"}
             </div>
           </div>`;
       })
@@ -261,7 +262,7 @@ export async function init() {
           return `<div class="crm-row">
             <div><strong>${escapeHtml(r.nome)}</strong><br><span class="view-hint">${escapeHtml(r.procedure_name || "procedimento livre")} · ${r.preferred_date ? fmtDate(r.preferred_date) : "qualquer dia"}</span></div>
             <div class="crm-row-actions">
-              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-phone="${escapeHtml(r.phone)}" data-msg="${escapeHtml(msg)}">Avisar</button>` : ""}
+              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_espera" data-waitlist-id="${escapeHtml(r.id)}" data-client-id="${escapeHtml(r.client_id || "")}" data-phone="${escapeHtml(r.phone)}" data-msg="${escapeHtml(msg)}">Avisar</button>` : ""}
               <button type="button" class="btn-sm crm-wait-done" data-id="${r.id}">Encaixei</button>
             </div>
           </div>`;
@@ -282,6 +283,8 @@ export async function init() {
       await sendWhatsapp(wa.dataset.phone, wa.dataset.msg, {
         origem: wa.dataset.origem || "crm",
         sinal: wa.dataset.sinal || "",
+        clientId: wa.dataset.clientId || "",
+        waitlistId: wa.dataset.waitlistId || "",
       });
       toast("WhatsApp aberto. Uma pessoa por clique — o sistema não dispara a fila sozinho.");
       return;
@@ -338,7 +341,7 @@ export async function init() {
       await sendWhatsapp(
         c.phone,
         `Oi, ${c.name}! Obrigada pela visita. Se puder, deixa uma avaliação no Google: ${reviewUrl}`,
-        { origem: "crm_fila", sinal: "avaliacao" }
+        { origem: "crm_fila", sinal: "avaliacao", clientId: c.clientId || "", waitlistId: c.waitlistId || "" }
       );
       toast("Pedido de avaliação aberto para a primeira pessoa da fila. O resto é um clique por linha.");
     } catch (err) {

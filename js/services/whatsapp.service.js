@@ -10,21 +10,27 @@ export async function sendWhatsapp(telefone, mensagem, meta = {}) {
   const tel = String(telefone ?? "").replace(/\D/g, "");
   const msg = String(mensagem ?? "").trim() || "Olá!";
   const origem = String(meta.origem || "").slice(0, 40);
+  const clientId = String(meta.clientId || meta.client_id || "").trim();
+  const waitlistId = String(meta.waitlistId || meta.waitlist_id || "").trim();
 
-  if (tel.length < 10) {
+  if (tel.length < 10 && !clientId && !waitlistId) {
     console.warn("[WHATSAPP] Número inválido ou curto:", telefone);
     return { success: false };
   }
 
-  const numeroCompleto = tel.length <= 11 ? "55" + tel : tel;
+  const numeroCompleto = tel.length && tel.length <= 11 ? "55" + tel : tel;
 
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const jwt = sessionData?.session?.access_token;
-    if (jwt) {
+    if (jwt && (clientId || waitlistId)) {
       const res = await apiFetch("/api/whatsapp-send", {
         method: "POST",
-        json: { phone: numeroCompleto, message: msg },
+        json: {
+          message: msg,
+          client_id: clientId || undefined,
+          waitlist_id: waitlistId || undefined,
+        },
       });
       const json = await res.json().catch(() => ({}));
       if (json.sent) {
@@ -32,7 +38,7 @@ export async function sendWhatsapp(telefone, mensagem, meta = {}) {
           const { data: { user } } = await supabase.auth.getUser();
           await supabase.from("whatsapp_logs").insert({
             user_id: user?.id ?? null,
-            telefone: numeroCompleto,
+            telefone: numeroCompleto || null,
             mensagem: msg,
             status: origem ? `enviado_api:${origem}` : "enviado_api",
           });
@@ -44,7 +50,7 @@ export async function sendWhatsapp(telefone, mensagem, meta = {}) {
     console.warn("[WHATSAPP] API indisponível, usando wa.me", err);
   }
 
-  if (typeof window !== "undefined" && window.open) {
+  if (typeof window !== "undefined" && window.open && numeroCompleto.length >= 12) {
     const url = `https://wa.me/${numeroCompleto}?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }

@@ -695,7 +695,7 @@ function bindLembreteButtons(items, date) {
       }
       if (tel) {
         const num = String(tel).replace(/\D/g, "")
-        if (num.length >= 10) sendWhatsapp(num, texto)
+        if (num.length >= 10) sendWhatsapp(num, texto, { origem: "agenda_lembrete", clientId: item.cliente_id || item.client_id || "" })
       }
       try {
         await withOrg(supabase.from("agenda").update({ reminder_sent_at: new Date().toISOString() }).eq("id", id))
@@ -809,7 +809,7 @@ async function renderAniversariantes() {
     <div class="agenda-aniversariante-item">
       <span class="agenda-aniversariante-nome">${escapeHtml(nome)}</span>
       <span class="agenda-aniversariante-quando">${escapeHtml(quando)}</span>
-      <button type="button" class="btn-enviar-msg-aniversario" data-nome="${escapeHtml(nome).replace(/"/g, "&quot;")}" data-phone="${escapeHtml(String(c.phone || "")).replace(/"/g, "&quot;")}">Enviar mensagem</button>
+      <button type="button" class="btn-enviar-msg-aniversario" data-client-id="${escapeHtml(String(c.id || "")).replace(/"/g, "&quot;")}" data-nome="${escapeHtml(nome).replace(/"/g, "&quot;")}" data-phone="${escapeHtml(String(c.phone || "")).replace(/"/g, "&quot;")}">Enviar mensagem</button>
     </div>`
         }
       )
@@ -826,7 +826,7 @@ async function renderAniversariantes() {
         } catch (_) {
           toast("Copie a mensagem manualmente.")
         }
-        if (phone.length >= 10) sendWhatsapp(phone, msg)
+        if (phone.length >= 10) sendWhatsapp(phone, msg, { origem: "agenda_aniversario", clientId: btn.dataset.clientId || "" })
       })
     })
   } catch (e) {
@@ -1496,7 +1496,7 @@ async function pedirAvaliacaoGoogle(item, { silenciosoSeVazio = false } = {}) {
     if (!silenciosoSeVazio) toast("Cliente sem telefone. Copie o link do Google em Empresa.")
     return
   }
-  await sendWhatsapp(tel, msg)
+  await sendWhatsapp(tel, msg, { origem: "agenda_avaliacao", clientId: item.cliente_id || item.client_id || "" })
   toast("Pedido de avaliação no WhatsApp.")
 }
 
@@ -2203,10 +2203,11 @@ async function enviarWhats(tel, appointmentId) {
   }
 
   let mensagem = "Olá! Lembrete do seu atendimento.";
+  let item = null;
   if (appointmentId) {
     try {
       const profile = await getOrganizationProfile().catch(() => ({}));
-      const item = await getAgendaItemById(appointmentId).catch(() => null);
+      item = await getAgendaItemById(appointmentId).catch(() => null);
       const cliente = item?.clientes || item?.clients || {};
       const nome = cliente.nome || cliente.name || "Cliente";
       const hora = item?.hora || "";
@@ -2226,7 +2227,10 @@ async function enviarWhats(tel, appointmentId) {
     }
   }
 
-  const result = await sendWhatsapp(tel, mensagem);
+  const result = await sendWhatsapp(tel, mensagem, {
+    origem: "agenda_whats",
+    clientId: item?.cliente_id || item?.client_id || "",
+  });
   if (appointmentId) {
     try {
       await withOrg(supabase.from("agenda").update({ reminder_sent_at: new Date().toISOString() }).eq("id", appointmentId));
