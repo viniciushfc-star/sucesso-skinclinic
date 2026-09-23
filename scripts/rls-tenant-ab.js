@@ -28,7 +28,28 @@ const TABLES = [
   "profiles",
   "ocr_notas",
   "market_radar_refs",
+  "lgpd_requests",
+  "api_error_events",
+  "agenda_google_events",
+  "google_calendar_connections",
+  "whatsapp_logs",
+  "ai_usage_events",
+  "client_events",
+  "anamnesis_registros",
 ];
+
+const OPTIONAL_TABLES = new Set([
+  "ocr_notas",
+  "market_radar_refs",
+  "lgpd_requests",
+  "api_error_events",
+  "agenda_google_events",
+  "google_calendar_connections",
+  "whatsapp_logs",
+  "ai_usage_events",
+  "client_events",
+  "anamnesis_registros",
+]);
 
 function isMissingRelation(error) {
   const code = String(error?.code || "");
@@ -154,7 +175,7 @@ async function main() {
       continue;
     }
     if (error) {
-      if (isMissingRelation(error) && (table === "ocr_notas" || table === "market_radar_refs")) {
+      if (isMissingRelation(error) && OPTIONAL_TABLES.has(table)) {
         results.push({ table, ok: true, detail: "tabela ainda não existe no live (migration pendente)" });
         continue;
       }

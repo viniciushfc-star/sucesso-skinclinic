@@ -316,7 +316,18 @@ const WEEK_END_HOUR = 18
 const WEEK_DAY_COUNT = 6
 
 function escapeHtml(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;")
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+}
+
+function formatConflitoHtml(c, extraLabel) {
+  const proc = escapeHtml(c?.procedimento || "—")
+  const inicio = escapeHtml(c?.inicio || "")
+  const fim = escapeHtml(c?.fim || "")
+  const motivo = c?.motivo ? ` ${escapeHtml(c.motivo)}` : ""
+  const extra = c?.respiroNecessario
+    ? ` (+${Number(c.respiroNecessario) || 0} min ${extraLabel || "de deslocamento/descanso"})`
+    : ""
+  return `${proc} às ${inicio}–${fim}${extra}${motivo}`
 }
 
 async function renderWeekGrid(professionalId = null) {
@@ -494,7 +505,7 @@ function renderDayList(date, professionalId = null, weekItems = null) {
           const nome = isEvent(a)
             ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
             : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")
-          const titulo = nome.replace(/"/g, "&quot;").replace(/</g, "&lt;")
+          const titulo = escapeHtml(nome)
           return `
     <div class="calendar-event calendar-event--block ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
          style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
@@ -575,7 +586,7 @@ function renderDayList(date, professionalId = null, weekItems = null) {
           const nome = isEvent(a)
             ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
             : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")
-          const titulo = nome.replace(/"/g, "&quot;").replace(/</g, "&lt;")
+          const titulo = escapeHtml(nome)
           return `
     <div class="calendar-event calendar-event--block ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
          style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
@@ -646,7 +657,7 @@ async function renderAgendaAfazeres(date) {
         <div class="calendar-event calendar-event--afazer" data-afazer-id="${a.id}">
           <div class="calendar-event-time calendar-event-time--afazer" aria-hidden="true">📌</div>
           <div class="calendar-event-name">
-            ${(a.titulo || "Tarefa").replace(/</g, "&lt;")}
+            ${escapeHtml(a.titulo || "Tarefa")}
             <span class="calendar-event-afazer-meta">Responsável: ${responsavelLabel} · ${statusLabel}</span>
           </div>
         </div>
@@ -1108,8 +1119,8 @@ async function buildDisponiveisButtons(date, time, duration, procedureId, profSe
  return ids.map((uid) => {
   const m = members.find((x) => x.user_id === uid)
   const label = roleLabel(m?.role) || (uid || "").slice(0, 8) + "…"
-  const safeLabel = String(label).replace(/</g, "&lt;").replace(/"/g, "&quot;")
-  return `<button type="button" class="agenda-prof-disponivel-btn" data-user-id="${uid}" title="Escolher ${safeLabel}">${safeLabel}</button>`
+  const safeLabel = escapeHtml(label)
+  return `<button type="button" class="agenda-prof-disponivel-btn" data-user-id="${escapeHtml(uid)}" title="Escolher ${safeLabel}">${safeLabel}</button>`
  }).join(" ")
 }
 
@@ -1136,8 +1147,7 @@ async function refreshProfStatus(profEl, dataEl, horaEl, procDurationEl, exclude
    statusEl.className = "agenda-prof-status agenda-prof-ok"
   } else {
    const c = result.conflito
-   const motivo = c.motivo ? ` ${String(c.motivo).replace(/</g, "&lt;")}` : ""
-   const conflitoText = `${(c.procedimento || "").replace(/</g, "&lt;")} às ${c.inicio || ""}–${c.fim || ""}` + (c.respiroNecessario ? ` (+${c.respiroNecessario} min de deslocamento/descanso)` : "") + motivo
+   const conflitoText = formatConflitoHtml(c)
    const disponiveisBtns = await buildDisponiveisButtons(date, time, duration, procedureId, profEl, dataEl, horaEl, procDurationEl, excludeAgendaId)
    statusEl.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. ${disponiveisBtns ? `<span class="agenda-prof-disponiveis-label">Disponíveis neste horário:</span> ${disponiveisBtns}` : ""}`
    statusEl.className = "agenda-prof-status agenda-prof-busy"
@@ -1174,8 +1184,7 @@ async function refreshSalaStatus(salaEl, dataEl, horaEl, procDurationEl, exclude
    statusEl.className = "agenda-sala-status agenda-sala-ok"
   } else {
    const c = result.conflito
-   statusEl.innerHTML = `<strong>Sala ocupada:</strong> ${c.procedimento} às ${c.inicio}–${c.fim}` +
-     (c.respiroNecessario ? ` (+${c.respiroNecessario} min de organização)` : "")
+   statusEl.innerHTML = `<strong>Sala ocupada:</strong> ${formatConflitoHtml(c, "de organização")}`
    statusEl.className = "agenda-sala-status agenda-sala-busy"
   }
  } catch (e) {
@@ -1905,7 +1914,7 @@ async function createAgenda(){
    if (!profCheck.disponivel) {
     const statusEl = document.getElementById("agendaProfStatus")
     const c = profCheck.conflito
-    const conflitoText = `${c?.procedimento || "—"} às ${c?.inicio || ""}–${c?.fim || ""}`
+    const conflitoText = formatConflitoHtml(c)
     const disponiveisBtns = await buildDisponiveisButtons(dataInput.value, horaInput.value, durationMinutes, procedureIdCreate, profissionalInput, dataInput, horaInput, procDurationEl, null)
     if (statusEl && disponiveisBtns) {
      statusEl.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. <span class="agenda-prof-disponiveis-label">Escolha quem está disponível:</span> ${disponiveisBtns}`
@@ -2089,7 +2098,7 @@ async function updateAgenda(id){
    if (!profCheck.disponivel) {
     const statusElEdit = document.getElementById("agendaProfStatus")
     const c = profCheck.conflito
-    const conflitoText = `${c?.procedimento || "—"} às ${c?.inicio || ""}–${c?.fim || ""}`
+    const conflitoText = formatConflitoHtml(c)
     const disponiveisBtns = await buildDisponiveisButtons(dataInput.value, horaInput.value, durationMinutes, procedureIdEdit, profissionalInput, dataInput, horaInput, procDurationEl, id)
     if (statusElEdit && disponiveisBtns) {
      statusElEdit.innerHTML = `<strong>Indisponível:</strong> ${conflitoText}. <span class="agenda-prof-disponiveis-label">Escolha quem está disponível:</span> ${disponiveisBtns}`
