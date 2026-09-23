@@ -2,6 +2,9 @@
  * Agenda no portal: listar procedimentos, horários livres, marcar, remarcar, cancelar.
  */
 import { supabase } from "../core/supabase.js";
+import { buildFreeSlots } from "../utils/portal-slots.js";
+
+export { buildFreeSlots };
 
 function getToken() {
   return typeof sessionStorage !== "undefined" ? sessionStorage.getItem("client_portal_token") : null;
@@ -25,7 +28,15 @@ export async function listPortalBusyHours(dateYmd) {
     p_data: dateYmd
   });
   if (error) throw error;
-  return (data ?? []).map((r) => String(r.hora || r).slice(0, 5));
+  return (data ?? []).map((r) => {
+    if (r && typeof r === "object") {
+      return {
+        hora: String(r.hora || "").slice(0, 5),
+        duration_minutes: Number(r.duration_minutes) > 0 ? Number(r.duration_minutes) : 60,
+      };
+    }
+    return { hora: String(r).slice(0, 5), duration_minutes: 30 };
+  });
 }
 
 export async function listPortalJornadaAgenda() {
@@ -67,21 +78,4 @@ export async function cancelPortalAppointment(agendaId) {
     p_agenda_id: agendaId
   });
   if (error) throw error;
-}
-
-/** Gera horários de 09:00 às 18:00 a cada 30 min, sem os ocupados. */
-export function buildFreeSlots(busyHHmm, dateYmd) {
-  const busy = new Set((busyHHmm || []).map((h) => String(h).slice(0, 5)));
-  const today = new Date().toISOString().slice(0, 10);
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  const slots = [];
-  for (let m = 9 * 60; m < 18 * 60; m += 30) {
-    const hh = String(Math.floor(m / 60)).padStart(2, "0");
-    const mm = String(m % 60).padStart(2, "0");
-    const label = `${hh}:${mm}`;
-    if (busy.has(label)) continue;
-    if (dateYmd === today && m <= nowMin + 30) continue;
-    slots.push(label);
-  }
-  return slots;
 }

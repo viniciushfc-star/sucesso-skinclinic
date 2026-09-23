@@ -5,8 +5,8 @@ import {
   createPortalAppointment,
   reschedulePortalAppointment,
   cancelPortalAppointment,
-  buildFreeSlots
 } from "./agenda-portal.service.js";
+import { buildFreeSlots } from "../utils/portal-slots.js";
 import { toast } from "./ui/toast.client.js";
 
 const app = document.getElementById("app");
@@ -40,7 +40,7 @@ async function render(remarcarId = null) {
     app.innerHTML = `
       <section class="client-header">
         <h2>Agendar horário</h2>
-        <p class="client-hint">${escapeHtml(err?.message || "A clínica ainda não liberou o agendamento online. Peça para rodar o SQL supabase-portal-agendamento.sql.")}</p>
+        <p class="client-hint">${escapeHtml(err?.message || "A clínica ainda não liberou o agendamento online.")}</p>
         <p><a href="#dashboard">← Voltar</a></p>
       </section>`;
     return;
@@ -82,8 +82,9 @@ async function render(remarcarId = null) {
     </section>
   `;
 
-  await refreshSlots();
-  document.getElementById("portalData").onchange = () => refreshSlots();
+  await refreshSlots({ procedures, mine, remarcarId });
+  document.getElementById("portalData").onchange = () => refreshSlots({ procedures, mine, remarcarId });
+  document.getElementById("portalProc")?.addEventListener("change", () => refreshSlots({ procedures, mine, remarcarId }));
   app.querySelectorAll(".btn-portal-remarcar").forEach((btn) => {
     btn.onclick = () => render(btn.dataset.id);
   });
@@ -101,15 +102,19 @@ async function render(remarcarId = null) {
   });
 }
 
-async function refreshSlots() {
+async function refreshSlots({ procedures = [], mine = [], remarcarId = null } = {}) {
   const dateEl = document.getElementById("portalData");
   const wrap = document.getElementById("portalSlots");
   const hint = document.getElementById("portalSlotsHint");
   if (!dateEl || !wrap) return;
   const dateYmd = dateEl.value;
+  const procId = document.getElementById("portalProc")?.value;
+  const fromProc = procedures.find((p) => String(p.id) === String(procId));
+  const fromMine = mine.find((a) => String(a.id) === String(remarcarId));
+  const durationMinutes = Number(fromProc?.duration_minutes || fromMine?.duration_minutes) || 60;
   try {
     const busy = await listPortalBusyHours(dateYmd);
-    const free = buildFreeSlots(busy, dateYmd);
+    const free = buildFreeSlots(busy, dateYmd, durationMinutes);
     hint.textContent = free.length ? "Toque em um horário livre:" : "Nenhum horário neste dia. Tente outra data.";
     wrap.innerHTML = free
       .map((h) => `<button type="button" class="portal-slot" data-hora="${h}">${h}</button>`)

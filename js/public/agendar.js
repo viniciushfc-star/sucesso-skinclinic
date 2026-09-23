@@ -1,5 +1,5 @@
 import { supabase } from "../core/supabase.js";
-import { buildFreeSlots } from "../Client/agenda-portal.service.js";
+import { buildFreeSlots } from "../utils/portal-slots.js";
 
 const app = document.getElementById("agendarApp");
 const params = new URLSearchParams(window.location.search);
