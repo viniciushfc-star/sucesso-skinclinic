@@ -13,6 +13,7 @@ import { createClient, getClientes, getClientByCpf } from "./clientes.service.js
 import { createProcedure, listProcedures } from "./procedimentos.service.js";
 import { parseValor, parseData } from "./importacao-bancaria.service.js";
 import { inferirCategoriaSaida } from "../utils/categoria-financeiro.js";
+import { financeFingerprint, agendaFingerprint } from "../utils/backup-restore.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -203,8 +204,13 @@ export async function importarFinanceiro(rows, forCustoFixo = false) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Sessão expirada");
 
-  const result = { inseridos: 0, erros: [] };
+  const result = { inseridos: 0, erros: [], ignorados_duplicados: 0 };
   const toInsert = [];
+  const { data: existingFin } = await supabase
+    .from("financeiro")
+    .select("data, valor, tipo, descricao")
+    .eq("org_id", orgId);
+  const seen = new Set((existingFin || []).map((r) => financeFingerprint(r)));
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -238,7 +244,7 @@ export async function importarFinanceiro(rows, forCustoFixo = false) {
       if (!categoria_saida && descricao)
         categoria_saida = inferirCategoriaSaida(descricao) || null;
     }
-    toInsert.push({
+    const row = {
       org_id: orgId,
       user_id: user.id,
       data: dataStr,
@@ -250,7 +256,14 @@ export async function importarFinanceiro(rows, forCustoFixo = false) {
       conta_origem: (col(r, "conta_origem", "conta") ?? "").trim() || null,
       categoria_saida,
       procedure_id: null,
-    });
+    };
+    const fp = financeFingerprint(row);
+    if (seen.has(fp)) {
+      result.ignorados_duplicados++;
+      continue;
+    }
+    seen.add(fp);
+    toInsert.push(row);
   }
 
   if (toInsert.length === 0) return result;
@@ -303,7 +316,12 @@ export async function importarAgenda(rows) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Sessão expirada");
 
-  const result = { inseridos: 0, erros: [] };
+  const result = { inseridos: 0, erros: [], ignorados_duplicados: 0 };
+  const { data: existingAg } = await supabase
+    .from("agenda")
+    .select("data, hora, cliente_id, procedimento")
+    .eq("org_id", orgId);
+  const seenAgenda = new Set((existingAg || []).map((r) => agendaFingerprint(r)));
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -342,8 +360,20 @@ export async function importarAgenda(rows) {
       procedure_id,
     };
 
+    const fp = agendaFingerprint({
+      data: dataStr,
+      hora,
+      cliente_id,
+      procedimento: procedimentoTexto,
+    });
+    if (seenAgenda.has(fp)) {
+      result.ignorados_duplicados++;
+      continue;
+    }
+
     try {
       await supabase.from("agenda").insert(payload);
+      seenAgenda.add(fp);
       result.inseridos++;
     } catch (e) {
       result.erros.push({ linha: i + 2, msg: e.message || String(e) });

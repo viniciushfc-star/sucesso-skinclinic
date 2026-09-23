@@ -96,11 +96,11 @@ describe("Fase 0 — código", () => {
   });
 
   it("backup usa clients e agenda", () => {
-    const backup = src("js/services/backup.service.js");
-    assert.match(backup, /"clients"/);
-    assert.match(backup, /"agenda"/);
-    assert.equal(backup.includes('"clientes"'), false);
-    assert.equal(backup.includes('"agendamentos"'), false);
+    const tables = src("js/utils/backup-restore.js").match(/BACKUP_TABLES = \[([^\]]+)\]/)?.[1] || "";
+    assert.match(tables, /"clients"/);
+    assert.match(tables, /"agenda"/);
+    assert.equal(tables.includes('"clientes"'), false);
+    assert.equal(tables.includes('"agendamentos"'), false);
   });
 
   it("create-portal-session grava token_hash", () => {

@@ -1,5 +1,10 @@
 import { exportarTabela, exportarBackupUnico } from "../services/export.service.js";
 import { importarLote, getTemplateHeaders, importarBackupUnico, parseCSV, analisarPreviaImportacao, MAX_IMPORT_ROWS } from "../services/importacao-lote.service.js";
+import {
+  previewBackupUnico,
+  confirmRestoreMessage,
+  formatRestoreSummary,
+} from "../utils/backup-restore.js";
 import { getProcedimentosRealizadosPorPeriodo } from "../services/metrics.service.js";
 import { getRelatorioContador } from "../services/contador.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
@@ -378,18 +383,26 @@ async function executarRestaurarBackup(fileInput, resultEl) {
   const file = fileInput.files[0];
   fileInput.value = "";
   try {
+    const text = await file.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      throw new Error("Arquivo inválido: esperado JSON de backup.");
+    }
+    const preview = previewBackupUnico(data);
+    if (!preview.ok) throw new Error(preview.error);
+    if (!window.confirm(confirmRestoreMessage(preview))) {
+      resultEl.classList.add("hidden");
+      return;
+    }
     resultEl.classList.remove("hidden");
-    resultEl.innerHTML = "<p>Restaurando backup…</p>";
-    const out = await importarBackupUnico(file);
-    const parts = [];
-    if (out.clientes) parts.push("Clientes: " + (out.clientes.inseridos || 0) + " inseridos");
-    if (out.procedimentos) parts.push("Procedimentos: " + (out.procedimentos.inseridos || 0));
-    if (out.financeiro) parts.push("Financeiro: " + (out.financeiro.inseridos || 0));
-    if (out.custo_fixo) parts.push("Custo fixo: " + (out.custo_fixo.inseridos || 0));
-    if (out.agenda) parts.push("Agenda: " + (out.agenda.inseridos || 0));
-    resultEl.innerHTML = "<p class=\"import-result-ok\">" + (parts.length ? parts.join("; ") : "Nenhuma seção encontrada no JSON.").replace(/</g, "&lt;") + "</p>";
+    resultEl.innerHTML = "<p>Restaurando o que ainda não existe…</p>";
+    const out = await importarBackupUnico(text);
+    const parts = formatRestoreSummary(out);
+    resultEl.innerHTML = "<p class=\"import-result-ok\">" + (parts.length ? parts.join("; ") : "Nada novo para entrar.").replace(/</g, "&lt;") + "</p>";
     resultEl.classList.remove("hidden");
-    toast("Backup restaurado.");
+    toast("Restauração concluída (sem apagar o que já existia).");
   } catch (err) {
     resultEl.innerHTML = "<p class=\"import-result-err\">" + (err.message || String(err)).replace(/</g, "&lt;") + "</p>";
     resultEl.classList.remove("hidden");

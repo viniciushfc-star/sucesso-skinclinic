@@ -293,7 +293,7 @@
         </div>
         <div class="export-backup-unico">
           <h3 class="export-backup-unico-title">Backup único (outro sistema) <span class="info-icon" title="Se o outro sistema exportar todos os dados em um único arquivo JSON, use aqui. Formato: clientes, procedimentos, financeiro, agenda. Cada chave é um array de objetos com os mesmos campos dos CSV (nome, email, etc.)." aria-label="Informação">ℹ️</span></h3>
-          <p class="export-backup-hint">Se o outro sistema exportar <strong>todos os dados em um único arquivo JSON</strong>, use aqui. Formato: <code>{ "clientes": [...], "procedimentos": [...], "financeiro": [...], "agenda": [...] }</code>. Cada chave é um array de objetos com os mesmos campos dos CSV (nome, email, etc.).</p>
+          <p class="export-backup-hint">Restaura <strong>só o que ainda não existe</strong> nesta clínica. Nada é apagado. Formato: <code>{ "clientes": [...], "procedimentos": [...], "financeiro": [...], "agenda": [...] }</code>.</p>
           <label for="importBackupFile" class="sr-only">Selecionar arquivo JSON de backup</label>
           <input type="file" id="importBackupFile" accept=".json,application/json" class="import-file" aria-label="Arquivo JSON de backup">
           <button type="button" id="btnRestaurarBackup" class="btn-primary">Restaurar backup</button>
@@ -1133,7 +1133,7 @@
           </div>
           <div class="view-card backup-block">
             <h3 class="view-card-title">Restaurar backup</h3>
-            <p class="view-hint backup-block-hint">Escolha um arquivo gerado por este sistema; os dados serão importados na organização atual.</p>
+            <p class="view-hint backup-block-hint">Escolha um JSON gerado aqui. Só entra o que ainda não existe nesta clínica. Nada é apagado. Duplicados (CPF, lançamento igual, mesmo horário) são ignorados.</p>
             <input type="file" id="backupRestoreFile" accept=".json,application/json" class="hidden" aria-label="Arquivo de backup">
             <button type="button" id="btnRestore" class="btn-primary">Escolher arquivo e restaurar</button>
             <div id="backupRestoreResult" class="backup-result hidden"></div>

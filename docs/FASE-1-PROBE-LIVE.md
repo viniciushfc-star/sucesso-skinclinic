@@ -1,11 +1,11 @@
-# Probe live do schema — 2026-09-21
+# Probe live do schema — 2026-09-23
 
 Gerado por `scripts/schema-probe-live.js` (PostgREST head count).  
 **Não** é pg_dump. Colunas, RLS e RPCs **não** são listados aqui.
 
 Projeto URL host: `ipaayevpoqllucltvuhj.supabase.co`
 
-## Existe no live (63)
+## Existe no live (68)
 
 - `organizations`
 - `organization_users`
@@ -67,6 +67,11 @@ Projeto URL host: `ipaayevpoqllucltvuhj.supabase.co`
 - `marketing_ia`
 - `protocolos_ia`
 - `ai_usage_events`
+- `api_error_events`
+- `lgpd_requests`
+- `ocr_notas`
+- `market_radar_refs`
+- `agenda_google_events`
 - `google_calendar_connections`
 - `assinaturas`
 - `convites`
@@ -79,11 +84,8 @@ _nenhuma_
 
 _nenhum_
 
-## Contagens (ciclo 2)
-
-Ver `docs/FASE-1-BANCO-CICLO.md`. Resumo: `appointments` 0 linhas; `clientes` 3 IDs **sem** interseção com `clients` (4).
-
 ## Interpretação
 
-Todas as tabelas da lista de probe **existem** neste projeto live. Legado não está “ausente”: está **vazio ou paralelo**.
-- `organization_user_permissions` **existe** → fail-closed de catálogo não derruba a API hoje.
+Todas as tabelas da lista de probe **existem** neste projeto live, inclusive `ocr_notas`, `market_radar_refs` e `agenda_google_events`.
+- `appointments` / `clientes` / `convites` / `logs` / `assinaturas`: legado paralelo, não ausente.
+- `organization_user_permissions` existe → fail-closed de catálogo não derruba a API hoje.
