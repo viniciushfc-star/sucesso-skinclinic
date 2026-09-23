@@ -42,6 +42,6 @@ describe("Lote 9 UX e desempenho", () => {
     assert.match(agenda, /weekItems/);
     assert.match(agenda, /export async function init/);
     assert.match(sw, /catch\(\(\) => caches\.match/);
-    assert.match(sw, /v5-lote9/);
+    assert.match(sw, /v6/);
   });
 });

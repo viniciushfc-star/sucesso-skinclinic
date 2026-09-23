@@ -5,7 +5,7 @@ let deferredPrompt = null;
 export function initPwa() {
   if (typeof navigator?.serviceWorker !== "undefined") {
     const base = getBase();
-    navigator.serviceWorker.register(base + "/sw.js?v=lote9", { scope: base + "/" }).catch(() => {});
+    navigator.serviceWorker.register(base + "/sw.js?v=v6", { scope: base + "/" }).catch(() => {});
   }
 
   window.addEventListener("beforeinstallprompt", (e) => {

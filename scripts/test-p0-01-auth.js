@@ -19,7 +19,7 @@ import {
 } from "../lib/api-auth.js";
 import webhookHandler from "../routes/webhook-transacoes.js";
 import { createSignedOAuthState, verifySignedOAuthState } from "../lib/oauth-state.js";
-import { secretsEqual, corsOriginFor, isBlockedStaticPath, shouldNoStoreHtml } from "../lib/http-security.js";
+import { secretsEqual, corsOriginFor, isBlockedStaticPath, shouldNoStoreAppShell } from "../lib/http-security.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -240,12 +240,15 @@ describe("P0 fail-closed e CORS", () => {
     assert.equal(isBlockedStaticPath("/js/core/auth.js"), false);
   });
 
-  it("HTML da SPA não vai para cache; API continua cacheável pelo cliente", () => {
-    assert.equal(shouldNoStoreHtml("/dashboard.html"), true);
-    assert.equal(shouldNoStoreHtml("/"), true);
-    assert.equal(shouldNoStoreHtml("/api/health"), false);
+  it("HTML e JS da SPA não vão para cache; API continua sem no-store", () => {
+    assert.equal(shouldNoStoreAppShell("/dashboard.html"), true);
+    assert.equal(shouldNoStoreAppShell("/"), true);
+    assert.equal(shouldNoStoreAppShell("/js/core/spa.js"), true);
+    assert.equal(shouldNoStoreAppShell("/sw.js"), true);
+    assert.equal(shouldNoStoreAppShell("/api/health"), false);
     const vercel = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "vercel.json"), "utf8");
     assert.match(vercel, /X-Frame-Options/);
+    assert.match(vercel, /\/js\/\(\.\*\)/);
     assert.match(vercel, /no-store/);
   });
 
