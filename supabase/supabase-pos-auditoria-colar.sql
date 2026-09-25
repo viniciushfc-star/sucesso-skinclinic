@@ -2,6 +2,8 @@
 -- Idempotente: pode repetir. Não apaga dados.
 -- Ordem: Google occupy → scopes → auditoria imutável → portal CPF → overlap agenda → confirmação.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
 -- ========== 1. 20260923010000_p2_agenda_google_occupy.sql ==========
 -- Lote 8: mapeamento agenda clínica → evento genérico no Google (sem PII).
 
@@ -116,7 +118,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $func$
 DECLARE
   v_session RECORD;
@@ -125,7 +127,7 @@ BEGIN
   IF p_token IS NULL OR p_token = '' THEN
     RETURN;
   END IF;
-  v_hash := encode(digest(convert_to(p_token, 'UTF8'), 'sha256'), 'hex');
+  v_hash := encode(extensions.digest(convert_to(p_token, 'UTF8'), 'sha256'::text), 'hex');
   SELECT s.client_id, s.org_id INTO v_session
   FROM public.client_sessions s
   WHERE s.revoked_at IS NULL
@@ -170,7 +172,7 @@ CREATE OR REPLACE FUNCTION public.client_complete_registration(
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $func$
 DECLARE
   v_session RECORD;
@@ -190,7 +192,7 @@ BEGIN
     RAISE EXCEPTION 'E obrigatorio aceitar o Termo de Consentimento para continuar';
   END IF;
 
-  v_hash := encode(digest(convert_to(p_token, 'UTF8'), 'sha256'), 'hex');
+  v_hash := encode(extensions.digest(convert_to(p_token, 'UTF8'), 'sha256'::text), 'hex');
   SELECT s.client_id, s.org_id INTO v_session
   FROM public.client_sessions s
   WHERE s.revoked_at IS NULL

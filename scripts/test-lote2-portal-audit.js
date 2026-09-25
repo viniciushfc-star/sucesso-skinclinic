@@ -43,6 +43,13 @@ describe("Lote 2 portal PII e audit", () => {
     assert.doesNotMatch(route, /user_id:\s*req\.body/);
   });
 
+  it("FASE 5 hash do token usa pgcrypto em extensions", () => {
+    const sql = readFileSync(join(ROOT, "supabase/migrations/20260925080000_p0_portal_pgcrypto.sql"), "utf8");
+    assert.match(sql, /CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions/);
+    assert.match(sql, /extensions\.digest\(convert_to\(p_token, 'UTF8'\), 'sha256'::text\)/);
+    assert.match(sql, /SET search_path = public, extensions/);
+  });
+
   it("FASE 5 oculta CPF após cadastro e não grava notes internas", () => {
     const sql = readFileSync(
       join(ROOT, "supabase/migrations/20260923040000_p1_portal_rpc_cpf.sql"),
