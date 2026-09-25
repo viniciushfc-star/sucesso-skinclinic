@@ -47,7 +47,8 @@ describe("Lote 2 portal PII e audit", () => {
     const sql = readFileSync(join(ROOT, "supabase/migrations/20260925080000_p0_portal_pgcrypto.sql"), "utf8");
     assert.match(sql, /CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions/);
     assert.match(sql, /extensions\.digest\(convert_to\(p_token, 'UTF8'\), 'sha256'::text\)/);
-    assert.match(sql, /SET search_path = public, extensions/);
+    assert.match(sql, /UPDATE public.client_sessions s/);
+    assert.match(sql, /#variable_conflict use_column/);
   });
 
   it("FASE 5 oculta CPF após cadastro e não grava notes internas", () => {

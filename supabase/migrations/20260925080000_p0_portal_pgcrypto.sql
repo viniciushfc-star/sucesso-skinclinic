@@ -10,6 +10,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, extensions
 AS $func$
+#variable_conflict use_column
 DECLARE
   v_hash text;
 BEGIN
@@ -19,11 +20,11 @@ BEGIN
 
   v_hash := encode(extensions.digest(convert_to(p_token, 'UTF8'), 'sha256'::text), 'hex');
 
-  UPDATE public.client_sessions
+  UPDATE public.client_sessions s
   SET last_used_at = now()
-  WHERE revoked_at IS NULL
-    AND expires_at > now()
-    AND (token_hash = v_hash OR (token_hash IS NULL AND token = p_token));
+  WHERE s.revoked_at IS NULL
+    AND s.expires_at > now()
+    AND (s.token_hash = v_hash OR (s.token_hash IS NULL AND s.token = p_token));
 
   RETURN QUERY
   SELECT
