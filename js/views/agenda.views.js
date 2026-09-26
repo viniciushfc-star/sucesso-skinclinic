@@ -65,6 +65,7 @@ import { listWaitlist } from "../services/waitlist.service.js"
 import { matchWaitlistToSlot } from "../utils/espera-encaixe.js"
 import { filaWhatsappTemplate } from "../utils/crm-fila.js"
 import { occupyProfessionalCalendar } from "../services/google-calendar.service.js"
+import { rotuloLembrete, origemLembreteWhatsapp } from "../utils/confirmacao-tentativa.js"
 import { labelOcupadoPessoal, rangesOverlap } from "../utils/agenda-ocupacao.js"
 
 /* =====================
@@ -447,7 +448,18 @@ async function renderWeekGrid(professionalId = null) {
 }
 
 /** Converte "09:00" ou "9:00" em minutos desde meia-noite. */
-function parseHoraToMinutes(horaStr) {
+function htmlAcoesLembrete(a) {
+  if (a.item_type === "event") return ""
+  const r = rotuloLembrete(a)
+  if (!r.enviar) {
+    return `<span class="agenda-lembrete-enviado" title="${escapeHtml(r.title)}">✓</span>`
+  }
+  const primeira = a.reminder_sent_at
+    ? `<span class="agenda-lembrete-enviado" title="1ª tentativa enviada; ainda sem confirmação">1ª</span>`
+    : ""
+  const glyph = r.n >= 2 ? "2ª" : "📋"
+  return `${primeira}<button type="button" class="btn-lembrete btn-icon-sm" data-id="${a.id}" data-tentativa="${r.n}" title="${escapeHtml(r.title)}">${glyph}</button>`
+}
   if (!horaStr) return 0
   const s = String(horaStr).trim().slice(0, 5)
   const [h, m] = s.split(":").map((n) => parseInt(n, 10) || 0)
@@ -521,8 +533,7 @@ function renderDayList(date, professionalId = null, weekItems = null) {
       <div class="calendar-event-block-time">${hora(a)}${durationMin !== 60 ? ` · ${durationMin} min` : ""}</div>
       <div class="calendar-event-block-name" title="${titulo}">${titulo}</div>
       <div class="calendar-event-block-actions">
-        ${!isEvent(a) && a.reminder_sent_at ? `<span class="agenda-lembrete-enviado" title="Lembrete enviado">✓</span>` : ""}
-        ${!isEvent(a) ? `<button type="button" class="btn-lembrete btn-icon-sm" data-id="${a.id}" title="Lembrete">📋</button>` : ""}
+        ${htmlAcoesLembrete(a)}
         ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete btn-icon-sm" data-id="${a.id}" title="E-mail">✉️</button>` : ""}
         ${!isEvent(a) ? `<button class="btn-whats btn-icon-sm" title="WhatsApp">📲</button>` : ""}
       </div>
@@ -602,8 +613,7 @@ function renderDayList(date, professionalId = null, weekItems = null) {
       <div class="calendar-event-block-time">${hora(a)}${durationMin !== 60 ? ` · ${durationMin} min` : ""}</div>
       <div class="calendar-event-block-name" title="${titulo}">${titulo}</div>
       <div class="calendar-event-block-actions">
-        ${!isEvent(a) && a.reminder_sent_at ? `<span class="agenda-lembrete-enviado" title="Lembrete enviado">✓</span>` : ""}
-        ${!isEvent(a) ? `<button type="button" class="btn-lembrete btn-icon-sm" data-id="${a.id}" title="Lembrete">📋</button>` : ""}
+        ${htmlAcoesLembrete(a)}
         ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete btn-icon-sm" data-id="${a.id}" title="E-mail">✉️</button>` : ""}
         ${!isEvent(a) ? `<button class="btn-whats btn-icon-sm" title="WhatsApp">📲</button>` : ""}
       </div>
@@ -704,16 +714,17 @@ function bindLembreteButtons(items, date) {
       }
       const vars = { nome_cliente: nome, data: dataFmt, hora, nome_clinica: profile.name || "Clínica", link_confirmar: linkConfirmar }
       const texto = await buildMessage("lembrete_agendamento", vars, { useConfirmar: !!linkConfirmar })
+      const segunda = Number(btn.dataset.tentativa) >= 2
       try {
         navigator.clipboard.writeText(texto)
-        toast("Lembrete (com link de confirmação) copiado. Cole no WhatsApp ou envie por e-mail.")
-      } catch (_) {
-        toast("Copie a mensagem manualmente.")
-      }
+      } catch (_) {}
       if (tel) {
         const num = String(tel).replace(/\D/g, "")
-        if (num.length >= 10) sendWhatsapp(num, texto, { origem: "agenda_lembrete", clientId: item.cliente_id || item.client_id || "" })
+        if (num.length >= 10) sendWhatsapp(num, texto, { origem: origemLembreteWhatsapp(btn.dataset.tentativa), clientId: item.cliente_id || item.client_id || "" })
       }
+      toast(segunda
+        ? "Segunda tentativa: confira o WhatsApp antes de enviar. Nada sai sozinho."
+        : "Lembrete com link de confirmação. Confira o WhatsApp antes de enviar.")
       try {
         await withOrg(supabase.from("agenda").update({ reminder_sent_at: new Date().toISOString() }).eq("id", id))
         renderDayList(date || selectedDate)
