@@ -1254,12 +1254,20 @@
         <div id="crmRoot">
           <div class="view-header">
             <h2>CRM e fidelidade</h2>
-            <p class="view-lead">Radar vira fila de contato. WhatsApp é um clique por pessoa — o sistema não dispara sozinho.</p>
+            <p class="view-lead">Radar vira fila de contato. WhatsApp é um clique por pessoa — o sistema não dispara sozinho. Origem do lead fica no prontuário, sem crm2.</p>
           </div>
           <div class="view-card">
             <h3 class="view-card-title">Fila de contato</h3>
             <p class="view-hint">Uma pessoa, um motivo, no máximo 15. Pacote e espera entram na frente. Sem envio em massa.</p>
             <div id="crmListaFila" class="crm-list"></div>
+          </div>
+          <div class="view-card">
+            <h3 class="view-card-title">Origem dos leads</h3>
+            <p class="view-hint">Conta quem já tem origem no prontuário. CAC só aparece se você informar o investimento do período. O sistema não inventa gasto.</p>
+            <label for="crmInvestimentoOrigem">Investimento do período (R$), opcional</label>
+            <input type="number" id="crmInvestimentoOrigem" min="0" step="0.01" placeholder="Vazio = CAC não informado">
+            <button type="button" class="btn-secondary" id="crmBtnOrigemAtualizar">Atualizar funil</button>
+            <div id="crmOrigemResumo" class="crm-list"></div>
           </div>
           <div class="view-card">
             <h3 class="view-card-title">Radar de retorno</h3>
@@ -1308,6 +1316,17 @@
               <input type="tel" id="crmEsperaPhone" placeholder="11 99999-0000">
               <label for="crmEsperaProc">Procedimento</label>
               <input type="text" id="crmEsperaProc" placeholder="Ex.: limpeza de pele">
+              <label for="crmEsperaOrigem">Origem</label>
+              <select id="crmEsperaOrigem">
+                <option value="">Não informar</option>
+                <option value="instagram">Instagram</option>
+                <option value="indicacao">Indicação</option>
+                <option value="google">Google</option>
+                <option value="whatsapp">WhatsApp (clique)</option>
+                <option value="portal">Portal / site</option>
+                <option value="espera">Lista de espera</option>
+                <option value="outro">Outro</option>
+              </select>
               <label for="crmEsperaData">Preferência de dia</label>
               <input type="date" id="crmEsperaData">
               <button type="submit" class="btn-primary">Colocar na espera</button>

@@ -2,7 +2,7 @@ import { toast } from "../ui/toast.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getAniversariantes, getClientes } from "../services/clientes.service.js";
 import { listInactiveClients, listLoyaltyClients, getRadarRetorno } from "../services/crm.service.js";
-import { createClientEvent, listCrmDesfechosRecentes } from "../services/client-events.service.js";
+import { createClientEvent, listCrmDesfechosRecentes, listLeadOrigens } from "../services/client-events.service.js";
 import {
   buildCrmFila,
   filaWhatsappTemplate,
@@ -13,6 +13,15 @@ import {
 } from "../utils/crm-fila.js";
 import { navigate } from "../core/spa.js";
 import { addWaitlistEntry, listWaitlist, updateWaitlistStatus } from "../services/waitlist.service.js";
+import {
+  labelOrigemLead,
+  payloadLeadOrigem,
+  mapaOrigemPorCliente,
+  origemDaNotaEspera,
+  notesComOrigem,
+  idsConvertidosDesfecho,
+  resumirFunilOrigem,
+} from "../utils/crm-origem.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { getActiveOrg } from "../core/org.js";
 
@@ -71,6 +80,8 @@ export async function init() {
   let fidelRows = [];
   let anivRows = [];
   let desfechoMap = new Map();
+  let desfechoRows = [];
+  let origemByClient = new Map();
 
   let profile = {};
   try {
@@ -132,6 +143,7 @@ export async function init() {
         waitlistId: r.id,
         name: r.nome,
         phone: r.phone,
+        notes: r.notes,
         sinal: "espera",
         motivo: r.procedure_name ? `Espera: ${r.procedure_name}` : "Lista de espera",
       });
@@ -170,6 +182,8 @@ export async function init() {
         const tag = RADAR_LABEL[c.sinal] || (c.sinal === "espera" ? "Espera" : c.sinal === "fidelidade" ? "Fidelidade" : c.sinal === "aniversario" ? "Aniversário" : c.sinal);
         const last = c.clientId ? desfechoMap.get(c.clientId) : null;
         const lastHint = last?.label ? ` · último: ${last.label}` : "";
+        const origemId = (c.clientId && origemByClient.get(c.clientId)) || origemDaNotaEspera(c.notes);
+        const origemHint = labelOrigemLead(origemId) ? ` · origem: ${labelOrigemLead(origemId)}` : "";
         const desfechoBtns = c.clientId
           ? `<div class="crm-desfecho-acoes">${CRM_DESFECHOS.map((d) =>
               `<button type="button" class="btn-sm crm-desfecho" data-desfecho="${escapeHtml(d.id)}" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId)}">${escapeHtml(d.label)}</button>`
@@ -177,7 +191,7 @@ export async function init() {
           : "";
         return `<div class="crm-row">
             <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
-            <span class="view-hint">${escapeHtml(c.motivo || "")}${escapeHtml(lastHint)}</span>
+            <span class="view-hint">${escapeHtml(c.motivo || "")}${escapeHtml(origemHint)}${escapeHtml(lastHint)}</span>
             ${desfechoBtns}</div>
             <div class="crm-row-actions">
               ${c.clientId ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(c.clientId)}">Agendar</button>` : ""}
@@ -284,8 +298,10 @@ export async function init() {
         .map((r) => {
           const tel = digitsPhone(r.phone);
           const msg = `Oi, ${r.nome}! Abriu um horário na ${clinicName(profile)}${r.procedure_name ? ` para ${r.procedure_name}` : ""}. Ainda quer?`;
+          const oid = (r.client_id && origemByClient.get(r.client_id)) || origemDaNotaEspera(r.notes);
+          const origemHint = labelOrigemLead(oid) ? ` · origem: ${labelOrigemLead(oid)}` : "";
           return `<div class="crm-row">
-            <div><strong>${escapeHtml(r.nome)}</strong><br><span class="view-hint">${escapeHtml(r.procedure_name || "procedimento livre")} · ${r.preferred_date ? fmtDate(r.preferred_date) : "qualquer dia"}</span></div>
+            <div><strong>${escapeHtml(r.nome)}</strong><br><span class="view-hint">${escapeHtml(r.procedure_name || "procedimento livre")} · ${r.preferred_date ? fmtDate(r.preferred_date) : "qualquer dia"}${escapeHtml(origemHint)}</span></div>
             <div class="crm-row-actions">
               ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_espera" data-waitlist-id="${escapeHtml(r.id)}" data-client-id="${escapeHtml(r.client_id || "")}" data-phone="${escapeHtml(r.phone)}" data-msg="${escapeHtml(msg)}">Avisar</button>` : ""}
               <button type="button" class="btn-sm crm-wait-done" data-id="${r.id}">Encaixei</button>
@@ -401,18 +417,23 @@ export async function init() {
     const phone = document.getElementById("crmEsperaPhone")?.value?.trim();
     const procedure_name = document.getElementById("crmEsperaProc")?.value?.trim();
     const preferred_date = document.getElementById("crmEsperaData")?.value || null;
+    const origemId = document.getElementById("crmEsperaOrigem")?.value || "";
     const clientSelect = document.getElementById("crmEsperaCliente");
+    const clientId = clientSelect?.value || null;
     try {
       await addWaitlistEntry({
         nome: nome || clientSelect?.selectedOptions?.[0]?.text || "",
         phone,
         procedure_name,
         preferred_date,
-        client_id: clientSelect?.value || null,
+        client_id: clientId,
+        notes: notesComOrigem("", origemId),
       });
+      const payload = clientId && !origemByClient.has(clientId) ? payloadLeadOrigem(clientId, origemId) : null;
+      if (payload) await createClientEvent(payload);
       formEspera.reset();
-      toast("Entrou na lista de espera.");
-      await loadEspera();
+      toast(payload ? "Entrou na espera. Origem no prontuário." : "Entrou na lista de espera.");
+      await Promise.all([loadEspera(), loadOrigens()]);
     } catch (err) {
       toast(err.message || "Não salvou a espera. Confira se o SQL foi rodado.");
     }
@@ -440,13 +461,55 @@ export async function init() {
 
   async function loadDesfechos() {
     try {
-      const rows = await listCrmDesfechosRecentes();
-      desfechoMap = mapaUltimoDesfecho(rows);
+      desfechoRows = await listCrmDesfechosRecentes();
+      desfechoMap = mapaUltimoDesfecho(desfechoRows);
     } catch (_) {
+      desfechoRows = [];
       desfechoMap = new Map();
     }
+    renderOrigemResumo();
     renderFila();
   }
 
-  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera(), loadDesfechos()]);
+  async function loadOrigens() {
+    try {
+      origemByClient = mapaOrigemPorCliente(await listLeadOrigens());
+    } catch (_) {
+      origemByClient = new Map();
+    }
+    renderOrigemResumo();
+    renderFila();
+  }
+
+  function renderOrigemResumo() {
+    const el = document.getElementById("crmOrigemResumo");
+    if (!el) return;
+    const invRaw = document.getElementById("crmInvestimentoOrigem")?.value;
+    const inv = invRaw === "" || invRaw == null ? NaN : Number(invRaw);
+    const { linhas, totalLeads, totalConv, cac } = resumirFunilOrigem({
+      origemByClient,
+      convertidos: idsConvertidosDesfecho(desfechoRows),
+      investimento: inv,
+    });
+    if (!linhas.length) {
+      el.innerHTML = "<p class=\"view-hint\">Nenhuma origem no prontuário ainda. Informe na espera quando a pessoa já for cliente.</p>";
+      return;
+    }
+    const cacTxt =
+      cac != null
+        ? `CAC R$ ${String(cac.toFixed(2)).replace(".", ",")} (investimento ÷ quem agendou)`
+        : "CAC não informado — preencha o investimento do período se quiser ver.";
+    el.innerHTML =
+      `<p class="view-hint">${totalLeads} lead(s) com origem · ${totalConv} com desfecho Agendou · ${escapeHtml(cacTxt)}</p>` +
+      linhas
+        .map(
+          (r) =>
+            `<div class="crm-row"><div><strong>${escapeHtml(r.label)}</strong><br><span class="view-hint">${r.leads} lead(s) · ${r.convertidos} agendou</span></div></div>`
+        )
+        .join("");
+  }
+
+  document.getElementById("crmBtnOrigemAtualizar")?.addEventListener("click", () => renderOrigemResumo());
+
+  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera(), loadDesfechos(), loadOrigens()]);
 }

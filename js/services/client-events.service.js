@@ -105,3 +105,16 @@ export async function listCrmDesfechosRecentes(days = 45) {
   if (error) return [];
   return data || [];
 }
+
+export async function listLeadOrigens() {
+  const orgId = getOrgOrThrow();
+  const { data, error } = await supabase
+    .from("client_events")
+    .select("client_id, event_type, description, created_at")
+    .eq("org_id", orgId)
+    .eq("event_type", "lead_origem")
+    .order("created_at", { ascending: true })
+    .limit(800);
+  if (error) return [];
+  return data || [];
+}
