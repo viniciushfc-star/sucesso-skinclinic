@@ -53,6 +53,8 @@ import { redirect } from "../core/base-path.js"
 import { getEntradasByAgendaId } from "../services/financeiro.service.js"
 
 import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes.service.js"
+import { createClientEvent } from "../services/client-events.service.js"
+import { payloadCombinadoConsulta } from "../utils/consulta-combinado.js"
 import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa, sugerirProximaAcaoNaBaixa } from "../utils/ciclo-ouro.js"
 import { previstoVsRealizado } from "../utils/comissao-apuracao.js"
 import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js"
@@ -2147,11 +2149,47 @@ async function submitDarBaixa(item) {
     closeModal()
     renderAgenda()
     await pedirAvaliacaoGoogle(item, { silenciosoSeVazio: true })
-    await oferecerProximaSessaoAposBaixa(item, sessoesRestantes)
+    oferecerCombinadoAposBaixa(item, sessoesRestantes)
   } catch (err) {
     console.error("[AGENDA] submitDarBaixa", err)
     toast(err?.message || "Erro ao registrar pagamento.")
   }
+}
+
+function oferecerCombinadoAposBaixa(item, sessoesRestantes) {
+  const clientId = item.client_id || item.cliente_id || item.clients?.id
+  const depois = () => oferecerProximaSessaoAposBaixa(item, sessoesRestantes)
+  if (!clientId) {
+    depois()
+    return
+  }
+  openModal(
+    "Combinado da consulta (opcional)",
+    `
+    <p class="agenda-baixa-hint">Só o que ficou combinado, em poucas linhas. Não cole rascunho de IA. WhatsApp não sai daqui.</p>
+    <label for="combinadoTexto">O que combinamos</label>
+    <textarea id="combinadoTexto" rows="3" maxlength="400" placeholder="Ex.: retorno em 15 dias; manter hidratação"></textarea>
+    <label for="combinadoRetorno">Retorno sugerido (opcional)</label>
+    <input type="date" id="combinadoRetorno">
+    `,
+    async () => {
+      const payload = payloadCombinadoConsulta({
+        proximoPasso: document.getElementById("combinadoTexto")?.value,
+        retornoEm: document.getElementById("combinadoRetorno")?.value,
+        agendaId: item.id,
+      })
+      if (payload) {
+        try {
+          await createClientEvent({ client_id: clientId, ...payload })
+          toast("Combinado no prontuário.")
+        } catch (e) {
+          toast(e?.message || "Não foi possível gravar o combinado.")
+        }
+      }
+      closeModal()
+    },
+    depois
+  )
 }
 
 async function oferecerProximaSessaoAposBaixa(item, sessoesRestantes) {

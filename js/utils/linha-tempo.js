@@ -5,6 +5,7 @@
 
 import { statusEfetivoOrcamento, statusOrcamentoLabel } from "./orcamento.js";
 import { mapaVersaoAnamnese } from "./anamnese-versao.js";
+import { tituloCombinadoNaLinha } from "./consulta-combinado.js";
 
 function dateKey(d) {
   if (!d) return "";
@@ -39,7 +40,7 @@ export function montarLinhaDoTempo({
       date: dateKey(e.event_date || e.created_at),
       visibilidade: e.created_by_client ? "portal" : "interno",
       fonte: "evento",
-      titulo: String(e.event_type || "Evento"),
+      titulo: tituloCombinadoNaLinha(e.event_type),
       detalhe: String(e.description || "").trim(),
       critico: !!e.is_critical,
     });

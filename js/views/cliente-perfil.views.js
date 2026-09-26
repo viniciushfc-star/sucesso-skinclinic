@@ -17,6 +17,7 @@ import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { compararEstoquePrevistoReal } from "../utils/estoque-previsto-real.js";
 import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js";
+import { payloadCombinadoConsulta } from "../utils/consulta-combinado.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -263,6 +264,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         <div class="cliente-historico">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
           <button type="button" class="btn-primary" id="btnRegistrarEvento">Registrar evento</button>
+          <button type="button" class="btn-secondary" id="btnRegistrarCombinado">Combinado da consulta</button>
           <div class="timeline-filtros" role="tablist" aria-label="Origem da linha do tempo">
             <button type="button" class="timeline-filtro is-active" data-filtro="todos">Todos</button>
             <button type="button" class="timeline-filtro" data-filtro="interno">Interno</button>
@@ -1558,6 +1560,7 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   });
 
   document.getElementById("btnRegistrarEvento")?.addEventListener("click", () => openEventModal(client));
+  document.getElementById("btnRegistrarCombinado")?.addEventListener("click", () => openCombinadoModal(client));
 
   document.getElementById("btnCompararFotosEvolucao")?.addEventListener("click", () => openCompararFotosModal(client.id));
   document.getElementById("btnRelatorioEvolucao")?.addEventListener("click", () => openRelatorioEvolucaoModal(client));
@@ -1930,6 +1933,38 @@ function openEditModal(client) {
     fecharCameraEdit();
     if (btnFoto) btnFoto.textContent = "Trocar arquivo";
   }
+}
+
+function openCombinadoModal(client) {
+  openModal(
+    "Combinado da consulta",
+    `
+    <p class="client-hint">Só o que ficou combinado. Máximo 400 caracteres. Sem rascunho de IA. WhatsApp não sai daqui.</p>
+    <label for="combinadoTexto">O que combinamos</label>
+    <textarea id="combinadoTexto" rows="3" maxlength="400" required placeholder="Ex.: retorno em 15 dias"></textarea>
+    <label for="combinadoRetorno">Retorno sugerido (opcional)</label>
+    <input type="date" id="combinadoRetorno">
+    `,
+    async () => {
+      const payload = payloadCombinadoConsulta({
+        proximoPasso: document.getElementById("combinadoTexto")?.value,
+        retornoEm: document.getElementById("combinadoRetorno")?.value,
+      });
+      if (!payload) {
+        toast("Escreva o combinado. Texto vazio ou inválido não grava.");
+        return;
+      }
+      try {
+        await createClientEvent({ client_id: client.id, ...payload });
+        toast("Combinado no prontuário.");
+        closeModal();
+        sessionStorage.setItem("clientePerfilOpenTab", "historico");
+        await init();
+      } catch (err) {
+        toast(err?.message || "Erro ao gravar.");
+      }
+    }
+  );
 }
 
 function openEventModal(client) {
