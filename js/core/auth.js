@@ -16,6 +16,13 @@ function log(type, msg, data = null) {
    LOGIN COM EMAIL
 ====================== */
 
+function pingLoginFail() {
+  try {
+    const url = `${getBase()}/api/obs-login-fail`
+    fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {})
+  } catch (_) {}
+}
+
 export async function loginEmail(email, password) {
   try {
     if (!email || !password) {
@@ -45,6 +52,7 @@ export async function loginEmail(email, password) {
 
   } catch (err) {
     log("error", "Erro login", err)
+    pingLoginFail()
     throw err
   }
 }

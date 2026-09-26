@@ -40,6 +40,9 @@ async function renderOpsSnapshot() {
       .slice(0, 6)
       .map((f) => `${escapeOps(f.feature)} US$ ${Number(f.costUsd || 0).toFixed(4)}`)
       .join(" · ");
+    const lat = json?.latencia?.texto || "P95: não informado (sem amostra neste isolate)."
+    const login = json?.login?.texto || "Falha de login: não informado."
+    const job = json?.job?.texto || "Job de lembrete: não informado neste recorte."
     const errs = json?.errors || [];
     const errHtml = errs.length
       ? `<ul class="ops-error-list">${errs
@@ -49,11 +52,14 @@ async function renderOpsSnapshot() {
             return `<li><span class="ops-error-status">${escapeOps(e.status)}</span> ${escapeOps(e.kind)} ${escapeOps(e.route || "")} <span class="ops-error-when">${escapeOps(when)}</span></li>`;
           })
           .join("")}</ul>`
-      : "<p class=\"ops-snapshot-empty\">Nenhum 5xx/webhook gravado para esta clínica.</p>";
+      : "<p class=\"ops-snapshot-empty\">Nenhum 5xx/webhook/job gravado para esta clínica.</p>";
     box.innerHTML = `
       <div class="ops-snapshot-card">
         <p class="ops-snapshot-ai"><strong>IA neste mês:</strong> US$ ${usd.toFixed(4)}${feats ? ` <span class="ops-snapshot-feats">(${feats})</span>` : ""}</p>
-        <p class="ops-snapshot-lead">Últimos erros da API e falhas de webhook (sem corpo da requisição).</p>
+        <p class="ops-snapshot-saude">${escapeOps(lat)}</p>
+        <p class="ops-snapshot-saude">${escapeOps(login)}</p>
+        <p class="ops-snapshot-saude">${escapeOps(job)}</p>
+        <p class="ops-snapshot-lead">Últimos erros da API, falhas de webhook e jobs (sem corpo da requisição, sem e-mail de login).</p>
         ${errHtml}
       </div>`;
   } catch (_) {

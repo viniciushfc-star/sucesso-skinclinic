@@ -10,7 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { isCronAuthorized, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 import { canonicalPhoneDigits } from "../lib/phone-match.js";
-import { mapaSilencioPorCliente, estaEmSilencio, SILENCIO_EVENT_TYPE } from "../js/utils/whatsapp-regua.js";
+import { persistApiEvent } from "../lib/observability.js";
 
 function getAdmin() {
   const url = process.env.SUPABASE_URL;
@@ -137,7 +137,7 @@ export default async function lembretesAuto(req, res) {
 
   for (const ag of pendentes) {
     if (orgFiltro && String(ag.org_id) !== String(orgFiltro)) {
-      resultados.push({ id: ag.id, ok: false, envios: [{ sent: false, reason: "cliente_outra_org" }] });
+      resultados.push({ id: ag.id, org_id: ag.org_id, ok: false, envios: [{ sent: false, reason: "cliente_outra_org" }] });
       continue;
     }
     const orgDoCliente = orgFiltro || ag.org_id;
@@ -149,7 +149,7 @@ export default async function lembretesAuto(req, res) {
       .maybeSingle();
 
     if (!cli) {
-      resultados.push({ id: ag.id, ok: false, envios: [{ sent: false, reason: "cliente_outra_org" }] });
+      resultados.push({ id: ag.id, org_id: ag.org_id, ok: false, envios: [{ sent: false, reason: "cliente_outra_org" }] });
       continue;
     }
 
@@ -207,13 +207,45 @@ export default async function lembretesAuto(req, res) {
       status: ok ? "enviado" : "falhou",
       detalhe: JSON.stringify(envios)
     });
-    resultados.push({ id: ag.id, ok, envios });
+    resultados.push({ id: ag.id, org_id: ag.org_id, ok, envios });
+  }
+
+  const sent = resultados.filter((r) => r.ok).length;
+  const porOrg = new Map();
+  for (const r of resultados) {
+    const oid = r.org_id;
+    if (!oid) continue;
+    const cur = porOrg.get(oid) || { scanned: 0, sent: 0 };
+    cur.scanned += 1;
+    if (r.ok) cur.sent += 1;
+    porOrg.set(oid, cur);
+  }
+  if (porOrg.size) {
+    for (const [oid, st] of porOrg) {
+      persistApiEvent({
+        kind: "job_run",
+        status: 200,
+        method: req.method,
+        route: "/api/lembretes-auto",
+        orgId: oid,
+        message: `scanned=${st.scanned} sent=${st.sent}`,
+      });
+    }
+  } else {
+    persistApiEvent({
+      kind: "job_run",
+      status: 200,
+      method: req.method,
+      route: "/api/lembretes-auto",
+      orgId: orgFiltro,
+      message: `scanned=${pendentes.length} sent=${sent}`,
+    });
   }
 
   return res.status(200).json({
     ok: true,
     scanned: pendentes.length,
-    sent: resultados.filter((r) => r.ok).length,
+    sent,
     resultados
   });
 }

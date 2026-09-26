@@ -27,6 +27,7 @@ describe("P1 rate limit HTTP", () => {
     assert.equal(bucketForPath("/api/whatsapp-send"), "whatsapp");
     assert.equal(bucketForPath("/api/create-portal-session"), "portal");
     assert.equal(bucketForPath("/api/health"), null);
+    assert.equal(bucketForPath("/api/obs-login-fail"), "auth");
     assert.equal(bucketForPath("/api/audit-log"), null);
   });
 

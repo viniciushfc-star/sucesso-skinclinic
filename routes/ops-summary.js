@@ -4,6 +4,13 @@
  */
 
 import { requireStaffAccess, sendAuthError, getAdminClient } from "../lib/api-auth.js";
+import { getLatencySamples, getLoginFailSnapshot } from "../lib/observability.js";
+import {
+  resumoLatencia,
+  resumoLoginFail,
+  escolherUltimoJob,
+  resumoJob,
+} from "../js/utils/obs-saude.js";
 
 function monthStartIso() {
   const d = new Date();
@@ -61,6 +68,10 @@ export default async function handler(req, res) {
     console.warn("[OPS-SUMMARY]", e?.message || e);
   }
 
+  const latencia = resumoLatencia(getLatencySamples());
+  const login = resumoLoginFail(getLoginFailSnapshot());
+  const job = resumoJob(escolherUltimoJob(errors));
+
   return res.json({
     ok: true,
     orgId,
@@ -69,5 +80,8 @@ export default async function handler(req, res) {
       byFeature,
     },
     errors,
+    latencia,
+    login,
+    job,
   });
 }

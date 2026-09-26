@@ -92,6 +92,7 @@ async function registerRoutesOnce() {
   await useApi("post", "/api/audit-log", () => import("./routes/audit-log.js"));
   await useApi("get", "/api/lembretes-auto", () => import("./routes/lembretes-auto.js"));
   await useApi("get", "/api/integracoes-status", () => import("./routes/integracoes-status.js"));
+  await useApi("post", "/api/obs-login-fail", () => import("./routes/obs-login-fail.js"));
   await useApi("get", "/api/ops-summary", () => import("./routes/ops-summary.js"));
   await useApi("post", "/api/ops-summary", () => import("./routes/ops-summary.js"));
   await useApi("get", "/api/calendario-conteudo", () => import("./routes/calendario-conteudo.js"));

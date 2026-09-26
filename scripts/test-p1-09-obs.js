@@ -17,6 +17,8 @@ describe("P1-9 observabilidade", () => {
     assert.equal(shouldPersistApiEvent(401, "api_5xx"), false);
     assert.equal(shouldPersistApiEvent(500, "api_5xx"), true);
     assert.equal(shouldPersistApiEvent(401, "webhook_fail"), true);
+    assert.equal(shouldPersistApiEvent(401, "login_fail"), true);
+    assert.equal(shouldPersistApiEvent(200, "job_run"), true);
   });
 
   it("redige token e chave no recorte da mensagem", () => {
