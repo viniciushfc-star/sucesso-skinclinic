@@ -12,6 +12,7 @@ import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus, aceitar
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
+import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -312,7 +313,8 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
       <div id="tabProtocolo" class="tab-pane hidden">
         <div class="cliente-protocolo">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
-          <p class="client-hint">Registre o que foi feito no atendimento: descrição, produtos usados (do estoque) e, se quiser, um protocolo cadastrado. O registro fica ligado ao prontuário e à data.</p>
+          <p class="client-hint">Registre o que foi feito no atendimento: descrição, produtos usados (do estoque) e, se quiser, um protocolo cadastrado. O registro fica ligado ao prontuário e à data. Plano/pacote é o combinado; protocolo aplicado é o feito. O sistema não troca um pelo outro.</p>
+          ${renderDivergenciaPlanoAplicado(pacotes, protocolosAplicados)}
           <div class="protocolo-registro-form">
             <label for="protocoloData">Data do atendimento</label>
             <input type="date" id="protocoloData" value="${(function(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})()}">
@@ -523,6 +525,24 @@ function renderProntuarioPorData(registrosAnamnese, protocolosAplicados, evoluti
         ${d.fotos?.length ? `<div class="prontuario-por-data-fotos">${fotoItems}</div>` : ""}
       </div>`;
   }).join("");
+}
+
+function renderDivergenciaPlanoAplicado(pacotes, aplicados) {
+  const cmp = compararPlanoVsAplicado({ pacotes, aplicados });
+  if (!cmp.temDivergencia) return "";
+  const itens = cmp.linhas
+    .map((l) => {
+      const just = l.justificativa
+        ? `<p class="plano-aplicado-just">${escapeHtml(l.justificativa)}</p>`
+        : "";
+      return `<li><strong>${escapeHtml(l.nome)}</strong> — ${escapeHtml(l.detalhe)}${just}</li>`;
+    })
+    .join("");
+  return `<div class="plano-aplicado-divergencia" role="status">
+    <p class="plano-aplicado-divergencia-title">Plano/pacote × o que foi aplicado</p>
+    <ul>${itens}</ul>
+    <p class="client-hint">Humano decide. Se o método mudou, registre na observação. O atendimento não trava e o preço não muda sozinho.</p>
+  </div>`;
 }
 
 function renderProtocoloAplicadoItem(a) {

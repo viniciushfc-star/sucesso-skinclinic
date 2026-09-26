@@ -3930,6 +3930,10 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .cliente-orcamento-linhas li{ display:flex; justify-content:space-between; gap:0.5rem; padding:0.25rem 0; }
 .cliente-orcamento-total-preview{ font-weight:600; }
 .cliente-orcamentos-empty{ color:#64748b; }
+.plano-aplicado-divergencia{ margin:0.75rem 0 1rem; padding:0.75rem 0.9rem; background:#fff7ed; border-radius:8px; }
+.plano-aplicado-divergencia-title{ margin:0 0 0.4rem; font-weight:700; font-size:0.85rem; }
+.plano-aplicado-divergencia ul{ margin:0; padding-left:1.1rem; }
+.plano-aplicado-just{ margin:0.25rem 0 0; font-size:0.85rem; color:#57534e; }
 @media (max-width:800px){
   .cockpit-cols{ grid-template-columns:1fr; }
   .dashboard-agenda-hoje-item{ grid-template-columns:auto 1fr; }
