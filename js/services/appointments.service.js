@@ -92,6 +92,48 @@ export async function releaseAppointment(id){
 }
 
 /**
+ * Sala de espera: chegou | em_atendimento | limpar.
+ * Não envia WhatsApp.
+ */
+export async function markAgendaArrival(id, phase) {
+  const orgId = getOrgOrThrow();
+  const now = new Date().toISOString();
+  let patch;
+  if (phase === "chegou") {
+    patch = { arrived_at: now, started_at: null };
+  } else if (phase === "em_atendimento") {
+    patch = { started_at: now };
+  } else if (phase === "limpar") {
+    patch = { arrived_at: null, started_at: null };
+  } else {
+    throw new Error("Fase inválida");
+  }
+
+  const { data: current, error: readErr } = await supabase
+    .from("agenda")
+    .select("id, arrived_at")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (phase === "chegou" && current?.arrived_at) {
+    patch = { started_at: null };
+  }
+  if (phase === "em_atendimento" && current && !current.arrived_at) {
+    patch = { arrived_at: now, started_at: now };
+  }
+
+  const { error } = await supabase
+    .from("agenda")
+    .update(patch)
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .is("cancelled_at", null);
+
+  if (error) throw error;
+}
+
+/**
  * Lista agendamentos do dia (tabela agenda: data, hora, cliente_id, procedimento).
  * professionalId opcional: filtra por user_id (profissional que atende).
  */

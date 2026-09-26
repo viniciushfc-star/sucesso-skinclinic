@@ -11,6 +11,7 @@ import { gerarPdf }
 from "../utils/pdf.js"
 
 import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo, getFaturamentoPorUsuario, getReceitaPorProcedimento } from "../services/financeiro.service.js"
+import { listComissoesPeriodo } from "../services/comissoes.service.js"
 import { getTodayLocal } from "../services/metrics.service.js"
 
 import { withOrg, getActiveOrg, getOrgMembers } from "../core/org.js"
@@ -73,7 +74,7 @@ export async function init(){
  const openTab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null
  if (openTab) {
    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("financeiro_open_tab")
-   switchFinanceiroMainTab(["custo-fixo", "dre", "contador"].includes(openTab) ? openTab : "visao-geral")
+   switchFinanceiroMainTab(["custo-fixo", "dre", "contador", "comissoes"].includes(openTab) ? openTab : "visao-geral")
  } else {
    const viewEl = document.getElementById("view-financeiro")
    if (viewEl) viewEl.dataset.currentTab = "visao-geral"
@@ -272,6 +273,10 @@ function switchFinanceiroMainTab(tabId) {
       })
     }
   }
+  if (tabId === "comissoes") {
+    bindComissoesEvents()
+    renderComissoesPanel()
+  }
   if (tabId === "dre") {
     bindDreEvents()
     renderDrePanel()
@@ -280,6 +285,62 @@ function switchFinanceiroMainTab(tabId) {
     import("./financeiro-contador.views.js")
       .then((m) => m.initContadorPanel && m.initContadorPanel())
       .catch((err) => console.warn("[Financeiro] Contador:", err))
+  }
+}
+
+function brl(n) {
+  return "R$ " + Number(n || 0).toFixed(2).replace(".", ",")
+}
+
+function bindComissoesEvents() {
+  const btn = document.getElementById("btnFinanceiroComissaoAtualizar")
+  const inicio = document.getElementById("financeiroComissaoInicio")
+  const fim = document.getElementById("financeiroComissaoFim")
+  if (!inicio || !fim) return
+  const now = new Date()
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+  if (!inicio.value) inicio.value = firstDay.toISOString().slice(0, 10)
+  if (!fim.value) fim.value = now.toISOString().slice(0, 10)
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = "1"
+    btn.onclick = () => renderComissoesPanel()
+  }
+}
+
+async function renderComissoesPanel() {
+  const listEl = document.getElementById("financeiroComissaoLista")
+  const hintEl = document.getElementById("financeiroComissaoHint")
+  if (!listEl) return
+  const inicio = document.getElementById("financeiroComissaoInicio")
+  const fim = document.getElementById("financeiroComissaoFim")
+  const now = new Date()
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+  const start = inicio?.value || firstDay.toISOString().slice(0, 10)
+  const end = fim?.value || now.toISOString().slice(0, 10)
+  listEl.innerHTML = "<p class=\"view-hint\">Calculando…</p>"
+  try {
+    const members = await getOrgMembers().catch(() => [])
+    const nameById = (members || []).reduce((acc, m) => {
+      acc[m.user_id] = m.email || m.user_id
+      return acc
+    }, {})
+    const { porProfissional, padraoPct } = await listComissoesPeriodo(start, end)
+    if (hintEl) {
+      hintEl.textContent = padraoPct
+        ? `Padrão da empresa: ${padraoPct}% sobre a baixa, se o procedimento não tiver % próprio.`
+        : "Defina o % padrão em Configurações → taxas, ou por procedimento. Sem % a comissão fica zero."
+    }
+    if (!porProfissional.length) {
+      listEl.innerHTML = "<p class=\"view-hint\">Nenhuma baixa com profissional neste período.</p>"
+      return
+    }
+    const total = porProfissional.reduce((s, r) => s + r.comissao, 0)
+    listEl.innerHTML = `<table class="precificacao-tabela" aria-label="Comissões por profissional"><thead><tr><th>Profissional</th><th>Baixas</th><th>Receita</th><th>Comissão sugerida</th></tr></thead><tbody>${
+      porProfissional.map((r) => `<tr><td>${escapeHtml(nameById[r.userId] || r.userId)}</td><td>${r.atendimentos}</td><td>${brl(r.receita)}</td><td>${brl(r.comissao)}</td></tr>`).join("")
+    }</tbody></table><p class="view-hint">Total sugerido: <strong>${brl(total)}</strong>. Lance a saída no Financeiro se for pagar.</p>`
+  } catch (err) {
+    console.warn("[COMISSOES]", err)
+    listEl.innerHTML = `<p class="view-hint">${escapeHtml(err?.message || "Não foi possível apurar.")}</p>`
   }
 }
 

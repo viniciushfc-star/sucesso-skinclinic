@@ -7,6 +7,7 @@ import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg, getOrgMembers } from "../core/org.js";
 import { getOrganizationProfile } from "./organization-profile.service.js";
 import { listProcedures } from "./procedimentos.service.js";
+import { SETUP_STEP_MINUTES } from "../utils/golden-flow.js";
 
 function headCount(table, extra = (q) => q) {
   const orgId = getActiveOrg();
@@ -58,61 +59,71 @@ export async function getSetupProgress() {
       id: "empresa",
       ok: !!(profile?.name && String(profile.name).trim() && profile?.cidade),
       view: "empresa",
-      label: "Empresa com nome e cidade",
+      minutes: SETUP_STEP_MINUTES.empresa,
+      label: "Empresa com nome e cidade (~2 min)",
     },
     {
       id: "equipe",
       ok: (members || []).length >= 1,
       view: "team",
-      label: "Pelo menos 1 profissional",
+      minutes: SETUP_STEP_MINUTES.equipe,
+      label: "Pelo menos 1 profissional (~2 min)",
     },
     {
       id: "procedimento",
       ok: temProcPreco,
       view: "procedimento",
-      label: "1 procedimento com duração e preço",
+      minutes: SETUP_STEP_MINUTES.procedimento,
+      label: "1 procedimento com duração e preço (~3 min)",
     },
     {
       id: "custo",
       ok: temCusto,
       view: "estoque",
-      label: "Custo material ou item de estoque",
+      minutes: SETUP_STEP_MINUTES.custo,
+      label: "Custo material ou item de estoque (~2 min)",
     },
     {
       id: "cliente",
       ok: nClientes > 0,
       view: "clientes",
-      label: "1 cliente (cadastro ou CSV)",
+      minutes: SETUP_STEP_MINUTES.cliente,
+      label: "1 cliente (cadastro ou CSV) (~2 min)",
     },
     {
       id: "agenda",
       ok: nAgenda > 0,
       view: "agenda",
-      label: "1 horário na agenda",
+      minutes: SETUP_STEP_MINUTES.agenda,
+      label: "1 horário na agenda (~2 min)",
     },
     {
       id: "anamnese",
       ok: nAnamnese > 0,
       view: "anamnese",
-      label: "1 anamnese (primeiro atendimento)",
+      minutes: SETUP_STEP_MINUTES.anamnese,
+      label: "1 anamnese (primeiro atendimento) (~3 min)",
     },
     {
       id: "plano",
       ok: nPlanos > 0,
       view: "planos",
-      label: "1 plano terapêutico",
+      minutes: SETUP_STEP_MINUTES.plano,
+      label: "1 plano terapêutico (~2 min)",
     },
     {
       id: "aplicado",
       ok: nAplicados > 0,
       view: "agenda",
-      label: "1 protocolo aplicado (consome estoque)",
+      minutes: SETUP_STEP_MINUTES.aplicado,
+      label: "1 protocolo aplicado (consome estoque) (~1 min)",
     },
     {
       id: "financeiro",
       ok: nFinanceiro > 0,
       view: "financeiro",
-      label: "1 lançamento financeiro",
+      minutes: SETUP_STEP_MINUTES.financeiro,
+      label: "1 lançamento financeiro (~1 min)",
     },
   ];
 

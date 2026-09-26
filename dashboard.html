@@ -62,7 +62,7 @@
           </button>
           <ul class="sidebar-submenu" id="financeiroSubmenu">
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="visao-geral" title="Visão geral"><span class="sidebar-icon">📊</span><span class="sidebar-label">Visão geral</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="dre" title="DRE e relatórios"><span class="sidebar-icon">📈</span><span class="sidebar-label">DRE</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="comissoes" title="Comissões"><span class="sidebar-icon">💸</span><span class="sidebar-label">Comissões</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="contador" title="Pasta e CSV para o contador"><span class="sidebar-icon">📁</span><span class="sidebar-label">Contador</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="market-radar" title="Radar de mercado"><span class="sidebar-icon">📡</span><span class="sidebar-label">Radar de mercado</span></button></li>
@@ -179,6 +179,11 @@
           <p class="dashboard-agenda-hoje-hint">Mesma data da Agenda. Quantidade e faturamento previsto do dia.</p>
           <div id="dashboardAgendaHojeList" class="dashboard-agenda-hoje-list"></div>
           <div id="dashboardAgendaHojePrevisto" class="dashboard-agenda-hoje-previsto"></div>
+          <div id="dashboardSalaEspera" class="dashboard-sala-espera">
+            <h4 class="dashboard-sala-espera-title">Sala de espera</h4>
+            <p class="dashboard-sala-espera-hint">Marque quem chegou. O relógio conta até o atendimento começar. Sem WhatsApp automático.</p>
+            <div id="dashboardSalaEsperaList" class="dashboard-sala-espera-list"></div>
+          </div>
           <div id="dashboardConcluidosHoje" class="dashboard-concluidos-hoje">
             <h4 class="dashboard-concluidos-hoje-title">Concluídos hoje (dar baixa)</h4>
             <div id="dashboardConcluidosHojeList" class="dashboard-concluidos-hoje-list"></div>
@@ -705,6 +710,7 @@
           <p class="view-lead view-financeiro-lead">Resumo, transações e custos da clínica. Use as abas <strong>Visão geral</strong> e <strong>Custo fixo</strong> para organizar entradas, saídas e gastos recorrentes.</p>
           <div class="financeiro-main-tabs" role="tablist" aria-label="Abas do Financeiro">
             <button type="button" class="financeiro-main-tab is-active" data-tab="visao-geral" role="tab">Visão geral</button>
+            <button type="button" class="financeiro-main-tab" data-tab="comissoes" role="tab">Comissões</button>
             <button type="button" class="financeiro-main-tab" data-tab="dre" role="tab">DRE</button>
             <button type="button" class="financeiro-main-tab" data-tab="contador" role="tab">Contador e fiscal</button>
             <button type="button" class="financeiro-main-tab" data-tab="custo-fixo" role="tab">Custo fixo</button>
@@ -846,6 +852,18 @@
             <div id="listaParticipacaoLucros" class="lista-participacao-lucros"></div>
           </div>
           </div>
+        </div>
+        <div id="financeiroComissoesPanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="comissoes" aria-label="Comissões dos profissionais">
+          <p class="view-lead view-financeiro-tab-lead">Quanto cada profissional gerou de comissão nas baixas do período. Usa o % do procedimento ou o padrão da empresa. O sistema <strong>não paga</strong> e não muda preço.</p>
+          <div class="financeiro-dre-controls">
+            <label for="financeiroComissaoInicio">De</label>
+            <input type="date" id="financeiroComissaoInicio" class="financeiro-dre-input" aria-label="Data inicial das comissões">
+            <label for="financeiroComissaoFim">até</label>
+            <input type="date" id="financeiroComissaoFim" class="financeiro-dre-input" aria-label="Data final das comissões">
+            <button type="button" id="btnFinanceiroComissaoAtualizar" class="btn-secondary">Atualizar</button>
+          </div>
+          <p id="financeiroComissaoHint" class="view-hint"></p>
+          <div id="financeiroComissaoLista" class="financeiro-dre-por" aria-live="polite"></div>
         </div>
         <div id="financeiroDrePanel" class="financeiro-main-panel hidden" role="tabpanel" data-tab="dre" aria-label="DRE — Demonstrativo de Resultados">
       <p class="view-lead view-financeiro-tab-lead">Demonstrativo por período, mais faturamento por profissional e por procedimento. Exporte o detalhe em CSV.</p>

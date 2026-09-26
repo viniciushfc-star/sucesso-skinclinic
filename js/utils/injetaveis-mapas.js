@@ -51,3 +51,7 @@ export const MAPAS = [
   { id: "barriga", label: "Barriga", svg: BARRIGA_SVG },
   { id: "gluteos", label: "Glúteos", svg: GLUTEOS_SVG }
 ];
+
+export function pontoStatus(p) {
+  return p && p.status === "planejado" ? "planejado" : "aplicado";
+}

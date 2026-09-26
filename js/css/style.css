@@ -3888,7 +3888,18 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .cockpit-status--espera{ color:#475569; }
 .cockpit-status--feito{ color:#1d4ed8; }
 .cockpit-status--evento{ color:#64748b; }
+.dashboard-sala-espera{ margin-top:1rem; padding-top:0.75rem; border-top:1px solid #e2e8f0; }
+.dashboard-sala-espera-title{ margin:0 0 0.25rem; font-size:1rem; color:#1e293b; }
+.dashboard-sala-espera-hint{ margin:0 0 0.5rem; font-size:0.85rem; color:#64748b; }
+.dashboard-sala-espera-list{ display:flex; flex-direction:column; gap:4px; }
+.dashboard-sala-espera-row{ display:grid; grid-template-columns:auto 1fr auto auto; gap:0.5rem 0.75rem; align-items:center; padding:0.5rem 0.75rem; background:#f8fafc; border-radius:8px; font-size:0.9rem; }
+.dashboard-sala-espera-row--longa{ background:#fff7ed; }
+.dashboard-sala-espera-hora{ font-weight:600; color:#475569; min-width:3.5rem; }
+.dashboard-sala-espera-acoes{ display:flex; flex-wrap:wrap; gap:0.25rem; }
+.dashboard-sala-espera-empty{ margin:0; font-size:0.9rem; color:#64748b; }
+.anamnese-mapa-dot--planejado, .injetaveis-mapa-dot--planejado{ background:transparent; border:2px dashed #4e54c8; }
 @media (max-width:800px){
   .cockpit-cols{ grid-template-columns:1fr; }
   .dashboard-agenda-hoje-item{ grid-template-columns:auto 1fr; }
+  .dashboard-sala-espera-row{ grid-template-columns:auto 1fr; }
 }

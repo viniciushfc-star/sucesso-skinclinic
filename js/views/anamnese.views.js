@@ -303,7 +303,7 @@ export async function init() {
         { id: "gluteos", label: "Glúteos", svg: GLUTEOS_SVG }
       ];
       faceWrap.innerHTML = `
-        <p class="anamnese-face-map-title">Clique na imagem onde foi aplicado; em cada ponto escolha o produto e a quantidade. A unidade (UI, ml) muda conforme o produto.</p>
+        <p class="anamnese-face-map-title">Clique para planejar (tracejado) ou marcar o que já aplicou. Em cada ponto escolha produto, quantidade e se é plano ou feito.</p>
         <div class="anamnese-mapa-tabs">
           ${mapas.map((m) => `<button type="button" class="anamnese-mapa-tab" data-mapa="${escapeHtml(m.id)}">${escapeHtml(m.label)}</button>`).join("")}
         </div>
@@ -327,6 +327,11 @@ export async function init() {
               <input type="number" id="anamnese-ponto-quantidade-${escapeHtml(m.id)}" class="anamnese-ponto-quantidade" min="0" step="0.01" placeholder="0">
               <label for="anamnese-ponto-obs-${escapeHtml(m.id)}">Observação (opcional)</label>
               <input type="text" id="anamnese-ponto-obs-${escapeHtml(m.id)}" class="anamnese-ponto-obs" placeholder="Ex.: técnica, profundidade">
+              <label for="anamnese-ponto-status-${escapeHtml(m.id)}">Nesta sessão</label>
+              <select id="anamnese-ponto-status-${escapeHtml(m.id)}" class="anamnese-ponto-status">
+                <option value="planejado">Planejado</option>
+                <option value="aplicado">Já aplicado</option>
+              </select>
               <button type="button" class="btn-small anamnese-ponto-remover">Remover ponto</button>
             </div>
           </div>
@@ -335,7 +340,7 @@ export async function init() {
       `;
       fichaCamposEl.appendChild(faceWrap);
 
-      let pontos = []; // { id, mapa, x_pct, y_pct, produto, quantidade, unidade, observacao }
+      let pontos = []; // { id, mapa, x_pct, y_pct, produto, quantidade, unidade, observacao, status }
       let selectedPontoId = null;
       let nextId = 1;
 
@@ -350,7 +355,8 @@ export async function init() {
         container.innerHTML = "";
         getPontosByMapa(mapa).forEach((pt) => {
           const dot = document.createElement("div");
-          dot.className = "anamnese-mapa-dot" + (selectedPontoId === pt.id ? " selected" : "");
+          const isPlan = pt.status === "planejado";
+          dot.className = "anamnese-mapa-dot" + (isPlan ? " anamnese-mapa-dot--planejado" : "") + (selectedPontoId === pt.id ? " selected" : "");
           dot.style.left = pt.x_pct + "%";
           dot.style.top = pt.y_pct + "%";
           dot.dataset.pontoId = pt.id;
@@ -378,7 +384,8 @@ export async function init() {
           const prod = PRODUTOS_APLICACAO.find((p) => p.id === pt.produto);
           const label = prod ? prod.label : (pt.produto || "—");
           const qty = pt.quantidade != null ? pt.quantidade + " " + (pt.unidade || "") : "—";
-          return `<button type="button" class="anamnese-mapa-lista-item ${selectedPontoId === pt.id ? "selected" : ""}" data-ponto-id="${pt.id}">${escapeHtml(label)} · ${escapeHtml(String(qty))}</button>`;
+          const fase = pt.status === "planejado" ? "plano" : "feito";
+          return `<button type="button" class="anamnese-mapa-lista-item ${selectedPontoId === pt.id ? "selected" : ""}" data-ponto-id="${pt.id}">${escapeHtml(label)} · ${escapeHtml(String(qty))} · ${fase}</button>`;
         }).join("");
         listEl.querySelectorAll(".anamnese-mapa-lista-item").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -400,6 +407,7 @@ export async function init() {
         const qtyInput = panel.querySelector(".anamnese-ponto-quantidade");
         const unidadeSpan = panel.querySelector(".anamnese-ponto-unidade");
         const obsInput = panel.querySelector(".anamnese-ponto-obs");
+        const statusSelect = panel.querySelector(".anamnese-ponto-status");
         const btnRemover = panel.querySelector(".anamnese-ponto-remover");
         if (!detEl) return;
         detEl.classList.remove("hidden");
@@ -408,6 +416,7 @@ export async function init() {
         const prod = PRODUTOS_APLICACAO.find((p) => p.id === pt.produto);
         if (unidadeSpan) unidadeSpan.textContent = "(" + (prod?.unidade || pt.unidade || "un") + ")";
         if (obsInput) obsInput.value = pt.observacao || "";
+        if (statusSelect) statusSelect.value = pt.status === "planejado" ? "planejado" : "aplicado";
         function syncPonto() {
           const p = pontos.find((x) => x.id === pt.id);
           if (!p) return;
@@ -416,6 +425,7 @@ export async function init() {
           const pr = PRODUTOS_APLICACAO.find((x) => x.id === p.produto);
           p.unidade = pr?.unidade || null;
           p.observacao = obsInput?.value?.trim() || null;
+          p.status = statusSelect?.value === "planejado" ? "planejado" : "aplicado";
           renderPontosOnMap(panel);
           renderLista(panel);
         }
@@ -429,6 +439,7 @@ export async function init() {
         });
         qtyInput?.addEventListener("input", syncPonto);
         obsInput?.addEventListener("input", syncPonto);
+        statusSelect?.addEventListener("change", syncPonto);
         const removeBtn = panel.querySelector(".anamnese-ponto-remover");
         if (removeBtn) {
           removeBtn.onclick = () => {
@@ -454,7 +465,7 @@ export async function init() {
           const x_pct = ((e.clientX - rect.left) / rect.width) * 100;
           const y_pct = ((e.clientY - rect.top) / rect.height) * 100;
           const mapa = el.dataset.mapa;
-          const pt = { id: "p" + nextId++, mapa, x_pct, y_pct, produto: null, quantidade: null, unidade: null, observacao: null };
+          const pt = { id: "p" + nextId++, mapa, x_pct, y_pct, produto: null, quantidade: null, unidade: null, observacao: null, status: "planejado" };
           pontos.push(pt);
           selectedPontoId = pt.id;
           const panel = el.closest(".anamnese-mapa-panel");
@@ -623,7 +634,8 @@ export async function init() {
             produto: p.produto && String(p.produto) || null,
             quantidade: num(p.quantidade),
             unidade: p.unidade && String(p.unidade) || null,
-            observacao: p.observacao && String(p.observacao).trim() || null
+            observacao: p.observacao && String(p.observacao).trim() || null,
+            status: p.status === "planejado" ? "planejado" : "aplicado"
           };
         }).filter((p) => p.x_pct != null && p.y_pct != null);
       }

@@ -29,3 +29,17 @@ export const SETUP_STEP_IDS = [
   "aplicado",
   "financeiro",
 ];
+
+/** Soma 20 min — roteiro do primeiro dia, não vídeo gravado. */
+export const SETUP_STEP_MINUTES = {
+  empresa: 2,
+  equipe: 2,
+  procedimento: 3,
+  custo: 2,
+  cliente: 2,
+  agenda: 2,
+  anamnese: 3,
+  plano: 2,
+  aplicado: 1,
+  financeiro: 1,
+};

@@ -28,6 +28,7 @@ describe("Lote 4 golden flow", () => {
     assert.match(src, /anamnesis_registros/);
     assert.match(src, /planos_terapeuticos/);
     assert.match(src, /protocolos_aplicados/);
+    assert.match(src, /SETUP_STEP_MINUTES/);
   });
 
   it("aplicar protocolo dispara consumo no SQL canônico e no service", () => {

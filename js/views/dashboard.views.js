@@ -19,7 +19,8 @@ import {
 } from "../services/metrics.service.js"
 import { checkPermission } from "../core/permissions.js"
 import { getProtocolosAplicadosHoje } from "../services/protocolo-db.service.js"
-import { listAppointmentsByDate } from "../services/appointments.service.js"
+import { listAppointmentsByDate, markAgendaArrival } from "../services/appointments.service.js"
+import { salaEsperaStatus } from "../utils/sala-espera.js"
 import { listProcedures } from "../services/procedimentos.service.js"
 import { getEntradasHojeComAgenda } from "../services/financeiro.service.js"
 import { getCockpitSnapshot, getCockpitMesSnapshot } from "../services/cockpit.service.js"
@@ -401,7 +402,9 @@ async function renderAgendaHoje() {
           const retornoBadge = a.is_retorno ? ' <span class="dashboard-agenda-hoje-retorno">Retorno</span>' : ""
           const modeloBadge = a.is_modelo_agendamento ? ' <span class="dashboard-agenda-hoje-modelo">Modelo</span>' : ""
           const { key, label } = statusFromRow(a)
-          return `<div class="dashboard-agenda-hoje-item">
+          const espera = salaEsperaStatus(a)
+          const esperaCls = espera && espera.minutes >= 20 ? " dashboard-sala-espera-item--longa" : ""
+          return `<div class="dashboard-agenda-hoje-item${esperaCls}">
             <span class="dashboard-agenda-hoje-hora">${hora(a)}</span>
             <span class="dashboard-agenda-hoje-nome">${escapeHtml(nome)}</span>
             <span class="dashboard-agenda-hoje-proc">${escapeHtml(proc)}${retornoBadge}${modeloBadge}</span>
@@ -416,6 +419,8 @@ async function renderAgendaHoje() {
         ? `<p class="dashboard-agenda-hoje-previsto-texto">Faturamento previsto hoje: <strong>R$ ${previstoTotal.toFixed(2).replace(".", ",")}</strong> (${itens.length} atendimento(s) com valor)</p>`
         : `<p class="dashboard-agenda-hoje-previsto-texto">Nenhum valor cadastrado nos procedimentos de hoje, ou só eventos. Cadastre valor nos <a href="#" data-view="procedimento">Procedimentos</a> para ver o previsto.</p>`
     }
+
+    await renderSalaEsperaHoje(appointments)
 
     const concluidosList = document.getElementById("dashboardConcluidosHojeList")
     const concluidosWrap = document.getElementById("dashboardConcluidosHoje")
@@ -448,10 +453,61 @@ async function renderAgendaHoje() {
   }
 }
 
+async function renderSalaEsperaHoje(appointments) {
+  const listEl = document.getElementById("dashboardSalaEsperaList")
+  if (!listEl) return
+  const canManage = await checkPermission("agenda:manage")
+  const rows = (appointments || []).filter((a) => a.item_type !== "event")
+  if (!rows.length) {
+    listEl.innerHTML = "<p class=\"dashboard-sala-espera-empty\">Ninguém na grade de hoje.</p>"
+    return
+  }
+  const cliente = (a) => a.clients || a.clientes || {}
+  const hora = (a) => {
+    const s = String(a.hora || "")
+    return /^\d{2}:\d{2}/.test(s) ? s.slice(0, 5) : "—"
+  }
+  listEl.innerHTML = rows.map((a) => {
+    const nome = cliente(a).name || cliente(a).nome || "—"
+    const st = salaEsperaStatus(a)
+    const label = st ? st.label : "Não chegou"
+    const longa = st && st.minutes >= 20 ? " dashboard-sala-espera-row--longa" : ""
+    const btns = canManage
+      ? `<button type="button" class="btn-secondary btn-sm sala-espera-btn" data-id="${escapeHtml(a.id)}" data-phase="chegou">Chegou</button>
+         <button type="button" class="btn-secondary btn-sm sala-espera-btn" data-id="${escapeHtml(a.id)}" data-phase="em_atendimento">Em atendimento</button>
+         ${(a.arrived_at || a.started_at) ? `<button type="button" class="btn-secondary btn-sm sala-espera-btn" data-id="${escapeHtml(a.id)}" data-phase="limpar">Limpar</button>` : ""}`
+      : ""
+    return `<div class="dashboard-sala-espera-row${longa}">
+      <span class="dashboard-sala-espera-hora">${hora(a)}</span>
+      <span class="dashboard-sala-espera-nome">${escapeHtml(nome)}</span>
+      <span class="dashboard-sala-espera-status">${escapeHtml(label)}</span>
+      <span class="dashboard-sala-espera-acoes">${btns}</span>
+    </div>`
+  }).join("")
+
+  listEl.querySelectorAll(".sala-espera-btn").forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await markAgendaArrival(btn.dataset.id, btn.dataset.phase)
+        await loadAndRender()
+      } catch (err) {
+        const msg = String(err?.message || err)
+        if (/arrived_at|started_at|schema cache|column/i.test(msg)) {
+          listEl.insertAdjacentHTML("afterbegin", "<p class=\"view-hint\">Cole o SQL <code>supabase-sala-espera-colar.sql</code> no Supabase para ativar a sala de espera.</p>")
+          return
+        }
+        console.warn("[SALA ESPERA]", err)
+      }
+    }
+  })
+}
+
 function statusFromRow(a) {
   const st = String(a.status || "").toLowerCase()
   if (a.item_type === "event") return { key: "evento", label: "Evento" }
   if (st === "released" || a.baixa_em) return { key: "feito", label: "Baixa" }
+  const espera = salaEsperaStatus(a)
+  if (espera) return { key: espera.key === "atendimento" ? "ok" : "espera", label: espera.label }
   if (st === "confirmed" || a.confirmed_at) return { key: "ok", label: "Confirmado" }
   const s = String(a.hora || "")
   const h = /^\d{2}:\d{2}/.test(s) ? s.slice(0, 5) : ""
@@ -596,11 +652,15 @@ async function renderSetupProgress() {
       return `<li class="${cls}"><button type="button" class="setup-progress-link" data-view="${s.view}">${mark} ${escapeHtml(s.label)}</button></li>`
     })
     .join("")
+  const minutosRestantes = p.steps.filter((s) => !s.ok).reduce((acc, s) => acc + (Number(s.minutes) || 0), 0)
   const ahaHtml = faltaAha
     ? `<p class="setup-progress-aha">Falta o ciclo ouro: anamnese, plano, <strong>protocolo aplicado</strong> (estoque) e um lançamento no financeiro. Atalho na <a href="#" data-view="agenda">Agenda</a>.</p>`
     : `<p class="setup-progress-import">Para entrar rápido: <a href="#" data-view="export">importar CSV com prévia</a>.</p>`
+  const tempoHtml = minutosRestantes > 0
+    ? `<p class="setup-progress-pct"><strong>Primeiro dia (~${minutosRestantes} min)</strong> · ${p.pct}% (${p.done}/${p.total})</p>`
+    : `<p class="setup-progress-pct"><strong>${p.pct}% configurado</strong> (${p.done}/${p.total})</p>`
   el.innerHTML = `
-    <p class="setup-progress-pct"><strong>${p.pct}% configurado</strong> (${p.done}/${p.total})</p>
+    ${tempoHtml}
     <ul class="setup-progress-list">${itens}</ul>
     ${ahaHtml}
   `

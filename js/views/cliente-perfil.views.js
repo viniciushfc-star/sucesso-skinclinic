@@ -16,7 +16,7 @@ import { getActiveOrg } from "../core/org.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
-import { MAPAS, PRODUTOS_APLICACAO } from "../utils/injetaveis-mapas.js";
+import { MAPAS, PRODUTOS_APLICACAO, pontoStatus } from "../utils/injetaveis-mapas.js";
 
 let currentClient = null;
 /** Registros de anamnese injetáveis (rosto_injetaveis) para abrir o mapa pelo id */
@@ -668,8 +668,9 @@ function openMapaInjetaveisModal(registroId) {
   const pontoLine = (p) => {
     const nome = produtoLabel(p.produto);
     const qty = p.quantidade != null ? ` ${p.quantidade} ${p.unidade || ""}` : "";
+    const fase = pontoStatus(p) === "planejado" ? " · planejado" : " · aplicado";
     const obs = p.observacao ? ` · ${p.observacao}` : "";
-    return nome + qty + obs;
+    return nome + qty + fase + obs;
   };
 
   const tabsHtml = MAPAS.map((m) => {
@@ -677,7 +678,7 @@ function openMapaInjetaveisModal(registroId) {
     const dotsHtml = list.map((p) => {
       const x = (p.x_pct != null ? p.x_pct : 50);
       const y = (p.y_pct != null ? p.y_pct : 50);
-      return `<div class="injetaveis-mapa-dot" style="left:${x}%;top:${y}%;" title="${escapeHtml(pontoLine(p))}"></div>`;
+      return `<div class="injetaveis-mapa-dot${pontoStatus(p) === "planejado" ? " injetaveis-mapa-dot--planejado" : ""}" style="left:${x}%;top:${y}%;" title="${escapeHtml(pontoLine(p))}"></div>`;
     }).join("");
     const listItems = list.map((p) => `<li class="injetaveis-mapa-lista-item">${escapeHtml(pontoLine(p))}</li>`).join("");
     return `
@@ -687,7 +688,7 @@ function openMapaInjetaveisModal(registroId) {
           <div class="injetaveis-mapa-dots">${dotsHtml}</div>
         </div>
         <div class="injetaveis-mapa-lista">
-          <p class="injetaveis-mapa-lista-title">${escapeHtml(m.label)} — onde foi feito e quantidade</p>
+          <p class="injetaveis-mapa-lista-title">${escapeHtml(m.label)} — planejado e aplicado</p>
           ${list.length ? `<ul class="injetaveis-mapa-ul">${listItems}</ul>` : "<p class=\"injetaveis-mapa-vazio\">Nenhum ponto nesta área.</p>"}
         </div>
       </div>

@@ -29,7 +29,8 @@ import {
  checkProfessionalAvailableWithRespiro,
  getAvailableSalas,
  createExternalBlock,
- listExternalBlocksForRange
+ listExternalBlocksForRange,
+ markAgendaArrival
 } from "../services/appointments.service.js"
 
 import { listSalas, listSalasQueSuportamTipo } from "../services/salas.service.js"
@@ -1273,6 +1274,11 @@ async function openSlotPanel(id){
     <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão, sem abrir o perfil inteiro">Registrar o que foi aplicado</button>
     ${protocolosDestaAgenda.length ? `<p class="agenda-panel__hint">Já há ${protocolosDestaAgenda.length} registro(s) de protocolo nesta sessão.</p>` : `<p class="agenda-panel__hint">Registro rápido do método aplicado nesta sessão. Não é promoção.</p>`}
     ${!temBaixa ? `<button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
+    ${!isEvent ? `<div class="agenda-panel__sala-espera">
+      <p class="agenda-panel__hint">Sala de espera (sem WhatsApp automático)</p>
+      <button type="button" class="btn-secondary" id="agendaPanelBtnChegou">Chegou</button>
+      <button type="button" class="btn-secondary" id="agendaPanelBtnAtendimento">Em atendimento</button>
+    </div>` : ""}
     <button type="button" class="btn-secondary" id="agendaPanelBtnReview">Pedir avaliação no Google</button>
      `
      }
@@ -1317,6 +1323,26 @@ async function openSlotPanel(id){
     await openDarBaixaModal(item)
    }
   }
+  const bindEspera = (elId, phase) => {
+    const b = document.getElementById(elId)
+    if (!b || isEvent) return
+    b.onclick = async () => {
+      try {
+        await markAgendaArrival(id, phase)
+        toast(phase === "chegou" ? "Marcado como chegou." : "Em atendimento.")
+        await openSlotPanel(id)
+      } catch (err) {
+        const msg = String(err?.message || err)
+        if (/arrived_at|started_at|schema cache|column/i.test(msg)) {
+          toast("Cole supabase-sala-espera-colar.sql no Supabase.")
+          return
+        }
+        toast(msg || "Não foi possível atualizar a espera.")
+      }
+    }
+  }
+  bindEspera("agendaPanelBtnChegou", "chegou")
+  bindEspera("agendaPanelBtnAtendimento", "em_atendimento")
   const btnReview = document.getElementById("agendaPanelBtnReview")
   if (btnReview && !isEvent) {
     btnReview.onclick = async () => {
