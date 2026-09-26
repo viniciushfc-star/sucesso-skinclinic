@@ -1323,14 +1323,32 @@
       <section id="view-estoque" class="view hidden">
         <div class="view-header">
           <h2>Estoque</h2>
-          <p class="view-lead">Entrada por nota fiscal ou manual; consumo estimado por protocolo e indicador de acurácia (previsto vs real).</p>
+          <p class="view-lead">Cadastre o produto no portfólio sem quantidade. Entrada, nota e XML são só quando o estoque chega. Validade com menos de 1 ano é sinalizada.</p>
+        </div>
+        <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql.</p>
+        <div class="view-card">
+          <h3 class="view-card-title">Portfólio</h3>
+          <p class="view-hint">Nome, o que você paga, preço da profissional, preço do cliente e frete típico. Sem quantidade.</p>
+          <div class="estoque-entrada-actions">
+            <button type="button" id="btnEstoqueCadastrarProduto" class="btn-primary">Cadastrar produto</button>
+          </div>
+          <div id="estoqueCatalogoList" class="estoque-catalogo-list"></div>
+          <p id="estoqueCatalogoEmpty" class="estoque-empty hidden">Nenhum produto no portfólio ainda.</p>
         </div>
         <div class="view-card">
+          <h3 class="view-card-title">Revenda — saídas e lucro</h3>
+          <p class="view-hint">Ranking do que mais sai (consumo). Lucro usa custo + frete e o preço de cliente; não altera preço de procedimento.</p>
+          <div id="estoqueRevendaGrafico" class="estoque-revenda-grafico"></div>
+          <div id="estoqueRevendaTabela" class="estoque-revenda-tabela"></div>
+        </div>
+        <div class="view-card">
+          <h3 class="view-card-title">Entrada de estoque</h3>
+          <p class="view-hint">Use estes botões só quando o produto chegou. Informe o frete da compra se quiser incluir no investimento.</p>
           <div class="estoque-entrada-actions">
             <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">📷 Ler nota fiscal</button>
             <button type="button" id="btnEstoqueColarTexto" class="btn-secondary">Colar texto da nota</button>
             <button type="button" id="btnEstoqueImportarNota" class="btn-secondary">📄 Importar nota (XML)</button>
-            <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">✏️ Entrada manual</button>
+            <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">Entrada no estoque</button>
           </div>
         </div>
         <div class="view-card estoque-acuracia-wrap" id="estoqueAcuraciaWrap">
@@ -1354,13 +1372,13 @@
         </div>
         <div class="view-card estoque-proximos-vencer-wrap" id="estoqueProximosVencerWrap">
           <h3 class="view-card-title">Próximo a vencer</h3>
-          <p class="view-hint estoque-proximos-vencer-hint">Produtos com validade nos próximos 60 dias. Use para priorizar uso ou lançar campanhas nos procedimentos que utilizam cada produto.</p>
+          <p class="view-hint estoque-proximos-vencer-hint">Produtos vencidos ou com menos de 1 ano para vencer. Use para priorizar uso ou campanha.</p>
           <div id="estoqueProximosVencerList" class="estoque-proximos-vencer-list"></div>
         </div>
         <div class="view-card">
           <h3 class="view-card-title">Últimas entradas</h3>
           <div id="listaEstoqueEntradas" class="lista-estoque-entradas"></div>
-          <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Use Ler nota fiscal ou entrada manual.</p>
+          <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Cadastre no portfólio e use Entrada no estoque quando a caixa chegar.</p>
         </div>
         <div class="view-card estoque-analise-wrap">
           <button type="button" id="btnAnalisarEstoque" class="btn-secondary">Analisar estoque (sugestões IA)</button>

@@ -8,6 +8,8 @@ import { getActiveOrg, withOrg } from "../core/org.js";
 import { audit } from "./audit.service.js";
 import { createAfazer, TIPOS_AFAZERES } from "./afazeres.service.js";
 import { custoRealFromUsage } from "../utils/estoque-custo.js";
+import { custoUnitarioComFrete, DIAS_VALIDADE_ALERTA } from "../utils/estoque-revenda.js";
+import { garantirCatalogoPorNome, listProdutosCatalogo } from "./estoque-produtos.service.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -43,37 +45,51 @@ export async function createEntrada(payload) {
     data_validade,
     lote,
     origem = "manual",
-    ocr_nota_id
+    ocr_nota_id,
+    valor_frete
   } = payload;
 
   if (!(produto_nome && produto_nome.trim())) throw new Error("Informe o produto.");
 
   const qty = Number(quantidade);
-  if (isNaN(qty) || qty <= 0) throw new Error("Quantidade inválida.");
+  if (isNaN(qty) || qty <= 0) throw new Error("Quantidade inválida. Cadastre o produto no portfólio se ainda não chegou estoque.");
 
   const dataEntrada = data_entrada ? new Date(data_entrada).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
   const unit = valor_unitario != null && valor_unitario !== "" ? Number(valor_unitario) : null;
   const total = valor_total != null && valor_total !== "" ? Number(valor_total) : null;
+  const frete = valor_frete != null && valor_frete !== "" ? Number(valor_frete) : null;
 
-  const { data, error } = await supabase
+  const insertRow = {
+    org_id: orgId,
+    produto_nome: (produto_nome || "").trim(),
+    quantidade: qty,
+    valor_unitario: unit,
+    valor_total: total,
+    fornecedor: (fornecedor || "").trim() || null,
+    data_entrada: dataEntrada,
+    data_validade: data_validade ? new Date(data_validade).toISOString().slice(0, 10) : null,
+    lote: (lote || "").trim() || null,
+    origem: origem === "ocr" || origem === "xml" ? origem : "manual",
+    ocr_nota_id: ocr_nota_id || null,
+    created_by: user?.id ?? null
+  };
+  if (frete != null && Number.isFinite(frete)) insertRow.valor_frete = frete;
+
+  let { data, error } = await supabase
     .from("estoque_entradas")
-    .insert({
-      org_id: orgId,
-      produto_nome: (produto_nome || "").trim(),
-      quantidade: qty,
-      valor_unitario: unit,
-      valor_total: total,
-      fornecedor: (fornecedor || "").trim() || null,
-      data_entrada: dataEntrada,
-      data_validade: data_validade ? new Date(data_validade).toISOString().slice(0, 10) : null,
-      lote: (lote || "").trim() || null,
-      origem: origem === "ocr" || origem === "xml" ? origem : "manual",
-      ocr_nota_id: ocr_nota_id || null,
-      created_by: user?.id ?? null
-    })
+    .insert(insertRow)
     .select()
     .single();
+  if (error && insertRow.valor_frete != null && /valor_frete|schema cache|column/i.test(String(error.message || ""))) {
+    delete insertRow.valor_frete;
+    const retry = await supabase.from("estoque_entradas").insert(insertRow).select().single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
+  try {
+    await garantirCatalogoPorNome(insertRow.produto_nome);
+  } catch (_) {}
 
   try {
     await checkMargemPosEntrada(orgId, data);
@@ -87,25 +103,50 @@ export async function createEntrada(payload) {
 /** Resumo por produto: total entradas, total consumo, saldo estimado. */
 export async function getResumoPorProduto() {
   const orgId = getOrgOrThrow();
-  const [entradasRes, consumoRes] = await Promise.all([
-    supabase.from("estoque_entradas").select("produto_nome, quantidade, valor_unitario, valor_total").eq("org_id", orgId),
-    supabase.from("estoque_consumo").select("produto_nome, quantidade").eq("org_id", orgId)
-  ]);
+  let entradasRes = await supabase
+    .from("estoque_entradas")
+    .select("produto_nome, quantidade, valor_unitario, valor_total, valor_frete")
+    .eq("org_id", orgId);
+  if (entradasRes.error && /valor_frete|schema cache|column/i.test(String(entradasRes.error.message || ""))) {
+    entradasRes = await supabase
+      .from("estoque_entradas")
+      .select("produto_nome, quantidade, valor_unitario, valor_total")
+      .eq("org_id", orgId);
+  }
+  const consumoRes = await supabase.from("estoque_consumo").select("produto_nome, quantidade").eq("org_id", orgId);
   if (entradasRes.error) throw entradasRes.error;
   if (consumoRes.error) throw consumoRes.error;
 
   const entradas = entradasRes.data ?? [];
   const consumos = consumoRes.data ?? [];
+  let catalogo = [];
+  try {
+    catalogo = await listProdutosCatalogo();
+  } catch (_) {
+    catalogo = [];
+  }
 
   const byProduto = {};
+  for (const p of catalogo) {
+    const nome = (p.nome || "").trim();
+    if (!nome) continue;
+    byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0 };
+  }
   for (const e of entradas) {
     const nome = (e.produto_nome || "").trim();
     if (!nome) continue;
     if (!byProduto[nome]) {
       byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0 };
     }
-    byProduto[nome].entrada_qty += Number(e.quantidade) || 0;
-    byProduto[nome].entrada_total += Number(e.valor_total) || Number(e.valor_unitario) * Number(e.quantidade) || 0;
+    const qty = Number(e.quantidade) || 0;
+    byProduto[nome].entrada_qty += qty;
+    const unit = custoUnitarioComFrete({
+      valorUnitario: e.valor_unitario,
+      valorTotal: e.valor_total,
+      quantidade: qty,
+      valorFrete: e.valor_frete,
+    });
+    if (qty > 0 && unit != null) byProduto[nome].entrada_total += unit * qty;
   }
   for (const c of consumos) {
     const nome = (c.produto_nome || "").trim();
@@ -284,14 +325,11 @@ function getUnitCost(row) {
 }
 
 /**
- * Produtos com data de validade nos próximos N dias (para alertas e campanhas).
- * @param {number} dias - ex.: 60
- * @returns {Promise<Array<{ produto_nome: string, data_validade: string, quantidade: number, lote: string | null, id: string }>>}
+ * Lotes e cadastros com validade já vencida ou a menos de 1 ano (padrão 365 dias).
  */
-export async function getProdutosProximosVencer(dias = 60) {
+export async function getProdutosProximosVencer(dias = DIAS_VALIDADE_ALERTA) {
   const orgId = getActiveOrg();
   if (!orgId) return [];
-  const hoje = new Date().toISOString().slice(0, 10);
   const fim = new Date();
   fim.setDate(fim.getDate() + Number(dias));
   const fimStr = fim.toISOString().slice(0, 10);
@@ -301,18 +339,44 @@ export async function getProdutosProximosVencer(dias = 60) {
     .select("id, produto_nome, data_validade, quantidade, lote")
     .eq("org_id", orgId)
     .not("data_validade", "is", null)
-    .gte("data_validade", hoje)
     .lte("data_validade", fimStr)
     .order("data_validade", { ascending: true });
 
-  if (error) return [];
-  return (data ?? []).map((r) => ({
-    id: r.id,
-    produto_nome: r.produto_nome || "",
-    data_validade: r.data_validade,
-    quantidade: Number(r.quantidade) || 0,
-    lote: r.lote || null,
-  }));
+  const lotes = error
+    ? []
+    : (data ?? []).map((r) => ({
+        id: r.id,
+        produto_nome: r.produto_nome || "",
+        data_validade: r.data_validade,
+        quantidade: Number(r.quantidade) || 0,
+        lote: r.lote || null,
+        origem_alerta: "lote",
+      }));
+
+  let catalogo = [];
+  try {
+    catalogo = await listProdutosCatalogo();
+  } catch (_) {
+    catalogo = [];
+  }
+  const extra = catalogo
+    .filter((p) => p.validade_referencia && String(p.validade_referencia).slice(0, 10) <= fimStr)
+    .map((p) => ({
+      id: p.id,
+      produto_nome: p.nome || "",
+      data_validade: p.validade_referencia,
+      quantidade: 0,
+      lote: null,
+      origem_alerta: "catalogo",
+    }));
+
+  const seen = new Set(lotes.map((r) => `${r.produto_nome}|${r.data_validade}|${r.lote || ""}`));
+  for (const e of extra) {
+    const key = `${e.produto_nome}|${e.data_validade}|`;
+    if (!seen.has(key)) lotes.push(e);
+  }
+  lotes.sort((a, b) => String(a.data_validade).localeCompare(String(b.data_validade)));
+  return lotes;
 }
 
 /**

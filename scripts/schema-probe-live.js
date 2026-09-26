@@ -45,6 +45,7 @@ const TABLES = [
   "protocolos_aplicados",
   "estoque_entradas",
   "estoque_consumo",
+  "estoque_produtos",
   "sugestoes_estoque",
   "financeiro",
   "contas_a_pagar",
