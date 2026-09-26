@@ -83,9 +83,10 @@ describe("Lote 2 portal PII e audit", () => {
   });
 
   it("rls-ab inclui ocr_notas e market_radar_refs", () => {
-    const src = readFileSync(join(ROOT, "scripts/rls-tenant-ab.js"), "utf8");
+    const src = readFileSync(join(ROOT, "js/utils/rls-prova.js"), "utf8");
+    const probe = readFileSync(join(ROOT, "scripts/rls-tenant-ab.js"), "utf8");
     assert.match(src, /ocr_notas/);
     assert.match(src, /market_radar_refs/);
-    assert.match(src, /api\/audit-log/);
+    assert.match(probe, /api\/audit-log/);
   });
 });

@@ -12,7 +12,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("FASE 10 RLS e FASE 12 XSS", () => {
   it("probe A≠B cobre logs, LGPD, Google e WhatsApp", () => {
-    const src = readFileSync(join(ROOT, "scripts/rls-tenant-ab.js"), "utf8");
+    const src = readFileSync(join(ROOT, "js/utils/rls-prova.js"), "utf8");
     for (const t of [
       "lgpd_requests",
       "api_error_events",
@@ -25,7 +25,7 @@ describe("FASE 10 RLS e FASE 12 XSS", () => {
     ]) {
       assert.match(src, new RegExp(`"${t}"`));
     }
-    assert.match(src, /OPTIONAL_TABLES/);
+    assert.match(src, /RLS_TABLES_OPTIONAL/);
   });
 
   it("status de conflito na agenda passa por formatConflitoHtml", () => {

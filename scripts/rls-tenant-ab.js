@@ -14,46 +14,13 @@ import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-
-const TABLES = [
-  "clients",
-  "agenda",
-  "financeiro",
-  "estoque_entradas",
-  "protocolos_aplicados",
-  "analise_pele",
-  "client_sessions",
-  "audit_logs",
-  "organization_invites",
-  "profiles",
-  "ocr_notas",
-  "market_radar_refs",
-  "lgpd_requests",
-  "api_error_events",
-  "agenda_google_events",
-  "google_calendar_connections",
-  "whatsapp_logs",
-  "ai_usage_events",
-  "client_events",
-  "anamnesis_registros",
-  "orcamentos",
-  "estoque_produtos",
-];
-
-const OPTIONAL_TABLES = new Set([
-  "ocr_notas",
-  "market_radar_refs",
-  "lgpd_requests",
-  "api_error_events",
-  "agenda_google_events",
-  "google_calendar_connections",
-  "whatsapp_logs",
-  "ai_usage_events",
-  "client_events",
-  "anamnesis_registros",
-  "orcamentos",
-  "estoque_produtos",
-]);
+import {
+  RLS_TABLES as TABLES,
+  RLS_TABLES_OPTIONAL as OPTIONAL_TABLES,
+  RLS_BUCKETS,
+  PORTAL_RPCS,
+  interpretarRpcPortal,
+} from "../js/utils/rls-prova.js";
 
 function isMissingRelation(error) {
   const code = String(error?.code || "");
@@ -267,21 +234,23 @@ async function main() {
       }
     }
 
-    try {
-      const { data: rpcRows, error: rpcErr } = await user.rpc("get_client_session_by_token", {
-        p_token: "token-invalido-rls-probe",
-      });
-      const leaked = Array.isArray(rpcRows) && rpcRows.length > 0;
-      results.push({
-        table: "rpc.get_client_session_by_token",
-        ok: !leaked,
-        detail: leaked ? "RPC devolveu sessão" : rpcErr ? `vazio/erro ${rpcErr.code || ""}` : "sem sessão",
-      });
-    } catch (e) {
-      results.push({ table: "rpc.get_client_session_by_token", ok: false, detail: String(e.message || e) });
+    for (const fn of PORTAL_RPCS) {
+      try {
+        const { data: rpcRows, error: rpcErr } = await user.rpc(fn, {
+          p_token: "token-invalido-rls-probe",
+        });
+        const leitura = interpretarRpcPortal({ data: rpcRows, error: rpcErr });
+        results.push({
+          table: `rpc.${fn}`,
+          ok: leitura.ok,
+          detail: leitura.detalhe,
+        });
+      } catch (e) {
+        results.push({ table: `rpc.${fn}`, ok: false, detail: String(e.message || e) });
+      }
     }
 
-    const buckets = ["analise-pele-fotos", "client-photos", "anamnese-fotos"];
+    const buckets = RLS_BUCKETS;
     for (const bucket of buckets) {
       const { data: listed, error: listErr } = await user.storage.from(bucket).list("", { limit: 30 });
       if (listErr) {
@@ -369,7 +338,7 @@ ${results.map((r) => `| \`${r.table}\` | ${r.ok ? "PASS" : "FAIL"} | ${r.detail}
 
 **PASS:** ${passed.length}  **FAIL/BLOQUEADO:** ${failed.length}
 
-${failed.length ? "Isolamento **não** aprovado neste ciclo." : "Select cruzado e insert org B negados neste ciclo (ainda falta Storage/RPC se não listados)."}
+${failed.length ? "Isolamento **não** aprovado neste ciclo." : "Select cruzado, insert org B, RPC do portal (token lixo) e Storage list/download cobertos neste ciclo."}
 `;
 
   const out = join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "FASE-2-RLS-ORG-AB.md");

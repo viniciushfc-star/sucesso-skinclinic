@@ -1,15 +1,17 @@
 import { supabase } from "./supabase.js";
 import { getActiveOrg } from "./org.js";
 import { rejectsForeignOrgStoragePath, storageObjectPath } from "./storage-path.js";
+import { clampSignedTtl, SIGNED_TTL_MAX } from "../utils/rls-prova.js";
 
-export { storageObjectPath };
+export { storageObjectPath, clampSignedTtl, SIGNED_TTL_MAX };
 
-export async function signedStorageUrl(bucket, stored, expiresIn = 3600) {
+export async function signedStorageUrl(bucket, stored, expiresIn = SIGNED_TTL_MAX) {
   const path = storageObjectPath(bucket, stored);
   if (!path || path.includes("..")) return null;
   const orgId = getActiveOrg();
   if (rejectsForeignOrgStoragePath(path, orgId)) return null;
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
+  const ttl = clampSignedTtl(expiresIn);
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, ttl);
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
 }

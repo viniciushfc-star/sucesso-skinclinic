@@ -9,8 +9,9 @@ import {
   ANALISE_PELE_BUCKET,
   collectOwnedAnalisePelePaths,
 } from "../lib/analise-pele-storage.js";
+import { clampSignedTtl, SIGNED_TTL_MAX } from "../js/utils/rls-prova.js";
 
-const SIGNED_TTL_SEC = 60 * 60;
+const SIGNED_TTL_SEC = clampSignedTtl(SIGNED_TTL_MAX);
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
