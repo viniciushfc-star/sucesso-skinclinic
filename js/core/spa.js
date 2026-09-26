@@ -605,7 +605,7 @@ async function renderRoute(route) {
     const viewEl = document.getElementById("view-financeiro");
     if (viewEl) {
       const tab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null;
-      const allowed = ["visao-geral", "dre", "custo-fixo", "contador"];
+      const allowed = ["visao-geral", "dre", "custo-fixo", "contador", "comissoes", "fechamento"];
       viewEl.dataset.currentTab = allowed.includes(tab) ? tab : "visao-geral";
     }
   }

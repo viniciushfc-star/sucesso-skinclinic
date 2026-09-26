@@ -2913,6 +2913,10 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .agenda-baixa-pacote-wrap select{ width:100%; max-width:320px; padding:0.4rem 0.5rem; border:1px solid #cbd5e1; border-radius:6px; }
 .agenda-baixa-economia{ margin:0.4rem 0 0.8rem; font-size:0.85rem; color:#475569; }
 .agenda-baixa-economia--alerta{ color:#9a3412; }
+.financeiro-fechamento-conferencia{ margin:1rem 0 1.5rem; padding:0.9rem; background:#f8fafc; border-radius:8px; max-width:28rem; }
+.financeiro-fechamento-conferencia label{ display:block; margin-bottom:0.35rem; }
+.financeiro-fechamento-totais,.financeiro-fechamento-formas{ margin:0.4rem 0 0.8rem; padding-left:1.2rem; }
+.financeiro-fechamento-dif--alerta{ color:#9a3412; }
 .cliente-pacote-economia{ display:block; width:100%; margin:0.3rem 0 0; font-size:0.82rem; color:#475569; }
 .cliente-pacote-economia--alerta{ color:#9a3412; }
 

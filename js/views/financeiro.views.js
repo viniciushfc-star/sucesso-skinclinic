@@ -18,11 +18,18 @@ import { withOrg, getActiveOrg, getOrgMembers } from "../core/org.js"
 import { redirect } from "../core/base-path.js"
 
 import { listProcedures } from "../services/procedimentos.service.js"
-import { inferirCategoriaSaida } from "../utils/categoria-financeiro.js"
+import {
+  resumirFechamento,
+  conferirCaixa,
+  listarInadimplencia,
+  payloadAuditoriaFechamento,
+  ROTULO_FORMA,
+} from "../utils/caixa-fechamento.js"
 
 import { audit, getMargemEmRisco } from "../services/audit.service.js"
 
 import { getRole } from "../services/permissions.service.js"
+import { checkPermission } from "../core/permissions.js"
 import {
   listContasAPagar,
   createContaAPagar,
@@ -74,7 +81,7 @@ export async function init(){
  const openTab = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("financeiro_open_tab") : null
  if (openTab) {
    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("financeiro_open_tab")
-   switchFinanceiroMainTab(["custo-fixo", "dre", "contador", "comissoes"].includes(openTab) ? openTab : "visao-geral")
+   switchFinanceiroMainTab(["custo-fixo", "dre", "contador", "comissoes", "fechamento"].includes(openTab) ? openTab : "visao-geral")
  } else {
    const viewEl = document.getElementById("view-financeiro")
    if (viewEl) viewEl.dataset.currentTab = "visao-geral"
@@ -277,6 +284,10 @@ function switchFinanceiroMainTab(tabId) {
     bindComissoesEvents()
     renderComissoesPanel()
   }
+  if (tabId === "fechamento") {
+    bindFechamentoEvents()
+    renderFechamentoPanel()
+  }
   if (tabId === "dre") {
     bindDreEvents()
     renderDrePanel()
@@ -355,7 +366,114 @@ function getDreDateRange() {
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
   const start = inicio?.value || firstDay.toISOString().slice(0, 10)
   const end = fim?.value || now.toISOString().slice(0, 10)
-  return { start, end }
+  return { start, end   }
+}
+
+function bindFechamentoEvents() {
+  const dataEl = document.getElementById("financeiroFechamentoData")
+  const btn = document.getElementById("btnFinanceiroFechamentoAtualizar")
+  const registrar = document.getElementById("btnFinanceiroFechamentoRegistrar")
+  const dinheiroEl = document.getElementById("financeiroFechamentoDinheiro")
+  if (dataEl && !dataEl.value) dataEl.value = getTodayLocal()
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = "1"
+    btn.onclick = () => renderFechamentoPanel()
+  }
+  if (dataEl && !dataEl.dataset.bound) {
+    dataEl.dataset.bound = "1"
+    dataEl.onchange = () => renderFechamentoPanel()
+  }
+  if (dinheiroEl && !dinheiroEl.dataset.bound) {
+    dinheiroEl.dataset.bound = "1"
+    dinheiroEl.oninput = () => atualizarDifFechamento()
+  }
+  if (registrar && !registrar.dataset.bound) {
+    registrar.dataset.bound = "1"
+    registrar.onclick = () => registrarConferenciaCaixa()
+  }
+}
+
+let lastFechamentoResumo = null
+
+function atualizarDifFechamento() {
+  const hint = document.getElementById("financeiroFechamentoDif")
+  if (!hint || !lastFechamentoResumo) return
+  const conferido = document.getElementById("financeiroFechamentoDinheiro")?.value
+  const c = conferirCaixa({ esperado: lastFechamentoResumo.esperadoDinheiro, conferido })
+  if (c.ok == null) {
+    hint.textContent = lastFechamentoResumo.esperadoDinheiro
+      ? `Esperado em dinheiro neste dia: ${brl(lastFechamentoResumo.esperadoDinheiro)}.`
+      : "Nenhum lançamento em dinheiro neste dia."
+    hint.classList.remove("financeiro-fechamento-dif--alerta")
+    return
+  }
+  hint.textContent = c.ok
+    ? "Gaveta bate com o esperado em dinheiro."
+    : `Diferença: ${brl(c.diferenca)}. Confira a gaveta ou os lançamentos — o sistema não corrige sozinho.`
+  hint.classList.toggle("financeiro-fechamento-dif--alerta", !c.ok)
+}
+
+async function renderFechamentoPanel() {
+  const resumoEl = document.getElementById("financeiroFechamentoResumo")
+  const abertoEl = document.getElementById("financeiroFechamentoAberto")
+  const dataEl = document.getElementById("financeiroFechamentoData")
+  if (!resumoEl || !abertoEl) return
+  if (dataEl && !dataEl.value) dataEl.value = getTodayLocal()
+  const iso = dataEl?.value || getTodayLocal()
+  resumoEl.innerHTML = "<p class=\"view-hint\">Calculando…</p>"
+  try {
+    const data = await getFinanceiro()
+    const resumo = resumirFechamento(data, iso)
+    lastFechamentoResumo = resumo
+    const formas = Object.entries(resumo.porForma)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `<li>${escapeHtml(ROTULO_FORMA[k] || k)}: <strong>${brl(v)}</strong></li>`)
+      .join("")
+    resumoEl.innerHTML = `
+      <p>Dia <strong>${escapeHtml(resumo.data)}</strong> · ${resumo.qtd} lançamento(s)</p>
+      <ul class="financeiro-fechamento-totais">
+        <li>Entradas (recebido): <strong>${brl(resumo.entradas)}</strong></li>
+        <li>Saídas: <strong>${brl(resumo.saidas)}</strong></li>
+        <li>Saldo do dia: <strong>${brl(resumo.saldo)}</strong></li>
+      </ul>
+      ${formas ? `<h4>Por forma de pagamento</h4><ul class="financeiro-fechamento-formas">${formas}</ul>` : "<p class=\"view-hint\">Nenhuma entrada com forma neste dia.</p>"}
+    `
+    atualizarDifFechamento()
+    const abertos = listarInadimplencia(data)
+    if (!abertos.length) {
+      abertoEl.innerHTML = "<p class=\"view-hint\">Nada em aberto. Valor recebido igual ao cobrado, ou em branco (conta como recebido integral).</p>"
+    } else {
+      abertoEl.innerHTML = `<table class="precificacao-tabela" aria-label="Valores em aberto"><thead><tr><th>Data</th><th>Descrição</th><th>Cobrado</th><th>Recebido</th><th>Aberto</th></tr></thead><tbody>${
+        abertos.map((x) => `<tr><td>${escapeHtml(String(x.row.data || "").slice(0, 10))}</td><td>${escapeHtml(x.row.descricao || "—")}</td><td>${brl(x.previsto)}</td><td>${brl(x.realizado)}</td><td>${brl(x.aberto)}</td></tr>`).join("")
+      }</tbody></table>`
+    }
+  } catch (err) {
+    console.warn("[FECHAMENTO]", err)
+    resumoEl.innerHTML = `<p class="view-hint">${escapeHtml(err?.message || "Não foi possível montar o fechamento.")}</p>`
+    abertoEl.innerHTML = ""
+  }
+}
+
+async function registrarConferenciaCaixa() {
+  if (!lastFechamentoResumo) await renderFechamentoPanel()
+  if (!lastFechamentoResumo) {
+    toast("Atualize o dia antes de registrar.")
+    return
+  }
+  const can = await checkPermission("financeiro:manage")
+  if (!can) {
+    toast("Sem permissão para registrar conferência.")
+    return
+  }
+  const conferido = document.getElementById("financeiroFechamentoDinheiro")?.value
+  const conf = conferirCaixa({ esperado: lastFechamentoResumo.esperadoDinheiro, conferido })
+  await audit({
+    action: "financeiro.fechamento",
+    tableName: "financeiro",
+    permissionUsed: "financeiro:manage",
+    metadata: payloadAuditoriaFechamento(lastFechamentoResumo, conf),
+  })
+  toast("Conferência registrada na auditoria. Nenhum lançamento extra foi criado.")
 }
 
 function bindDreEvents() {
