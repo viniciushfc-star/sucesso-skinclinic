@@ -1,13 +1,17 @@
 ﻿import { createClient } from "@supabase/supabase-js"
 import {
   askAI,
-  tryDeterministicAnswer,
   summarizeTransactionsContext,
   summarizeClientsContext,
   summarizeAgendaContext,
   COMPLEXITY,
 } from "../ai/core/index.js"
 import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js"
+import {
+  montarFatosConsultora,
+  responderConsultora,
+  auditarRespostaConsultora,
+} from "../js/utils/ia-consultora.js"
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end()
@@ -67,12 +71,21 @@ FINANCEIRO (resumo): total ${financeiroResumo.total}, ${financeiroResumo.count} 
 AGENDA (resumo): total ${agendaResumo.total}, por dia ${JSON.stringify(agendaResumo.porDia)}, próximos: ${JSON.stringify(agendaResumo.proximos)}
 `
 
-    const deterministic = tryDeterministicAnswer(
-      { ...financeiroResumo, count: clientesResumo.total },
-      perguntaText.toLowerCase()
-    )
-    if (deterministic) {
-      return res.status(200).json({ resposta: deterministic })
+    const fatos = montarFatosConsultora({
+      clientesTotal: clientesResumo.total,
+      financeiroTotal: financeiroResumo.total,
+      financeiroCount: financeiroResumo.count,
+      financeiroMedia: financeiroResumo.media,
+      financeiroPorTipo: financeiroResumo.byType,
+      agendaTotal: agendaResumo.total,
+    })
+    const consultora = responderConsultora(perguntaText, fatos)
+    if (consultora) {
+      return res.status(200).json({
+        resposta: consultora.texto,
+        fonte: consultora.fonte || "",
+        modo: "consultora",
+      })
     }
 
     const ctxNotif = contextoNotificacao?.titulo || contextoNotificacao?.mensagem
@@ -80,13 +93,14 @@ AGENDA (resumo): total ${agendaResumo.total}, por dia ${JSON.stringify(agendaRes
       : ""
 
     const systemInstruction = `
-Você é o Copilot do Projeto Sucesso — ajuda a pensar, não a decidir.
-REGRAS: explique o porquê, mostre relações entre dados; NUNCA tome decisão nem execute ação.
-Use APENAS os dados fornecidos. Tom: claro, humano. NUNCA use "Decisão recomendada", "Ação necessária", "Erro crítico".
-Formato: "Com base nos dados, isso tende a acontecer por estes motivos…"
+Você é a Consultora do SkinClinic — explica com os dados, não decide.
+REGRAS: use APENAS os números que aparecem em DADOS. Se faltar o número, diga "não informado" e não invente.
+Nunca mude preço, nunca dispare WhatsApp, nunca execute ação.
+Cite a fonte (clientes, financeiro ou agenda da amostra). Tom: claro, humano.
+NUNCA use "Decisão recomendada", "Ação necessária", "Erro crítico".
 ${ctxNotif}`
 
-    const question = `DADOS:\n${contexto}\n\nPERGUNTA DO GESTOR:\n"${perguntaText}"\n\nResponda de forma clara e útil. Nunca decida por ele.`
+    const question = `DADOS:\n${contexto}\n\nPERGUNTA DO GESTOR:\n"${perguntaText}"\n\nResponda só com o que está em DADOS. Sem número novo.`
     const { content } = await askAI({
       userId: user.id,
       orgId,
@@ -99,7 +113,12 @@ ${ctxNotif}`
       cacheTtlMs: 5 * 60 * 1000,
     })
 
-    res.json({ resposta: content || "Sem resposta." })
+    const audit = auditarRespostaConsultora(content || "", fatos, perguntaText)
+    res.json({
+      resposta: audit.texto,
+      fonte: audit.fonte || "",
+      modo: audit.ok ? "consultora_ia" : "consultora",
+    })
   } catch (err) {
     if (err?.message?.includes("OPENAI_KEY")) {
       return res.status(200).json({

@@ -212,6 +212,13 @@ async function sendCopilotMessage() {
     const resposta = res?.resposta || "Não foi possível obter uma resposta."
     thinkingEl.textContent = resposta
     thinkingEl.classList.remove("copilot-chat-thinking")
+    const fonte = String(res?.fonte || "").trim()
+    if (fonte) {
+      const f = document.createElement("span")
+      f.className = "copilot-chat-fonte"
+      f.textContent = `Fonte: ${fonte}`
+      thinkingEl.appendChild(f)
+    }
   } catch (e) {
     console.error("[COPILOT] erro", e)
     thinkingEl.textContent = "Erro ao consultar o Copilot. Tente novamente."

@@ -1,42 +1,45 @@
-import { perguntarCopiloto }
-from "../services/copiloto.service.js"
+import { perguntarCopiloto } from "../services/copiloto.service.js";
+import { toast } from "../ui/toast.js";
 
-import { supabase }
-from "../core/supabase.js"
-
-import { getActiveOrg } from "../core/org.js"
-
-try{
-
-btnPerguntar.onclick =
- async ()=>{
-
- const { data:{ user }} =
-  await supabase
- .from("copiloto_chat")
- .insert({
-  pergunta,
-  resposta:res.resposta,
-  user_id:user.id,
-  org_id:getActiveOrg()
- })
-
-
- resposta.innerText =
-  "Pensando..."
-
- const res =
- await perguntarCopiloto({
-  pergunta:pergunta.value,
-  user_id:user.id
- })
-
- resposta.innerText =
-  res.resposta
+function mostrarFonte(el, fonte) {
+  if (!el) return;
+  const f = String(fonte || "").trim();
+  if (!f) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = `Fonte: ${f}`;
 }
 
+export async function init() {
+  const btn = document.getElementById("btnPerguntar");
+  const pergunta = document.getElementById("pergunta");
+  const resposta = document.getElementById("resposta");
+  const fonteEl = document.getElementById("respostaFonte");
+  if (!btn || !pergunta || !resposta) return;
 
-}catch(err){
- console.error("[COPILOTO]",err)
- toast("Erro ao consultar IA")
+  btn.onclick = async () => {
+    const q = String(pergunta.value || "").trim();
+    if (!q) {
+      toast("Escreva uma pergunta.");
+      return;
+    }
+    resposta.textContent = "Consultando os dados da clínica…";
+    mostrarFonte(fonteEl, "");
+    btn.disabled = true;
+    try {
+      const res = await perguntarCopiloto({ pergunta: q });
+      resposta.textContent = res?.resposta || "Sem resposta.";
+      mostrarFonte(fonteEl, res?.fonte);
+    } catch (err) {
+      console.error("[COPILOTO]", err);
+      resposta.textContent = "Erro ao consultar a Consultora.";
+      mostrarFonte(fonteEl, "");
+      toast("Erro ao consultar IA");
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }

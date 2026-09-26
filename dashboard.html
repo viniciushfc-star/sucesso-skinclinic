@@ -1203,16 +1203,17 @@
       <section id="view-copiloto" class="view hidden">
         <div class="view-header">
           <h2>Copiloto do Negócio</h2>
-          <p class="view-lead">Pergunte sobre dados e indicadores da clínica; a IA responde com base no que está no sistema.</p>
+          <p class="view-lead">A Consultora responde com o número que está no sistema e a fonte. Se não houver fonte, fica “não informado” — a IA não inventa. Não muda preço e não manda WhatsApp.</p>
         </div>
         <div class="view-card">
           <div class="view-field">
             <label for="pergunta">Sua pergunta</label>
-            <textarea id="pergunta" placeholder="Ex.: Qual foi o faturamento dos últimos 30 dias?" rows="3"></textarea>
+            <textarea id="pergunta" placeholder="Ex.: Quantos clientes estão no cadastro?" rows="3"></textarea>
           </div>
           <button type="button" id="btnPerguntar" class="btn-primary">Perguntar</button>
         </div>
-        <pre id="resposta"></pre>
+        <pre id="resposta" class="consultora-resposta"></pre>
+        <p id="respostaFonte" class="consultora-fonte" hidden></p>
       </section>
 
       <section id="view-marketing" class="view hidden">
