@@ -533,6 +533,14 @@ async function renderCockpit() {
       <div class="cockpit-kpi"><b>R$ ${Number(k.previsto || 0).toFixed(2).replace(".", ",")}</b><span>previsto</span></div>`
   }
 
+  const mudEl = document.getElementById("cockpitMudancaOntem")
+  if (mudEl) {
+    const linhas = snap.mudancaOntem || []
+    mudEl.innerHTML = linhas.length
+      ? `<h3 class="cockpit-mudanca-title">O que mudou vs ontem</h3><ul class="cockpit-mudanca-list">${linhas.map((l) => `<li class="cockpit-mudanca-item cockpit-mudanca-item--${escapeHtml(l.direcao)}">${escapeHtml(l.texto)}</li>`).join("")}</ul>`
+      : ""
+  }
+
   if (atencaoEl) {
     const rows = (snap.atencao || []).map((card) => insightRow(card));
     atencaoEl.innerHTML = rows.length

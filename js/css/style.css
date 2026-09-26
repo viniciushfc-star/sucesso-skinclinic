@@ -3913,6 +3913,12 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .setup-progress-ok .setup-progress-link{ color:#166534; }
 .setup-progress-import, .setup-progress-aha{ margin:0.65rem 0 0; font-size:0.85rem; color:#7c2d12; }
 .cockpit-kpis{ display:flex; flex-wrap:wrap; gap:1.25rem 2rem; margin:0 0 1.25rem; }
+.cockpit-mudanca-ontem{ margin:0 0 1.25rem; }
+.cockpit-mudanca-title{ margin:0 0 0.4rem; font-size:0.95rem; }
+.cockpit-mudanca-list{ margin:0; padding-left:1.15rem; }
+.cockpit-mudanca-item{ margin:0.2rem 0; font-size:0.9rem; color:#475569; }
+.cockpit-mudanca-item--mais{ color:#166534; }
+.cockpit-mudanca-item--menos{ color:#9a3412; }
 .cockpit-kpi{ display:flex; flex-direction:column; gap:2px; }
 .cockpit-kpi b{ font-size:1.35rem; color:#0f172a; font-weight:700; }
 .cockpit-kpi span{ font-size:0.75rem; color:#64748b; }

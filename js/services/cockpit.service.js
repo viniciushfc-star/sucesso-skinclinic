@@ -15,6 +15,8 @@ import { horaAgenda, statusAgendaItem } from "./cockpit-status.js";
 import { buildAttentionInsights, buildOpportunityInsights } from "./intelligence.service.js";
 import { explainFinanceiroMetas } from "./financeiro-metas.service.js";
 import { lucroHoraOpportunity, rankLucroHora, summarizeLucroHora } from "../utils/lucro-hora.js";
+import { getEntradasHojeComAgenda } from "./financeiro.service.js";
+import { dataOntemIso, linhasMudancaVsOntem } from "../utils/mudanca-ontem.js";
 
 export { statusAgendaItem, horaAgenda };
 
@@ -41,12 +43,40 @@ function clienteNome(a) {
   return c.name || c.nome || "—";
 }
 
+function previstoDoDia(appointments, procMap) {
+  let previsto = 0;
+  for (const a of appointments || []) {
+    if (isEvent(a) || a.is_retorno) continue;
+    if (a.procedure_id && procMap[a.procedure_id]?.valor_cobrado != null) {
+      let v = Number(procMap[a.procedure_id].valor_cobrado);
+      if (!Number.isNaN(v) && v > 0) {
+        if (a.is_modelo_agendamento && a.desconto_modelo_pct != null) {
+          v = v * (1 - Number(a.desconto_modelo_pct) / 100);
+        }
+        previsto += v;
+      }
+    }
+  }
+  return previsto;
+}
+
+function somaRecebidoBaixas(entradas) {
+  return (entradas || []).reduce((s, e) => {
+    const v = e.valor_recebido != null && e.valor_recebido !== "" ? Number(e.valor_recebido) : Number(e.valor) || 0;
+    return s + (Number.isFinite(v) ? v : 0);
+  }, 0);
+}
+
 export async function getCockpitSnapshot() {
   const hoje = getTodayLocal();
+  const ontem = dataOntemIso(hoje);
   const now = hhmmNow();
 
-  const [appointments, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
+  const [appointments, appointmentsOntem, entradasHoje, entradasOntem, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
     soft(() => listAppointmentsByDate(hoje)),
+    soft(() => listAppointmentsByDate(ontem)),
+    soft(() => getEntradasHojeComAgenda(hoje)),
+    soft(() => getEntradasHojeComAgenda(ontem)),
     soft(() => listProcedures(true)),
     soft(() => listInactiveClients(90)),
     soft(() => listWaitlist("aberta")),
@@ -61,7 +91,6 @@ export async function getCockpitSnapshot() {
     return acc;
   }, {});
 
-  let previsto = 0;
   let confirmados = 0;
   let atrasos = 0;
   const itens = [];
@@ -78,17 +107,9 @@ export async function getCockpitSnapshot() {
       status: st,
       clientId: a.cliente_id || a.client_id || null,
     });
-    if (isEvent(a) || a.is_retorno) continue;
-    if (a.procedure_id && procMap[a.procedure_id]?.valor_cobrado != null) {
-      let v = Number(procMap[a.procedure_id].valor_cobrado);
-      if (!Number.isNaN(v) && v > 0) {
-        if (a.is_modelo_agendamento && a.desconto_modelo_pct != null) {
-          v = v * (1 - Number(a.desconto_modelo_pct) / 100);
-        }
-        previsto += v;
-      }
-    }
   }
+  const previsto = previstoDoDia(appointments, procMap);
+  const previstoOntem = previstoDoDia(appointmentsOntem, procMap);
 
   const contasVencidas = (contas || []).filter((c) => {
     if (!c || c.status === "pago" || c.data_pago) return false;
@@ -109,6 +130,15 @@ export async function getCockpitSnapshot() {
       atrasos,
       previsto,
     },
+    mudancaOntem: linhasMudancaVsOntem({
+      agendaHoje: appointments.length,
+      agendaOntem: (appointmentsOntem || []).length,
+      previstoHoje: previsto,
+      previstoOntem,
+      entradasHoje: somaRecebidoBaixas(entradasHoje),
+      entradasOntem: somaRecebidoBaixas(entradasOntem),
+    }),
+    ontem,
     agenda: itens,
     atencao: buildAttentionInsights({
       atrasos,
