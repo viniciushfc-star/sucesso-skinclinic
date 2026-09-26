@@ -30,7 +30,8 @@ import {
  getAvailableSalas,
  createExternalBlock,
  listExternalBlocksForRange,
- markAgendaArrival
+ markAgendaArrival,
+ releaseAppointment
 } from "../services/appointments.service.js"
 
 import { listSalas, listSalasQueSuportamTipo } from "../services/salas.service.js"
@@ -60,6 +61,9 @@ import { getProtocolos, getProtocolosAplicadosByAgendaId, createProtocoloAplicad
 import { getResumoPorProduto } from "../services/estoque-entradas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
+import { listWaitlist } from "../services/waitlist.service.js"
+import { matchWaitlistToSlot } from "../utils/espera-encaixe.js"
+import { filaWhatsappTemplate } from "../utils/crm-fila.js"
 import { occupyProfessionalCalendar } from "../services/google-calendar.service.js"
 import { labelOcupadoPessoal, rangesOverlap } from "../utils/agenda-ocupacao.js"
 
@@ -1275,6 +1279,7 @@ async function openSlotPanel(id){
     <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão, sem abrir o perfil inteiro">Registrar o que foi aplicado</button>
     ${protocolosDestaAgenda.length ? `<p class="agenda-panel__hint">Já há ${protocolosDestaAgenda.length} registro(s) de protocolo nesta sessão.</p>` : `<p class="agenda-panel__hint">Registro rápido do método aplicado nesta sessão. Não é promoção.</p>`}
     ${!temBaixa ? `<button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
+    ${!isEvent ? `<button type="button" class="btn-secondary" id="agendaPanelBtnCancelar">Cancelar horário</button>` : ""}
     ${!isEvent ? `<div class="agenda-panel__sala-espera">
       <p class="agenda-panel__hint">Sala de espera (sem WhatsApp automático)</p>
       <button type="button" class="btn-secondary" id="agendaPanelBtnChegou">Chegou</button>
@@ -1323,6 +1328,12 @@ async function openSlotPanel(id){
     closeSlotPanel()
     await openDarBaixaModal(item)
    }
+  }
+  const btnCancelar = document.getElementById("agendaPanelBtnCancelar")
+  if (btnCancelar && !isEvent) {
+    btnCancelar.onclick = async () => {
+      await cancelarHorarioComEspera(item)
+    }
   }
   const bindEspera = (elId, phase) => {
     const b = document.getElementById(elId)
@@ -1515,6 +1526,85 @@ async function openEditModal(id){
 
   console.error("[AGENDA] erro edit", err)
  }
+}
+
+async function cancelarHorarioComEspera(item) {
+  if (!item?.id) return
+  if (!confirm("Cancelar este horário? A vaga some da agenda. Se houver lista de espera, você escolhe se avisa no WhatsApp.")) return
+  let espera = []
+  try {
+    espera = await listWaitlist("aberta")
+  } catch (_) {
+    espera = []
+  }
+  const matches = matchWaitlistToSlot(espera, {
+    data: item.data,
+    procedimento: item.procedimento,
+  })
+  try {
+    await releaseAppointment(item.id)
+  } catch (err) {
+    const msg = String(err?.message || err)
+    if (/cancelled_at|schema cache|column/i.test(msg)) {
+      toast("O cancelamento precisa da coluna cancelled_at na agenda. Confira o SQL de confirmação.")
+      return
+    }
+    toast(msg || "Não foi possível cancelar.")
+    return
+  }
+  occupyProfessionalCalendar(item.id, "release").catch(() => {})
+  await audit({
+    action: "agenda.cancel",
+    tableName: "agenda",
+    recordId: item.id,
+    permissionUsed: "agenda:manage",
+    metadata: { espera_compativel: matches.length },
+  }).catch(() => {})
+  closeSlotPanel()
+  renderAgenda()
+  if (!matches.length) {
+    toast("Horário cancelado. Ninguém compatível na lista de espera agora.")
+    return
+  }
+  const profile = await getOrganizationProfile().catch(() => ({}))
+  const clinic = profile?.name || "nossa clínica"
+  const linhas = matches.slice(0, 5).map((w) => {
+    const tel = String(w.phone || "").replace(/\D/g, "")
+    const msg = filaWhatsappTemplate({
+      name: w.nome,
+      sinal: "espera",
+      clinic,
+      extra: `${item.data || ""} ${item.hora || ""}`.trim(),
+    })
+    const wa = tel.length >= 10
+      ? `<button type="button" class="btn-secondary agenda-espera-wa" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-phone="${escapeAttr(w.phone || "")}" data-msg="${escapeAttr(msg)}">Avisar ${escapeHtml(w.nome || "")}</button>`
+      : `<span class="view-hint">${escapeHtml(w.nome || "")} sem telefone</span>`
+    return `<li>${wa}</li>`
+  }).join("")
+  openModal(
+    "Horário liberado — lista de espera",
+    `<p class="agenda-baixa-hint">Há quem espera um horário nesta faixa. O WhatsApp só sai se você clicar. Nada é enviado sozinho.</p><ul class="agenda-espera-match">${linhas}</ul>`,
+    () => closeModal(),
+    null
+  )
+  document.querySelectorAll(".agenda-espera-wa").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await sendWhatsapp(btn.dataset.phone, btn.dataset.msg, {
+          origem: "agenda_espera",
+          clientId: btn.dataset.clientId || "",
+          waitlistId: btn.dataset.waitlistId || "",
+        })
+        toast("WhatsApp aberto. Confira antes de enviar.")
+      } catch (e) {
+        toast(e?.message || "Não foi possível abrir o WhatsApp.")
+      }
+    })
+  })
+}
+
+function escapeAttr(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
 }
 
 async function pedirAvaliacaoGoogle(item, { silenciosoSeVazio = false } = {}) {
