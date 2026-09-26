@@ -559,9 +559,15 @@ async function renderCockpit() {
 function insightRow(card) {
   const view = escapeHtml(card.view || "dashboard")
   const title = escapeHtml(card.title || "Atenção")
+  const causa = escapeHtml(card.causa || "")
+  const impacto = escapeHtml(card.impacto || "")
+  const fonte = escapeHtml(card.fonte || "")
   const reason = escapeHtml(card.reason || "")
   const action = escapeHtml(card.action || "")
-  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"><span class="cockpit-row-text"><strong>${title}</strong>${reason ? `<span class="cockpit-row-reason">${reason}</span>` : ""}${action ? `<span class="cockpit-row-action">${action}</span>` : ""}</span></button>`
+  const corpo = causa
+    ? `${causa ? `<span class="cockpit-row-causa">Causa: ${causa}</span>` : ""}${impacto ? `<span class="cockpit-row-impacto">Impacto: ${impacto}</span>` : ""}${fonte ? `<span class="cockpit-row-fonte">Fonte: ${fonte}</span>` : ""}`
+    : (reason ? `<span class="cockpit-row-reason">${reason}</span>` : "")
+  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"><span class="cockpit-row-text"><strong>${title}</strong>${corpo}${action ? `<span class="cockpit-row-action">${action}</span>` : ""}</span></button>`
 }
 
 async function renderCockpitMes() {

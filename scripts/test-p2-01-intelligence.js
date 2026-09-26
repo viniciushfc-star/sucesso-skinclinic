@@ -45,6 +45,9 @@ describe("P2-1 Intelligence", () => {
     assert.equal(cards[0].theme, "atraso");
     const margem = cards.find((c) => c.theme === "margem");
     assert.match(margem.reason, /não altera preço/i);
+    assert.equal(margem.fonte, "auditoria estoque.custo_aumentou");
+    assert.ok(margem.causa);
+    assert.ok(margem.impacto);
   });
 
   it("oportunidade de radar não fala em envio automático", () => {

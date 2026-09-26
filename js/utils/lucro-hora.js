@@ -57,6 +57,9 @@ export function lucroHoraOpportunity(ranked) {
   return {
     theme: "lucro_hora",
     title: `${pior.name}: lucro/hora baixo frente a ${melhor.name}`,
+    causa: "Estimativa com preço, duração e material cadastrado no procedimento.",
+    impacto: "O sistema não altera o preço — revise em Procedimentos.",
+    fonte: "cadastro de procedimentos",
     reason:
       "Estimativa com preço, duração e material cadastrado. O sistema não altera o preço — revise em Procedimentos.",
     action: "Revisar duração, material e preço (você altera)",
