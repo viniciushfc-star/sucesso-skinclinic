@@ -9,6 +9,7 @@ import { audit } from "./audit.service.js";
 import { createAfazer, TIPOS_AFAZERES } from "./afazeres.service.js";
 import { custoRealFromUsage } from "../utils/estoque-custo.js";
 import { custoUnitarioComFrete, DIAS_VALIDADE_ALERTA } from "../utils/estoque-revenda.js";
+import { lotesComSaldo, payloadPerda, payloadAjustePorInventario, conferirInventario } from "../utils/estoque-lotes.js";
 import { garantirCatalogoPorNome, listProdutosCatalogo } from "./estoque-produtos.service.js";
 
 function getOrgOrThrow() {
@@ -130,13 +131,20 @@ export async function getResumoPorProduto() {
   for (const p of catalogo) {
     const nome = (p.nome || "").trim();
     if (!nome) continue;
-    byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0 };
+    const min = p.quantidade_minima != null && p.quantidade_minima !== "" ? Number(p.quantidade_minima) : null;
+    byProduto[nome] = {
+      produto_nome: nome,
+      entrada_qty: 0,
+      entrada_total: 0,
+      consumo_qty: 0,
+      minimo: Number.isFinite(min) ? min : null,
+    };
   }
   for (const e of entradas) {
     const nome = (e.produto_nome || "").trim();
     if (!nome) continue;
     if (!byProduto[nome]) {
-      byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0 };
+      byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0, minimo: null };
     }
     const qty = Number(e.quantidade) || 0;
     byProduto[nome].entrada_qty += qty;
@@ -151,7 +159,7 @@ export async function getResumoPorProduto() {
   for (const c of consumos) {
     const nome = (c.produto_nome || "").trim();
     if (!nome) continue;
-    if (!byProduto[nome]) byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0 };
+    if (!byProduto[nome]) byProduto[nome] = { produto_nome: nome, entrada_qty: 0, entrada_total: 0, consumo_qty: 0, minimo: null };
     byProduto[nome].consumo_qty += Number(c.quantidade) || 0;
   }
 
@@ -166,7 +174,7 @@ export async function getResumoPorProduto() {
 export async function registrarConsumoEstimado(payload) {
   const orgId = getOrgOrThrow();
   const { data: { user } } = await supabase.auth.getUser();
-  const { produto_nome, quantidade, procedure_id, agenda_id, protocolo_aplicado_id, tipo = "estimado" } = payload;
+  const { produto_nome, quantidade, procedure_id, agenda_id, protocolo_aplicado_id, tipo = "estimado", lote, motivo } = payload;
 
   if (!(produto_nome && produto_nome.trim())) throw new Error("Informe o produto.");
   const qty = Number(quantidade);
@@ -183,14 +191,69 @@ export async function registrarConsumoEstimado(payload) {
     created_by: user?.id ?? null
   };
   if (protocolo_aplicado_id) insertPayload.protocolo_aplicado_id = protocolo_aplicado_id;
+  const loteVal = String(lote || "").trim();
+  const motivoVal = String(motivo || "").trim();
+  if (loteVal) insertPayload.lote = loteVal;
+  if (motivoVal) insertPayload.motivo = motivoVal;
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("estoque_consumo")
     .insert(insertPayload)
     .select()
     .single();
+  if (error && /lote|motivo|schema cache|column/i.test(String(error.message || ""))) {
+    delete insertPayload.lote;
+    delete insertPayload.motivo;
+    const retry = await supabase.from("estoque_consumo").insert(insertPayload).select().single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
   return data;
+}
+
+export async function listConsumoEstoque(limit = 2000) {
+  const orgId = getOrgOrThrow();
+  let q = await supabase
+    .from("estoque_consumo")
+    .select("produto_nome, quantidade, tipo, lote, motivo, created_at")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+  if (q.error && /lote|motivo|schema cache|column/i.test(String(q.error.message || ""))) {
+    q = await supabase
+      .from("estoque_consumo")
+      .select("produto_nome, quantidade, tipo, created_at")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+  }
+  if (q.error) throw q.error;
+  return q.data || [];
+}
+
+export async function getLotesComSaldo() {
+  const [entradas, consumos] = await Promise.all([listEntradas(500), listConsumoEstoque()]);
+  return lotesComSaldo(entradas, consumos);
+}
+
+export async function registrarPerda(payload) {
+  const row = payloadPerda(payload?.produto_nome, payload?.quantidade, {
+    lote: payload?.lote,
+    motivo: payload?.motivo || "perda",
+  });
+  if (!row) throw new Error("Informe produto e quantidade da perda.");
+  return registrarConsumoEstimado(row);
+}
+
+export async function registrarInventario({ produto_nome, saldoEstimado, contado, lote }) {
+  const conf = conferirInventario(saldoEstimado, contado);
+  if (!conf) throw new Error("Informe o saldo da tela e a quantidade contada.");
+  if (conf.sentido === "ok") return { conferido: conf, gravado: null };
+  if (conf.sentido === "sobrou") return { conferido: conf, gravado: null };
+  const row = payloadAjustePorInventario(produto_nome, conf, { lote, motivo: "inventario" });
+  const gravado = row ? await registrarConsumoEstimado(row) : null;
+  return { conferido: conf, gravado };
 }
 
 /**

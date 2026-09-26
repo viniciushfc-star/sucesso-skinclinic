@@ -1365,7 +1365,7 @@
           <h2>Estoque</h2>
           <p class="view-lead">Cadastre o produto no portfólio sem quantidade. Entrada, nota e XML são só quando o estoque chega. Validade com menos de 1 ano é sinalizada.</p>
         </div>
-        <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql.</p>
+        <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql. Para mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
         <div class="view-card">
           <h3 class="view-card-title">Portfólio</h3>
           <p class="view-hint">Nome, o que você paga, preço da profissional, preço do cliente e frete típico. Sem quantidade.</p>
@@ -1409,6 +1409,16 @@
         <div class="view-card estoque-resumo-wrap" id="estoqueResumoWrap">
           <h3 class="view-card-title">Resumo por produto</h3>
           <div id="estoqueResumo" class="estoque-resumo"></div>
+        </div>
+        <div class="view-card">
+          <h3 class="view-card-title">Lotes, perdas e conferência</h3>
+          <p class="view-hint">Saldo por lote é referência. Perda e inventário não travam atendimento. Se a contagem for maior que o sistema, registre uma entrada — o sistema não inventa estoque.</p>
+          <div id="estoqueCapitalHint" class="view-hint"></div>
+          <div id="estoqueLotesList" class="estoque-resumo"></div>
+          <div class="estoque-entrada-actions">
+            <button type="button" id="btnEstoquePerda" class="btn-secondary">Registrar perda</button>
+            <button type="button" id="btnEstoqueInventario" class="btn-secondary">Conferir inventário</button>
+          </div>
         </div>
         <div class="view-card estoque-proximos-vencer-wrap" id="estoqueProximosVencerWrap">
           <h3 class="view-card-title">Próximo a vencer</h3>

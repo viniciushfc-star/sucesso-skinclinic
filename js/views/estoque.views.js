@@ -4,7 +4,7 @@
  */
 
 import { lerNota, parseTextoNota } from "../services/ocr.service.js"
-import { listEntradas, createEntrada, getResumoPorProduto, getAcuraciaEstoque, registrarConsumoReal, getProdutosProximosVencer, getProcedimentosQueUsamProduto } from "../services/estoque-entradas.service.js"
+import { listEntradas, createEntrada, getResumoPorProduto, getAcuraciaEstoque, registrarConsumoReal, getProdutosProximosVencer, getProcedimentosQueUsamProduto, getLotesComSaldo, registrarPerda, registrarInventario } from "../services/estoque-entradas.service.js"
 import { saveOcrNota } from "../services/ocr-notas.service.js"
 import { normalizeParsedNota, parseNfeXml } from "../utils/ocr-nota.js"
 import { analisarEstoque } from "../services/estoque.service.js"
@@ -15,6 +15,7 @@ import { openModal, closeModal } from "../ui/modal.js"
 import { createAvaliacao } from "../services/produto-avaliacoes.service.js"
 import { listProdutosCatalogo, upsertProdutoCatalogo } from "../services/estoque-produtos.service.js"
 import { alertaValidade, montarRevenda } from "../utils/estoque-revenda.js"
+import { alertaMinimo, capitalEstoque } from "../utils/estoque-lotes.js"
 
 export async function init() {
   bindUI()
@@ -22,6 +23,7 @@ export async function init() {
   await renderRevenda()
   await renderList()
   await renderResumo()
+  await renderLotes()
   await renderProximosVencer()
   await renderAcuracia()
 }
@@ -47,6 +49,10 @@ function bindUI() {
   if (periodoAcuracia) periodoAcuracia.addEventListener("change", () => renderAcuracia())
   const btnRegistrarReal = document.getElementById("btnEstoqueRegistrarReal")
   if (btnRegistrarReal) btnRegistrarReal.addEventListener("click", () => openModalRegistrarConsumoReal())
+  const btnPerda = document.getElementById("btnEstoquePerda")
+  if (btnPerda) btnPerda.addEventListener("click", () => openModalPerda())
+  const btnInv = document.getElementById("btnEstoqueInventario")
+  if (btnInv) btnInv.addEventListener("click", () => openModalInventario())
 
   const btnAnalisar = document.getElementById("btnAnalisarEstoque")
   const resultadoEstoque = document.getElementById("resultadoEstoque")
@@ -301,9 +307,11 @@ async function renderResumo() {
       const custo = r.custo_medio != null ? `R$ ${Number(r.custo_medio).toFixed(2)}` : "—"
       const prod = escapeHtml(r.produto_nome)
       const semSaldo = Number(r.entrada_qty) === 0 ? `<span class="estoque-resumo-portfolio">Só no portfólio</span>` : ""
+      const minAlert = alertaMinimo(r.saldo_estimado, r.minimo)
+      const minTxt = minAlert ? `<span class="estoque-validade-badge estoque-validade-badge--${minAlert.nivel === "abaixo" ? "vencido" : "menos_1_ano"}">${escapeHtml(minAlert.label)}</span>` : (r.minimo != null && Number(r.minimo) > 0 ? `<span class="view-hint">Mínimo ${Number(r.minimo)}</span>` : "")
       return `
         <div class="estoque-resumo-card">
-          <span class="estoque-resumo-produto">${prod}</span>
+          <span class="estoque-resumo-produto">${prod} ${minTxt}</span>
           <span class="estoque-resumo-saldo">Saldo: ${saldo}</span>
           <span class="estoque-resumo-custo">Custo médio (com frete): ${custo}</span>
           ${semSaldo}
@@ -320,6 +328,132 @@ async function renderResumo() {
   } catch (err) {
     wrap?.classList.add("hidden")
   }
+}
+
+async function renderLotes() {
+  const listEl = document.getElementById("estoqueLotesList")
+  const capEl = document.getElementById("estoqueCapitalHint")
+  if (!listEl) return
+  try {
+    const [lotes, resumo] = await Promise.all([getLotesComSaldo(), getResumoPorProduto()])
+    const cap = capitalEstoque(
+      (resumo || []).map((r) => ({
+        saldo: r.saldo_estimado,
+        custo_medio: r.custo_medio,
+        minimo: r.minimo,
+      }))
+    )
+    if (capEl) {
+      const inv = cap.investido != null ? `Capital em estoque (saldo × custo médio): R$ ${Number(cap.investido).toFixed(2)}.` : "Capital em estoque: não informado (falta custo médio)."
+      const extra =
+        cap.acimaMinimo == null
+          ? " Acima do mínimo só aparece se você informar o piso no portfólio."
+          : ` Acima do mínimo: R$ ${Number(cap.acimaMinimo).toFixed(2)}.`
+      capEl.textContent = inv + extra
+    }
+    const comSaldo = (lotes || []).filter((l) => Number(l.saldo) > 0)
+    if (!comSaldo.length) {
+      listEl.innerHTML = "<p class=\"view-hint\">Nenhum lote com saldo. Entradas com lote aparecem aqui depois do consumo (FIFO por validade).</p>"
+      return
+    }
+    listEl.innerHTML = comSaldo
+      .map((l) => {
+        const validade = l.data_validade ? new Date(l.data_validade + "T12:00:00").toLocaleDateString("pt-BR") : "sem validade"
+        const loteLabel = l.lote === "sem_lote" ? "sem lote" : `lote ${l.lote}`
+        return `<div class="estoque-resumo-card">
+          <span class="estoque-resumo-produto">${escapeHtml(l.produto_nome)}</span>
+          <span class="estoque-resumo-saldo">${Number(l.saldo).toFixed(2)} un. · ${escapeHtml(loteLabel)} · vence ${escapeHtml(validade)}</span>
+        </div>`
+      })
+      .join("")
+  } catch (err) {
+    listEl.innerHTML = `<p class="view-hint">${escapeHtml(err.message || "Não carregou os lotes.")}</p>`
+  }
+}
+
+function opcoesProduto(resumo) {
+  return (resumo || []).map((r) => `<option value="${escapeAttr(r.produto_nome)}">${escapeHtml(r.produto_nome)}</option>`).join("")
+}
+
+function openModalPerda() {
+  getResumoPorProduto().then((resumo) => {
+    openModal(
+      "Registrar perda",
+      `
+      <p class="form-hint">Quebra, vencido ou descarte. Não trava atendimento. Entra como ajuste no consumo, não muda preço.</p>
+      <label for="estoquePerdaProduto">Produto</label>
+      <input type="text" id="estoquePerdaProduto" list="estoquePerdaProdutoList" required>
+      <datalist id="estoquePerdaProdutoList">${opcoesProduto(resumo)}</datalist>
+      <label for="estoquePerdaQty">Quantidade perdida</label>
+      <input type="number" id="estoquePerdaQty" step="0.01" min="0.01" required>
+      <label for="estoquePerdaLote">Lote (opcional)</label>
+      <input type="text" id="estoquePerdaLote" placeholder="Se souber o lote">
+      <label for="estoquePerdaMotivo">Motivo (opcional)</label>
+      <input type="text" id="estoquePerdaMotivo" placeholder="Ex.: vencido, quebrou">
+      `,
+      async () => {
+        const produto = document.getElementById("estoquePerdaProduto")?.value?.trim()
+        const qty = parseFloat(document.getElementById("estoquePerdaQty")?.value)
+        try {
+          await registrarPerda({
+            produto_nome: produto,
+            quantidade: qty,
+            lote: document.getElementById("estoquePerdaLote")?.value,
+            motivo: document.getElementById("estoquePerdaMotivo")?.value || "perda",
+          })
+          toast("Perda registrada. Atendimento segue normal.")
+          closeModal()
+          await renderResumo()
+          await renderLotes()
+        } catch (e) {
+          toast(e.message || "Não registrou a perda.")
+        }
+      }
+    )
+  }).catch((e) => toast(e.message || "Abra o estoque de novo."))
+}
+
+function openModalInventario() {
+  getResumoPorProduto().then((resumo) => {
+    openModal(
+      "Conferir inventário",
+      `
+      <p class="form-hint">Compare o saldo estimado com o que você contou. Se faltou, grava ajuste. Se sobrou, use Entrada — o sistema não inventa estoque. Não trava atendimento.</p>
+      <label for="estoqueInvProduto">Produto</label>
+      <input type="text" id="estoqueInvProduto" list="estoqueInvProdutoList" required>
+      <datalist id="estoqueInvProdutoList">${opcoesProduto(resumo)}</datalist>
+      <label for="estoqueInvContado">Quantidade contada</label>
+      <input type="number" id="estoqueInvContado" step="0.01" min="0" required>
+      <label for="estoqueInvLote">Lote (opcional)</label>
+      <input type="text" id="estoqueInvLote">
+      `,
+      async () => {
+        const produto = document.getElementById("estoqueInvProduto")?.value?.trim()
+        const row = (resumo || []).find((r) => String(r.produto_nome || "").toLowerCase() === String(produto || "").toLowerCase())
+        const contado = parseFloat(document.getElementById("estoqueInvContado")?.value)
+        if (!row) {
+          toast("Escolha um produto do resumo.")
+          return
+        }
+        try {
+          const out = await registrarInventario({
+            produto_nome: row.produto_nome,
+            saldoEstimado: row.saldo_estimado,
+            contado,
+            lote: document.getElementById("estoqueInvLote")?.value,
+          })
+          if (out.conferido?.sentido === "ok") toast("Bateu com o saldo estimado.")
+          else if (out.conferido?.sentido === "sobrou") toast("Contagem maior que o sistema. Registre uma entrada. Nada foi inventado.")
+          else toast("Faltou em relação ao estimado. Ajuste gravado. Atendimento não trava.")
+          closeModal()
+          await renderResumo()
+          await renderLotes()
+        } catch (e) {
+          toast(e.message || "Não conferiu.")
+        }
+      }
+    )
+  }).catch((e) => toast(e.message || "Abra o estoque de novo."))
 }
 
 async function renderAcuracia() {
@@ -648,6 +782,7 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
       toast(salvos > 0 ? `${salvos} item(ns) salvo(s) no estoque.` : "Nenhum item válido.")
       await renderList()
       await renderResumo()
+      await renderLotes()
       await renderCatalogo()
       await renderRevenda()
     },
@@ -673,6 +808,8 @@ function openCadastroProduto(existente = null) {
     <input type="date" id="estoqueCatValidade" value="${p.validade_referencia ? String(p.validade_referencia).slice(0, 10) : ""}">
     <label>Unidade (opcional)</label>
     <input type="text" id="estoqueCatUnidade" value="${escapeHtml(p.unidade || "")}" placeholder="un, ml, cx">
+    <label>Quantidade mínima (alerta, opcional)</label>
+    <input type="number" id="estoqueCatMinimo" step="0.01" min="0" value="${p.quantidade_minima ?? ""}" placeholder="Não trava atendimento">
   `
   openModal(
     existente ? "Editar produto do portfólio" : "Cadastrar produto no portfólio",
@@ -693,12 +830,14 @@ function openCadastroProduto(existente = null) {
           frete_padrao: document.getElementById("estoqueCatFrete")?.value,
           validade_referencia: document.getElementById("estoqueCatValidade")?.value || null,
           unidade: document.getElementById("estoqueCatUnidade")?.value,
+          quantidade_minima: document.getElementById("estoqueCatMinimo")?.value,
         })
         closeModal()
         toast(existente ? "Produto atualizado." : "Produto cadastrado no portfólio. Use Entrada quando chegar estoque.")
         await renderCatalogo()
         await renderRevenda()
         await renderResumo()
+        await renderLotes()
         await renderProximosVencer()
       } catch (e) {
         toast(e.message || "Erro ao salvar produto.")
@@ -730,6 +869,8 @@ function openEntradaManual() {
     <input type="date" id="estoqueManualData" value="${new Date().toISOString().slice(0, 10)}">
     <label>Validade do lote (opcional)</label>
     <input type="date" id="estoqueManualValidade">
+    <label>Número do lote (opcional)</label>
+    <input type="text" id="estoqueManualLote" placeholder="Ex.: L-1024">
   `
 
     openModal(
@@ -744,6 +885,7 @@ function openEntradaManual() {
         const fornecedor = document.getElementById("estoqueManualFornecedor")?.value?.trim() || null
         const data = document.getElementById("estoqueManualData")?.value || new Date().toISOString().slice(0, 10)
         const dataValidade = document.getElementById("estoqueManualValidade")?.value?.trim() || null
+        const lote = document.getElementById("estoqueManualLote")?.value?.trim() || null
         if (!produto) {
           toast("Informe o produto.")
           return
@@ -762,12 +904,14 @@ function openEntradaManual() {
             fornecedor,
             data_entrada: data,
             data_validade: dataValidade || undefined,
+            lote: lote || undefined,
             origem: "manual"
           })
           closeModal()
           toast("Entrada salva.")
           await renderList()
           await renderResumo()
+          await renderLotes()
           await renderProximosVencer()
           await renderCatalogo()
           await renderRevenda()

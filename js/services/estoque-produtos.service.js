@@ -14,10 +14,29 @@ function orgIdOrThrow() {
   return orgId;
 }
 
-function money(v) {
-  if (v == null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+function missingMinimo(error) {
+  return /quantidade_minima|schema cache|column/i.test(String(error?.message || ""));
+}
+
+async function writeCatalogo(kind, row, filter) {
+  const orgId = row.org_id;
+  const attempt = async (payload) => {
+    if (kind === "insert") {
+      return supabase.from("estoque_produtos").insert(payload).select().single();
+    }
+    let q = supabase.from("estoque_produtos").update(payload).eq("org_id", orgId);
+    if (filter?.id) q = q.eq("id", filter.id);
+    return q.select().single();
+  };
+  let { data, error } = await attempt(row);
+  if (error && missingMinimo(error) && Object.prototype.hasOwnProperty.call(row, "quantidade_minima")) {
+    const copy = { ...row };
+    delete copy.quantidade_minima;
+    const retry = await attempt(copy);
+    data = retry.data;
+    error = retry.error;
+  }
+  return { data, error };
 }
 
 export async function listProdutosCatalogo() {
@@ -52,19 +71,14 @@ export async function upsertProdutoCatalogo(payload) {
     validade_referencia: payload.validade_referencia || null,
     unidade: String(payload.unidade || "").trim() || null,
     observacao: String(payload.observacao || "").trim() || null,
+    quantidade_minima: money(payload.quantidade_minima),
     ativo: payload.ativo === false ? false : true,
     updated_at: new Date().toISOString(),
     created_by: user?.id ?? null,
   };
 
   if (payload.id) {
-    const { data, error } = await supabase
-      .from("estoque_produtos")
-      .update(row)
-      .eq("id", payload.id)
-      .eq("org_id", orgId)
-      .select()
-      .single();
+    const { data, error } = await writeCatalogo("update", row, { id: payload.id });
     if (error) throw error;
     return data;
   }
@@ -77,22 +91,12 @@ export async function upsertProdutoCatalogo(payload) {
     .maybeSingle();
 
   if (existing?.id) {
-    const { data, error } = await supabase
-      .from("estoque_produtos")
-      .update(row)
-      .eq("id", existing.id)
-      .eq("org_id", orgId)
-      .select()
-      .single();
+    const { data, error } = await writeCatalogo("update", row, { id: existing.id });
     if (error) throw error;
     return data;
   }
 
-  const { data, error } = await supabase
-    .from("estoque_produtos")
-    .insert(row)
-    .select()
-    .single();
+  const { data, error } = await writeCatalogo("insert", row);
   if (error) {
     if (missingTable(error)) {
       throw new Error("Rode o SQL supabase-estoque-portfolio-colar.sql no Supabase para cadastrar o portfólio.");
