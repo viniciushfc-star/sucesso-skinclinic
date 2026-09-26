@@ -56,11 +56,19 @@ import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes
 import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa, sugerirProximaAcaoNaBaixa } from "../utils/ciclo-ouro.js"
 import { previstoVsRealizado } from "../utils/comissao-apuracao.js"
 import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js"
+import {
+  escolherCustoMaterial,
+  economiaAtendimento,
+  simularDescontoParcela,
+  textoEconomiaAtendimento,
+  textoSimulacaoBaixa,
+} from "../utils/economia-atendimento.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
 import { getProtocolos, getProtocolosAplicadosByAgendaId, createProtocoloAplicado, getAlertaEstoqueProtocolo } from "../services/protocolo-db.service.js"
-import { getResumoPorProduto } from "../services/estoque-entradas.service.js"
+import { getCustoRealProcedimento, getResumoPorProduto } from "../services/estoque-entradas.service.js"
+import { getTaxas, getTaxaForParcelas } from "../services/precificacao-taxas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
 import { listWaitlist } from "../services/waitlist.service.js"
@@ -1897,9 +1905,13 @@ async function openDarBaixaModal(item) {
     : ""
 
   let procedure = null
+  let custoRealInfo = { custoReal: null, incompleto: false }
+  let taxasOrg = null
   if (item.procedure_id) {
     try { procedure = await getProcedure(item.procedure_id) } catch (_) {}
+    try { custoRealInfo = await getCustoRealProcedimento(item.procedure_id) } catch (_) {}
   }
+  try { taxasOrg = await getTaxas() } catch (_) { taxasOrg = null }
   let valorProcedimento = procedure?.valor_cobrado != null && procedure?.valor_cobrado !== "" ? Number(procedure.valor_cobrado) : null
   if (valorProcedimento != null && item.is_modelo_agendamento && item.desconto_modelo_pct != null) {
     valorProcedimento = valorProcedimento * (1 - Number(item.desconto_modelo_pct) / 100)
@@ -1924,9 +1936,9 @@ async function openDarBaixaModal(item) {
   openModal(
     "Dar baixa — Registrar pagamento",
     `
-    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Se usar pacote, o financeiro registra o valor da sessão do pacote, não o preço do catálogo de novo. Custo e margem são estimativa — o atendimento não trava.</p>
+    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Se usar pacote, o financeiro registra o valor da sessão, não o preço cheio. A fórmula usa insumo real do estoque quando existir. Simular desconto ou parcela não muda o catálogo. O atendimento não trava.</p>
     ${blocoPacote}
-    <p id="baixaEconomiaHint" class="agenda-baixa-economia" hidden></p>
+    <p id="baixaEconomiaHint" class="agenda-baixa-economia"></p>
     <label for="baixaDesc">Descrição</label>
     <input type="text" id="baixaDesc" value="${descricaoSugerida}" placeholder="Ex.: Agenda: Cliente – Procedimento">
     ${blocoValor}
@@ -1941,6 +1953,16 @@ async function openDarBaixaModal(item) {
       <option value="boleto">Boleto</option>
       <option value="outro">Outro</option>
     </select>
+    <div class="agenda-baixa-simulacao">
+      <p class="agenda-baixa-hint">Simulação (só leitura): desconto e crédito parcelado com as taxas da clínica.</p>
+      <label for="baixaSimDesconto">Desconto simulado (%)</label>
+      <input type="number" id="baixaSimDesconto" min="0" max="100" step="0.5" value="0">
+      <label for="baixaSimParcelas">Se fosse crédito em</label>
+      <select id="baixaSimParcelas">
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map((n) => `<option value="${n}">${n}x</option>`).join("")}
+      </select>
+      <p id="baixaSimulacaoHint" class="agenda-baixa-simulacao-txt"></p>
+    </div>
     <label for="baixaValorRecebido">Valor recebido (quanto entrou de fato)</label>
     <input type="number" id="baixaValorRecebido" step="0.01" min="0" placeholder="Vazio = mesmo que o valor total">
     <label for="baixaData">Data do recebimento</label>
@@ -1952,41 +1974,73 @@ async function openDarBaixaModal(item) {
 
   const pacoteEl = document.getElementById("baixaPacoteId")
   const economiaEl = document.getElementById("baixaEconomiaHint")
+  const simEl = document.getElementById("baixaSimulacaoHint")
+  const custoEscolhido = () => {
+    const opt = pacoteEl?.selectedOptions?.[0]
+    const estimadoPacote = opt?.dataset?.custo === "" ? null : opt?.dataset?.custo
+    const estimadoProc = procedure?.custo_material_estimado
+    return escolherCustoMaterial({
+      real: custoRealInfo?.custoReal,
+      incompleto: custoRealInfo?.incompleto,
+      estimado: estimadoPacote != null && estimadoPacote !== "" ? estimadoPacote : estimadoProc,
+    })
+  }
+  const taxaFormaAtual = () => {
+    const forma = document.getElementById("baixaFormaPagamento")?.value || ""
+    if (!taxasOrg) return 0
+    if (forma === "cartao_debito") return getTaxaForParcelas(taxasOrg, 1, "debito")
+    if (forma === "cartao_credito") {
+      const n = Number(document.getElementById("baixaSimParcelas")?.value) || 1
+      return getTaxaForParcelas(taxasOrg, n, "credito")
+    }
+    return 0
+  }
   const refreshBaixaNumeros = () => {
     const opt = pacoteEl?.selectedOptions?.[0]
     const pacoteId = pacoteEl?.value?.trim() || ""
     const ac = Number(document.getElementById("baixaAcrescimo")?.value) || 0
     const base = Number(document.getElementById("baixaValorProcedimento")?.value) || valorProcedimento || 0
+    const manual = Number(document.getElementById("baixaValorTotalInput")?.value) || 0
     const valor = valorFinanceiroNaBaixa({
       pacoteId: pacoteId || null,
-      valorProcedimento: base,
+      valorProcedimento: temValorProcedimento ? base : manual,
       acrescimo: ac,
       valorPagoPacote: opt?.dataset?.valorPago,
       totalSessoes: opt?.dataset?.sessoes,
     })
     const totalEl = document.getElementById("baixaValorTotal")
     if (totalEl) totalEl.textContent = "R$ " + Number(valor).toFixed(2).replace(".", ",")
+    const custo = custoEscolhido()
+    const comissaoPct = (opt?.dataset?.comissao != null && opt?.dataset?.comissao !== ""
+      ? opt.dataset.comissao
+      : procedure?.comissao_profissional_pct) ?? taxasOrg?.comissao_profissional_padrao_pct
+    const margemAlvo = (opt?.dataset?.margemAlvo != null && opt?.dataset?.margemAlvo !== ""
+      ? opt.dataset.margemAlvo
+      : procedure?.margem_minima_desejada) ?? taxasOrg?.margem_alvo_padrao_pct
+    const eco = economiaAtendimento({
+      receita: valor,
+      custoMaterial: custo.valor,
+      fonteCusto: custo.fonte,
+      comissaoPct,
+      taxaPct: taxaFormaAtual(),
+      margemAlvoPct: margemAlvo,
+    })
     if (economiaEl) {
-      if (!pacoteId) {
-        economiaEl.hidden = true
-        economiaEl.textContent = ""
-        return
-      }
-      const eco = economiaSessaoPacote({
-        valorPagoPacote: opt?.dataset?.valorPago,
-        totalSessoes: opt?.dataset?.sessoes,
-        acrescimo: ac,
-        custoMaterialSessao: opt?.dataset?.custo === "" ? null : opt?.dataset?.custo,
-        comissaoPct: opt?.dataset?.comissao,
-        margemAlvoPct: opt?.dataset?.margemAlvo,
-      })
-      economiaEl.hidden = false
-      economiaEl.textContent = textoEconomiaSessao(eco)
+      economiaEl.textContent = textoEconomiaAtendimento(eco)
       economiaEl.classList.toggle("agenda-baixa-economia--alerta", !!eco.abaixoAlvo)
     }
+    const desc = Number(document.getElementById("baixaSimDesconto")?.value) || 0
+    const nParc = Number(document.getElementById("baixaSimParcelas")?.value) || 1
+    const taxaSim = taxasOrg ? getTaxaForParcelas(taxasOrg, nParc, "credito") : 0
+    const sim = simularDescontoParcela({ receita: valor, descontoPct: desc, taxaPct: taxaSim })
+    if (simEl) simEl.textContent = textoSimulacaoBaixa(sim)
   }
   document.getElementById("baixaAcrescimo")?.addEventListener("input", refreshBaixaNumeros)
   document.getElementById("baixaAcrescimo")?.addEventListener("change", refreshBaixaNumeros)
+  document.getElementById("baixaValorTotalInput")?.addEventListener("input", refreshBaixaNumeros)
+  document.getElementById("baixaFormaPagamento")?.addEventListener("change", refreshBaixaNumeros)
+  document.getElementById("baixaSimDesconto")?.addEventListener("input", refreshBaixaNumeros)
+  document.getElementById("baixaSimParcelas")?.addEventListener("change", refreshBaixaNumeros)
   pacoteEl?.addEventListener("change", refreshBaixaNumeros)
   refreshBaixaNumeros()
 }
