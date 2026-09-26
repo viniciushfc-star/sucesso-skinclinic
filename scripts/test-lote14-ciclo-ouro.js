@@ -13,6 +13,8 @@ import {
   sugerirPacoteNaAgenda,
   valorFinanceiroNaBaixa,
   jaConsumiuAgenda,
+  addDaysIso,
+  sugerirProximaAcaoNaBaixa,
 } from "../js/utils/ciclo-ouro.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,8 +62,24 @@ describe("ciclo ouro orçamento → pacote → baixa", () => {
     assert.match(perfil, /aceitarOrcamento/);
     assert.match(agenda, /valorFinanceiroNaBaixa/);
     assert.match(agenda, /consumirSessao/);
+    assert.match(agenda, /oferecerProximaSessaoAposBaixa/);
     assert.match(sql, /orcamento_id/);
     assert.match(sql, /idx_package_consumptions_agenda_unica/);
     assert.doesNotMatch(perfil, /client_packages2/);
+  });
+
+  it("baixa com saldo de pacote sugere próxima, sem WhatsApp automático", () => {
+    assert.equal(addDaysIso("2026-09-26", 7), "2026-10-03");
+    const sim = sugerirProximaAcaoNaBaixa({
+      sessoesRestantes: 3,
+      temAgendaFutura: false,
+      dataAtual: "2026-09-26",
+    });
+    assert.equal(sim.oferecer, true);
+    assert.equal(sim.dataSugerida, "2026-10-03");
+    assert.equal(sugerirProximaAcaoNaBaixa({ sessoesRestantes: 3, temAgendaFutura: true }).oferecer, false);
+    assert.equal(sugerirProximaAcaoNaBaixa({ sessoesRestantes: 0, temAgendaFutura: false }).oferecer, false);
+    const agenda = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
+    assert.match(agenda, /WhatsApp não sai sozinho/);
   });
 });

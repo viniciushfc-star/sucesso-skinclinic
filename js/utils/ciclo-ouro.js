@@ -68,3 +68,40 @@ export function jaConsumiuAgenda(consumos, agendaId) {
   if (!agendaId) return false;
   return (consumos || []).some((c) => c && c.agenda_id === agendaId);
 }
+
+/** Data local YYYY-MM-DD + N dias (intervalo típico entre sessões). */
+export function addDaysIso(iso, days) {
+  const s = String(iso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + (Number(days) || 0));
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/**
+ * Depois da baixa: só oferece próxima se o pacote ainda tem sessão e ainda não há horário futuro.
+ * Quem decide é a equipe. WhatsApp não sai daqui.
+ */
+export function sugerirProximaAcaoNaBaixa({
+  sessoesRestantes = 0,
+  temAgendaFutura = false,
+  dataAtual,
+  intervaloDias = 7,
+} = {}) {
+  const rest = Math.max(0, Number(sessoesRestantes) || 0);
+  if (rest <= 0) return { oferecer: false, motivo: "sem_saldo" };
+  if (temAgendaFutura) return { oferecer: false, motivo: "ja_tem_proxima", sessoesRestantes: rest };
+  const dataSugerida = addDaysIso(dataAtual, intervaloDias);
+  const n = rest === 1 ? "1 sessão" : `${rest} sessões`;
+  return {
+    oferecer: true,
+    motivo: "pacote",
+    sessoesRestantes: rest,
+    dataSugerida,
+    titulo: `Ainda restam ${n} do pacote.`,
+  };
+}

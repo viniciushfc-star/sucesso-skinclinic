@@ -2,7 +2,7 @@
    IMPORTS
 ===================== */
 
-import { openModal, closeModal }
+import { openModal, closeModal, openConfirmModal }
 from "../ui/modal.js"
 
 import { supabase }
@@ -53,7 +53,7 @@ import { redirect } from "../core/base-path.js"
 import { getEntradasByAgendaId } from "../services/financeiro.service.js"
 
 import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes.service.js"
-import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa } from "../utils/ciclo-ouro.js"
+import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa, sugerirProximaAcaoNaBaixa } from "../utils/ciclo-ouro.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
@@ -1058,6 +1058,17 @@ async function openCreateModal(opts = {}){
  if (salaEl) salaEl.onchange = () => refreshSalaStatus(salaEl, dataEl, horaEl, procDurationEl)
  if (dataEl) dataEl.addEventListener("change", () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl))
  if (horaEl) horaEl.addEventListener("change", () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl))
+
+ if (opts.procedureId && procCatalogEl) {
+  procCatalogEl.value = opts.procedureId
+  if (typeof procCatalogEl.onchange === "function") await procCatalogEl.onchange()
+ } else if (opts.procedimento && procEl) {
+  procEl.value = opts.procedimento
+ }
+ if (opts.professionalId && profEl) {
+  const has = [...profEl.options].some((o) => o.value === opts.professionalId)
+  if (has) profEl.value = opts.professionalId
+ }
 }
 
 /** Filtra dropdowns de sala e profissional pelo procedimento selecionado (sala suporta tipo; profissional realiza). */
@@ -1935,9 +1946,11 @@ async function submitDarBaixa(item) {
       if (error) throw error
     }
 
+    let sessoesRestantes = 0
     if (pacoteId) {
       try {
         const cons = await consumirSessao(pacoteId, item.id)
+        sessoesRestantes = cons.sessoes_restantes ?? 0
         toast(cons.already
           ? "Esta sessão do pacote já tinha sido descontada neste horário."
           : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada."))
@@ -1960,10 +1973,39 @@ async function submitDarBaixa(item) {
     closeModal()
     renderAgenda()
     await pedirAvaliacaoGoogle(item, { silenciosoSeVazio: true })
+    await oferecerProximaSessaoAposBaixa(item, sessoesRestantes)
   } catch (err) {
     console.error("[AGENDA] submitDarBaixa", err)
     toast(err?.message || "Erro ao registrar pagamento.")
   }
+}
+
+async function oferecerProximaSessaoAposBaixa(item, sessoesRestantes) {
+  const clientId = item.client_id || item.cliente_id || item.clients?.id
+  if (!clientId) return
+  let temAgendaFutura = false
+  try {
+    const resumo = await getClientAgendaResumo(clientId, item.id)
+    temAgendaFutura = !!(resumo?.proximo)
+  } catch (_) {}
+  const sug = sugerirProximaAcaoNaBaixa({
+    sessoesRestantes,
+    temAgendaFutura,
+    dataAtual: item.data || getTodayStr(),
+  })
+  if (!sug.oferecer) return
+  const quando = sug.dataSugerida || ""
+  const msg = `${sug.titulo} Sugerimos ${quando || "a próxima semana"}, mesmo horário. Confirmar abre o agendamento — WhatsApp não sai sozinho.`
+  openConfirmModal("Marcar a próxima sessão?", msg, () => {
+    openCreateModal({
+      date: sug.dataSugerida || getTodayStr(),
+      hora: String(item.hora || "").slice(0, 5),
+      clientId,
+      procedureId: item.procedure_id || "",
+      procedimento: item.procedimento || "",
+      professionalId: item.user_id || "",
+    })
+  })
 }
 
 async function insertAgendaRow(payload) {
