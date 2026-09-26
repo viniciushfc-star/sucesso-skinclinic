@@ -11,7 +11,7 @@ import { listPacotesByClient } from "../services/pacotes.service.js";
 import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus, aceitarOrcamento } from "../services/orcamentos.service.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
-import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal } from "../utils/orcamento.js";
+import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -916,13 +916,16 @@ function renderOrcamentosList(orcamentos, canEdit) {
     const items = Array.isArray(o.items) ? o.items : [];
     const total = totalOrcamento(items);
     const linhas = items.map((it) => `${escapeHtml(it.name || "Item")} × ${Number(it.qty) || 1}`).join("; ");
-    const acoes = canEdit && o.status !== "aceito" && o.status !== "recusado"
+    const efetivo = statusEfetivoOrcamento(o);
+    const acoes = canEdit && efetivo !== "aceito" && efetivo !== "recusado" && efetivo !== "expirado" && efetivo !== "convertido"
       ? `<button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
          <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
          <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
-      : "";
-    return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(o.status || "rascunho")}">
-      <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(o.status))}</span>
+      : efetivo === "expirado"
+        ? `<span class="cliente-orcamento-expirado-hint">Venceu. Monte outro orçamento.</span>`
+        : "";
+    return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(efetivo)}">
+      <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(efetivo))}</span>
       <span class="cliente-orcamento-total">${brl(total)}</span>
       <span class="cliente-orcamento-itens">${linhas || "—"}</span>
       ${o.valid_until ? `<span class="cliente-orcamento-valid">Até ${formatDate(o.valid_until)}</span>` : ""}
@@ -1058,6 +1061,10 @@ function bindOrcamentoCardActions(client, orcamentos) {
     btn.addEventListener("click", async () => {
       const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
       if (!row) return;
+      if (isOrcamentoExpirado(row)) {
+        toast("Este orçamento venceu. Monte outro.");
+        return;
+      }
       try {
         const profile = await getOrganizationProfile().catch(() => ({}));
         const msg = formatOrcamentoMensagem({
@@ -1080,6 +1087,10 @@ function bindOrcamentoCardActions(client, orcamentos) {
     btn.addEventListener("click", async () => {
       const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
       if (!row) return;
+      if (isOrcamentoExpirado(row)) {
+        toast("Este orçamento venceu. Monte outro; o catálogo não muda sozinho.");
+        return;
+      }
       if (!confirm("Fechou o orçamento? Ele fica no cadastro e vira pacote de sessões (se houver quantidade).")) return;
       try {
         const aceite = await aceitarOrcamento(row.id);

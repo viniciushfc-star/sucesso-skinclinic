@@ -7,6 +7,8 @@ import {
   totalOrcamento,
   formatOrcamentoMensagem,
   linhaTotal,
+  isOrcamentoExpirado,
+  statusEfetivoOrcamento,
 } from "../js/utils/orcamento.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -41,5 +43,18 @@ describe("orçamento no paciente", () => {
     const sql = readFileSync(join(ROOT, "supabase/migrations/20260925230000_p1_orcamentos.sql"), "utf8");
     assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.orcamentos/);
     assert.match(sql, /aceito/);
+  });
+
+  it("validade vencida aparece como expirado e não gera pacote", () => {
+    const velho = { status: "enviado", valid_until: "2026-09-01" };
+    assert.equal(isOrcamentoExpirado(velho, "2026-09-26"), true);
+    assert.equal(statusEfetivoOrcamento(velho, "2026-09-26"), "expirado");
+    assert.equal(isOrcamentoExpirado({ status: "aceito", valid_until: "2026-09-01" }, "2026-09-26"), false);
+    assert.equal(isOrcamentoExpirado({ status: "enviado", valid_until: "2026-09-26" }, "2026-09-26"), false);
+    const svc = readFileSync(join(ROOT, "js/services/orcamentos.service.js"), "utf8");
+    assert.match(svc, /isOrcamentoExpirado/);
+    const view = readFileSync(join(ROOT, "js/views/cliente-perfil.views.js"), "utf8");
+    assert.match(view, /statusEfetivoOrcamento/);
+    assert.match(view, /Monte outro orçamento/);
   });
 });

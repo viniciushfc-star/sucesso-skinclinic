@@ -23,12 +23,35 @@ export function brl(n) {
   return "R$ " + round2(n).toFixed(2).replace(".", ",");
 }
 
+export function hojeOrcamentoIso(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Venceu a validade e ainda não fechou. Não grava status no banco (CHECK atual não tem expirado). */
+export function isOrcamentoExpirado(o, hoje = hojeOrcamentoIso()) {
+  const s = String(o?.status || "").toLowerCase();
+  if (s === "aceito" || s === "recusado" || s === "convertido") return false;
+  const v = String(o?.valid_until || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  return v < String(hoje).slice(0, 10);
+}
+
+export function statusEfetivoOrcamento(o, hoje = hojeOrcamentoIso()) {
+  if (isOrcamentoExpirado(o, hoje)) return "expirado";
+  return String(o?.status || "rascunho").toLowerCase() || "rascunho";
+}
+
 export function statusOrcamentoLabel(status) {
   const map = {
     rascunho: "Rascunho",
     enviado: "Enviado",
     aceito: "Aceito",
     recusado: "Recusado",
+    expirado: "Expirado",
+    convertido: "Convertido",
   };
   return map[status] || status || "—";
 }

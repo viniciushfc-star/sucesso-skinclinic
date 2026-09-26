@@ -1,6 +1,6 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
-import { totalOrcamento } from "../utils/orcamento.js";
+import { totalOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
 import { deveGerarPacotesNoAceite, pacotesDoAceite } from "../utils/ciclo-ouro.js";
 import { createPacote, listPacotesByOrcamento } from "./pacotes.service.js";
 
@@ -94,6 +94,9 @@ export async function aceitarOrcamento(id) {
     .eq("org_id", orgId)
     .single();
   if (getErr || !row) throw getErr || new Error("Orçamento não encontrado");
+  if (isOrcamentoExpirado(row)) {
+    throw new Error("Este orçamento venceu. Monte outro; o preço do catálogo não muda sozinho.");
+  }
   if (!deveGerarPacotesNoAceite(row.status)) {
     const existentes = await listPacotesByOrcamento(id);
     return { orcamento: row, created: false, packages: existentes };
