@@ -51,7 +51,8 @@ import { redirect } from "../core/base-path.js"
 
 import { getEntradasByAgendaId } from "../services/financeiro.service.js"
 
-import { listPacotesComSaldoByClient } from "../services/pacotes.service.js"
+import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes.service.js"
+import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa } from "../utils/ciclo-ouro.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
@@ -1669,8 +1670,13 @@ async function submitRegistrarProtocoloAgenda(item) {
 
 async function openDarBaixaModal(item) {
   const jaTemBaixa = await getEntradasByAgendaId(item.id).then((r) => r.length > 0).catch(() => false)
-  if (jaTemBaixa) {
-    toast("Este agendamento já teve baixa registrada. Para alterar ou ver, abra o agendamento e use \"Ver no Financeiro\" ou acesse Financeiro no menu.")
+  let jaConsumiuPacote = false
+  try {
+    const { data } = await supabase.from("package_consumptions").select("id").eq("agenda_id", item.id).limit(1)
+    jaConsumiuPacote = !!(data && data.length)
+  } catch (_) {}
+  if (jaTemBaixa || jaConsumiuPacote) {
+    toast("Este agendamento já teve baixa ou sessão de pacote. Abra o agendamento ou o Financeiro para conferir.")
     return
   }
 
@@ -1685,13 +1691,18 @@ async function openDarBaixaModal(item) {
   if (clientId) {
     try { pacotesComSaldo = await listPacotesComSaldoByClient(clientId) } catch (_) {}
   }
+  const sugerido = sugerirPacoteNaAgenda(item.procedure_id, pacotesComSaldo)
   const blocoPacote = pacotesComSaldo.length > 0
     ? `
     <div class="agenda-baixa-pacote-wrap">
-      <label for="baixaPacoteId">Descontar 1 sessão de pacote (opcional)</label>
+      <label for="baixaPacoteId">Pacote (desconta 1 sessão; não cobra o preço cheio de novo)</label>
       <select id="baixaPacoteId">
-        <option value="">Não descontar</option>
-        ${pacotesComSaldo.map((p) => `<option value="${p.id}">${(p.nome_pacote || "Pacote").replace(/</g, "&lt;")} — ${p.sessoes_restantes} restantes</option>`).join("")}
+        <option value="">Não usar pacote — cobrar o procedimento</option>
+        ${pacotesComSaldo.map((p) => {
+          const sel = sugerido && p.id === sugerido ? " selected" : ""
+          const pago = p.valor_pago != null ? String(p.valor_pago) : ""
+          return `<option value="${p.id}" data-valor-pago="${pago}" data-sessoes="${p.total_sessoes || 1}"${sel}>${(p.nome_pacote || "Pacote").replace(/</g, "&lt;")} — ${p.sessoes_restantes} restantes</option>`
+        }).join("")}
       </select>
     </div>
     `
@@ -1725,7 +1736,7 @@ async function openDarBaixaModal(item) {
   openModal(
     "Dar baixa — Registrar pagamento",
     `
-    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Valor do procedimento já preenchido; altere só se houver acréscimo (produto a mais, outro procedimento).</p>
+    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Se usar pacote, o financeiro registra o valor da sessão do pacote, não o preço do catálogo de novo.</p>
     ${blocoPacote}
     <label for="baixaDesc">Descrição</label>
     <input type="text" id="baixaDesc" value="${descricaoSugerida}" placeholder="Ex.: Agenda: Cliente – Procedimento">
@@ -1771,16 +1782,22 @@ async function submitDarBaixa(item) {
   const dataEl = document.getElementById("baixaData")
   const temValorProcedimento = document.getElementById("baixaTemValorProcedimento")?.value === "1"
 
-  let valor
-  if (temValorProcedimento) {
-    const base = Number(document.getElementById("baixaValorProcedimento")?.value) || 0
-    const ac = Number(document.getElementById("baixaAcrescimo")?.value) || 0
-    valor = base + ac
-  } else {
-    valor = Number(document.getElementById("baixaValorTotalInput")?.value)
-  }
+  const pacoteEl = document.getElementById("baixaPacoteId")
+  const pacoteId = pacoteEl?.value?.trim() || ""
+  const opt = pacoteEl?.selectedOptions?.[0]
+  const ac = temValorProcedimento ? Number(document.getElementById("baixaAcrescimo")?.value) || 0 : 0
+  const baseProc = temValorProcedimento
+    ? Number(document.getElementById("baixaValorProcedimento")?.value) || 0
+    : Number(document.getElementById("baixaValorTotalInput")?.value) || 0
+  const valor = valorFinanceiroNaBaixa({
+    pacoteId: pacoteId || null,
+    valorProcedimento: temValorProcedimento ? Number(document.getElementById("baixaValorProcedimento")?.value) : baseProc,
+    acrescimo: ac,
+    valorPagoPacote: opt?.dataset?.valorPago,
+    totalSessoes: opt?.dataset?.sessoes,
+  })
 
-  if (valor <= 0 || isNaN(valor)) {
+  if (!pacoteId && (valor <= 0 || isNaN(valor))) {
     toast("Valor total deve ser maior que zero.")
     return
   }
@@ -1809,21 +1826,23 @@ async function submitDarBaixa(item) {
     const vr = valorRecebidoEl?.value?.trim()
     if (vr !== "" && vr != null && !isNaN(Number(vr))) payload.valor_recebido = Number(vr)
 
-    const { error } = await supabase
-      .from("financeiro")
-      .insert(payload)
-      .select("id")
-    if (error) throw error
+    if (valor > 0) {
+      const { error } = await supabase
+        .from("financeiro")
+        .insert(payload)
+        .select("id")
+      if (error) throw error
+    }
 
-    const pacoteId = document.getElementById("baixaPacoteId")?.value?.trim()
     if (pacoteId) {
       try {
-        const { consumirSessao } = await import("../services/pacotes.service.js")
-        await consumirSessao(pacoteId, item.id)
-        toast("Pagamento registrado e 1 sessão descontada do pacote.")
+        const cons = await consumirSessao(pacoteId, item.id)
+        toast(cons.already
+          ? "Esta sessão do pacote já tinha sido descontada neste horário."
+          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada."))
       } catch (e) {
         console.warn("[AGENDA] consumirSessao", e)
-        toast("Pagamento registrado. Erro ao descontar sessão do pacote: " + (e?.message || "tente no perfil do cliente."))
+        toast("Erro ao descontar sessão do pacote: " + (e?.message || "tente no perfil do cliente."))
       }
     } else {
       toast("Pagamento registrado. Entrada criada no Financeiro.")

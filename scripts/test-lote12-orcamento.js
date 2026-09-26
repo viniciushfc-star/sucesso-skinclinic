@@ -37,7 +37,7 @@ describe("orçamento no paciente", () => {
     assert.match(view, /origem: "orcamento"/);
     assert.match(view, /clientId: client\.id/);
     assert.match(view, /tabOrcamentos/);
-    assert.match(view, /createPacote/);
+    assert.match(view, /aceitarOrcamento/);
     const sql = readFileSync(join(ROOT, "supabase/migrations/20260925230000_p1_orcamentos.sql"), "utf8");
     assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.orcamentos/);
     assert.match(sql, /aceito/);

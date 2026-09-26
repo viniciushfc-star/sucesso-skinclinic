@@ -1,6 +1,8 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { totalOrcamento } from "../utils/orcamento.js";
+import { deveGerarPacotesNoAceite, pacotesDoAceite } from "../utils/ciclo-ouro.js";
+import { createPacote, listPacotesByOrcamento } from "./pacotes.service.js";
 
 function missingTable(error) {
   const msg = String(error?.message || "");
@@ -81,6 +83,31 @@ export async function updateOrcamentoStatus(id, status) {
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function aceitarOrcamento(id) {
+  const orgId = orgIdOrThrow();
+  const { data: row, error: getErr } = await supabase
+    .from("orcamentos")
+    .select("*")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .single();
+  if (getErr || !row) throw getErr || new Error("Orçamento não encontrado");
+  if (!deveGerarPacotesNoAceite(row.status)) {
+    const existentes = await listPacotesByOrcamento(id);
+    return { orcamento: row, created: false, packages: existentes };
+  }
+  const orcamento = await updateOrcamentoStatus(id, "aceito");
+  const existentes = await listPacotesByOrcamento(id);
+  if (existentes.length) {
+    return { orcamento, created: false, packages: existentes };
+  }
+  const packages = [];
+  for (const p of pacotesDoAceite(row.items, row.client_id, id)) {
+    packages.push(await createPacote(p));
+  }
+  return { orcamento, created: packages.length > 0, packages };
 }
 
 export { totalOrcamento, normalizeItems };

@@ -7,8 +7,8 @@ import { createEstudoCaso } from "../services/estudo-caso.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } from "../services/evolution-photos.service.js";
 import { listProcedures } from "../services/procedimentos.service.js";
-import { listPacotesByClient, createPacote } from "../services/pacotes.service.js";
-import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus } from "../services/orcamentos.service.js";
+import { listPacotesByClient } from "../services/pacotes.service.js";
+import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus, aceitarOrcamento } from "../services/orcamentos.service.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal } from "../utils/orcamento.js";
@@ -1082,31 +1082,25 @@ function bindOrcamentoCardActions(client, orcamentos) {
       if (!row) return;
       if (!confirm("Fechou o orçamento? Ele fica no cadastro e vira pacote de sessões (se houver quantidade).")) return;
       try {
-        await updateOrcamentoStatus(row.id, "aceito");
-        const items = Array.isArray(row.items) ? row.items : [];
-        await createClientEvent({
-          client_id: client.id,
-          event_type: "Orçamento aceito",
-          description: formatOrcamentoMensagem({ nomeCliente: client.name, items, notes: row.notes }),
-        });
-        for (const it of items) {
-          const sessoes = Math.max(1, Number(it.sessions) || Number(it.qty) || 1);
-          await createPacote({
+        const aceite = await aceitarOrcamento(row.id);
+        if (!aceite.created) {
+          toast("Este orçamento já estava no cadastro. Pacote não foi duplicado.");
+        } else {
+          const items = Array.isArray(row.items) ? row.items : [];
+          await createClientEvent({
             client_id: client.id,
-            procedure_id: it.procedure_id || null,
-            nome_pacote: it.name || "Orçamento",
-            total_sessoes: sessoes,
-            valor_pago: linhaTotal(it),
-          }).catch((e) => console.warn("[ORCAMENTO] pacote", e));
+            event_type: "Orçamento aceito",
+            description: formatOrcamentoMensagem({ nomeCliente: client.name, items, notes: row.notes }),
+          });
+          await audit({
+            action: "orcamento.aceito",
+            tableName: "orcamentos",
+            recordId: row.id,
+            permissionUsed: "clientes:manage",
+            metadata: { client_id: client.id, total: totalOrcamento(items) },
+          }).catch(() => {});
+          toast("Orçamento no paciente. Pacotes na aba Pacotes.");
         }
-        await audit({
-          action: "orcamento.aceito",
-          tableName: "orcamentos",
-          recordId: row.id,
-          permissionUsed: "clientes:manage",
-          metadata: { client_id: client.id, total: totalOrcamento(items) },
-        }).catch(() => {});
-        toast("Orçamento no paciente. Pacotes na aba Pacotes.");
         sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
         await init();
       } catch (err) {

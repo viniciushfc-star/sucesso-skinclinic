@@ -1,5 +1,5 @@
 import { supabase } from "../core/supabase.js";
-import { withOrg } from "../core/org.js";
+import { getActiveOrg, withOrg } from "../core/org.js";
 
 /**
  * Lista pacotes de um cliente (com procedimento e saldo de sessões).
@@ -53,7 +53,10 @@ export async function listPacotesByOrg(filters = {}) {
  * @param {Object} p - { client_id, procedure_id?, nome_pacote, total_sessoes, valor_pago?, valido_ate? }
  */
 export async function createPacote(p) {
+  const orgId = getActiveOrg();
+  if (!orgId) throw new Error("Organização ativa não definida");
   const payload = {
+    org_id: orgId,
     client_id: p.client_id,
     procedure_id: p.procedure_id || null,
     nome_pacote: String(p.nome_pacote || "").trim() || "Pacote de sessões",
@@ -62,11 +65,28 @@ export async function createPacote(p) {
     valor_pago: p.valor_pago != null ? Number(p.valor_pago) : null,
     valido_ate: p.valido_ate || null,
   };
-  const { data, error } = await withOrg(
-    supabase.from("client_packages").insert(payload).select().single()
-  );
+  if (p.orcamento_id) payload.orcamento_id = p.orcamento_id;
+  let { data, error } = await supabase.from("client_packages").insert(payload).select().single();
+  if (error && payload.orcamento_id && /orcamento_id|schema cache|column/i.test(String(error.message || ""))) {
+    delete payload.orcamento_id;
+    const retry = await supabase.from("client_packages").insert(payload).select().single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
   return data;
+}
+
+export async function listPacotesByOrcamento(orcamentoId) {
+  if (!orcamentoId) return [];
+  const { data, error } = await withOrg(
+    supabase.from("client_packages").select("id, client_id, nome_pacote, orcamento_id").eq("orcamento_id", orcamentoId)
+  );
+  if (error) {
+    if (/orcamento_id|schema cache|column|does not exist/i.test(String(error.message || ""))) return [];
+    return [];
+  }
+  return data || [];
 }
 
 /**
@@ -75,6 +95,25 @@ export async function createPacote(p) {
  */
 export async function consumirSessao(packageId, agendaId = null) {
   if (!packageId) throw new Error("ID do pacote obrigatório");
+  if (agendaId) {
+    const { data: ja } = await supabase
+      .from("package_consumptions")
+      .select("id")
+      .eq("package_id", packageId)
+      .eq("agenda_id", agendaId)
+      .limit(1);
+    if (ja?.length) {
+      const { data: pack } = await withOrg(
+        supabase.from("client_packages").select("id, total_sessoes, sessoes_utilizadas").eq("id", packageId).single()
+      );
+      const used = pack?.sessoes_utilizadas ?? 0;
+      return {
+        sessoes_utilizadas: used,
+        sessoes_restantes: Math.max(0, (pack?.total_sessoes ?? 0) - used),
+        already: true,
+      };
+    }
+  }
   const { data: pack, error: fetchErr } = await withOrg(
     supabase.from("client_packages").select("id, total_sessoes, sessoes_utilizadas").eq("id", packageId).single()
   );
@@ -85,16 +124,10 @@ export async function consumirSessao(packageId, agendaId = null) {
     supabase.from("client_packages").update({ sessoes_utilizadas: used }).eq("id", packageId)
   );
   if (updateErr) throw updateErr;
-  if (agendaId) {
-    await withOrg(
-      supabase.from("package_consumptions").insert({ package_id: packageId, agenda_id: agendaId })
-    );
-  } else {
-    await withOrg(
-      supabase.from("package_consumptions").insert({ package_id: packageId })
-    );
-  }
-  return { sessoes_utilizadas: used, sessoes_restantes: (pack.total_sessoes ?? 0) - used };
+  const cons = { package_id: packageId };
+  if (agendaId) cons.agenda_id = agendaId;
+  await supabase.from("package_consumptions").insert(cons);
+  return { sessoes_utilizadas: used, sessoes_restantes: (pack.total_sessoes ?? 0) - used, already: false };
 }
 
 /**
