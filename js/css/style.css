@@ -1888,6 +1888,11 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .timeline-item p{ margin:4px 0 0; font-size:0.95rem; }
 .timeline-item small{ display:block; margin-top:4px; color:#64748b; font-size:0.85rem; }
 .timeline-critical{ border-left:3px solid #dc2626; padding-left:12px; }
+.timeline-filtros{ display:flex; flex-wrap:wrap; gap:0.35rem; margin:0.75rem 0 0.5rem; }
+.timeline-filtro{ font-size:0.8rem; padding:0.25rem 0.55rem; border:1px solid #cbd5e1; background:#fff; border-radius:999px; cursor:pointer; }
+.timeline-filtro.is-active{ background:#1e293b; color:#fff; border-color:#1e293b; }
+.timeline-vis{ font-size:0.7rem; text-transform:uppercase; letter-spacing:0.03em; margin-left:0.4rem; color:#64748b; }
+.timeline-vis--portal{ color:#0369a1; }
 
 .cliente-evolucao{
   margin-top:1.5rem;

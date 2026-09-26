@@ -13,6 +13,7 @@ import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
+import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -251,15 +252,13 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         <div class="cliente-historico">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
           <button type="button" class="btn-primary" id="btnRegistrarEvento">Registrar evento</button>
+          <div class="timeline-filtros" role="tablist" aria-label="Origem da linha do tempo">
+            <button type="button" class="timeline-filtro is-active" data-filtro="todos">Todos</button>
+            <button type="button" class="timeline-filtro" data-filtro="interno">Interno</button>
+            <button type="button" class="timeline-filtro" data-filtro="portal">Portal</button>
+          </div>
           <ul class="timeline" id="clienteTimeline">
-            ${events.length ? events.map((e) => `
-              <li class="timeline-item ${e.is_critical ? "timeline-critical" : ""}">
-                <span class="timeline-date">${formatDate(e.event_date)}</span>
-                <span class="timeline-type">${escapeHtml(e.event_type)}</span>
-                ${e.description ? `<p>${escapeHtml(e.description)}</p>` : ""}
-                ${e.created_by_client ? "<small>Relato do cliente</small>" : ""}
-              </li>
-            `).join("") : "<li>Nenhum evento registrado.</li>"}
+            ${renderLinhaDoTempoUnificada(events, registrosAnamnese, protocolosAplicados, orcamentos)}
           </ul>
           <div class="cliente-prontuario-por-data">
             <h4 class="cliente-evolucao-title">Prontuário por data</h4>
@@ -478,6 +477,24 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
   `;
 
   bindPerfilEvents(client, canEdit, proceduresList, orcamentos);
+}
+
+function renderLinhaDoTempoUnificada(events, anamnese, aplicados, orcamentos) {
+  const items = montarLinhaDoTempo({ events, anamnese, aplicados, orcamentos });
+  if (!items.length) {
+    return "<li>Nada na linha do tempo ainda. Eventos, anamnese, o que foi aplicado e orçamentos aparecem aqui.</li>";
+  }
+  return items
+    .map((e) => {
+      const visLabel = e.visibilidade === "portal" ? "Portal" : "Interno";
+      return `<li class="timeline-item ${e.critico ? "timeline-critical" : ""}" data-vis="${escapeHtml(e.visibilidade)}">
+        <span class="timeline-date">${formatDate(e.date)}</span>
+        <span class="timeline-type">${escapeHtml(e.titulo)}</span>
+        <span class="timeline-vis timeline-vis--${escapeHtml(e.visibilidade)}">${visLabel}</span>
+        ${e.detalhe ? `<p>${escapeHtml(e.detalhe)}</p>` : ""}
+      </li>`;
+    })
+    .join("");
 }
 
 function dateKey(d) {
@@ -1299,6 +1316,16 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
     });
   });
 
+  document.querySelectorAll(".timeline-filtro").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const filtro = btn.dataset.filtro || "todos";
+      document.querySelectorAll(".timeline-filtro").forEach((b) => b.classList.toggle("is-active", b === btn));
+      document.querySelectorAll("#clienteTimeline .timeline-item[data-vis]").forEach((li) => {
+        li.hidden = filtro !== "todos" && li.dataset.vis !== filtro;
+      });
+    });
+  });
+
   document.getElementById("btnNovoOrcamento")?.addEventListener("click", () => openOrcamentoModal(client, proceduresList));
   bindOrcamentoCardActions(client, orcamentos);
 
@@ -1904,24 +1931,8 @@ function openEventModal(client) {
         });
         closeModal();
         toast("Evento registrado");
-        const events = await getEventsByClient(client.id);
-        const ul = document.getElementById("clienteTimeline");
-        if (ul) {
-          ul.innerHTML = events.length
-            ? events
-                .map(
-                  (e) => `
-                <li class="timeline-item ${e.is_critical ? "timeline-critical" : ""}">
-                  <span class="timeline-date">${formatDate(e.event_date)}</span>
-                  <span class="timeline-type">${escapeHtml(e.event_type)}</span>
-                  ${e.description ? `<p>${escapeHtml(e.description)}</p>` : ""}
-                  ${e.created_by_client ? "<small>Relato do cliente</small>" : ""}
-                </li>
-              `
-                )
-                .join("")
-            : "<li>Nenhum evento registrado.</li>";
-        }
+        sessionStorage.setItem("clientePerfilOpenTab", "historico");
+        await init();
       } catch (err) {
         console.error(err);
         toast(err?.message || "Erro ao registrar evento");
