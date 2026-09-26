@@ -335,9 +335,10 @@ async function renderComissoesPanel() {
       return
     }
     const total = porProfissional.reduce((s, r) => s + r.comissao, 0)
-    listEl.innerHTML = `<table class="precificacao-tabela" aria-label="Comissões por profissional"><thead><tr><th>Profissional</th><th>Baixas</th><th>Receita</th><th>Comissão sugerida</th></tr></thead><tbody>${
-      porProfissional.map((r) => `<tr><td>${escapeHtml(nameById[r.userId] || r.userId)}</td><td>${r.atendimentos}</td><td>${brl(r.receita)}</td><td>${brl(r.comissao)}</td></tr>`).join("")
-    }</tbody></table><p class="view-hint">Total sugerido: <strong>${brl(total)}</strong>. Lance a saída no Financeiro se for pagar.</p>`
+    const totalAberto = porProfissional.reduce((s, r) => s + (r.aberto || 0), 0)
+    listEl.innerHTML = `<table class="precificacao-tabela" aria-label="Comissões por profissional"><thead><tr><th>Profissional</th><th>Baixas</th><th>Recebido</th><th>Em aberto</th><th>Comissão no recebido</th><th>Comissão no cobrado</th></tr></thead><tbody>${
+      porProfissional.map((r) => `<tr><td>${escapeHtml(nameById[r.userId] || r.userId)}</td><td>${r.atendimentos}</td><td>${brl(r.receita)}</td><td>${brl(r.aberto || 0)}</td><td>${brl(r.comissao)}</td><td>${brl(r.comissaoPrevista != null ? r.comissaoPrevista : r.comissao)}</td></tr>`).join("")
+    }</tbody></table><p class="view-hint">Total no recebido: <strong>${brl(total)}</strong>${totalAberto > 0.009 ? ` · em aberto ${brl(totalAberto)}` : ""}. Lance a saída no Financeiro se for pagar. O sistema não paga sozinho.</p>`
   } catch (err) {
     console.warn("[COMISSOES]", err)
     listEl.innerHTML = `<p class="view-hint">${escapeHtml(err?.message || "Não foi possível apurar.")}</p>`

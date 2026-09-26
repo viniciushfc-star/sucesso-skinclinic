@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { waitingMinutes, salaEsperaStatus } from "../js/utils/sala-espera.js";
-import { agruparComissoes, comissaoDeReceita } from "../js/utils/comissao-apuracao.js";
+import { agruparComissoes, comissaoDeReceita, previstoVsRealizado } from "../js/utils/comissao-apuracao.js";
 import { SETUP_STEP_IDS, SETUP_STEP_MINUTES } from "../js/utils/golden-flow.js";
 import { pontoStatus } from "../js/utils/injetaveis-mapas.js";
 
@@ -33,6 +33,21 @@ describe("sala de espera, comissão, injetáveis, primeiro dia", () => {
     assert.equal(g[0].atendimentos, 2);
     const svc = readFileSync(join(ROOT, "js/services/comissoes.service.js"), "utf8");
     assert.doesNotMatch(svc, /whatsapp-send|insert.*financeiro/i);
+    const pv = previstoVsRealizado({ valor: 400, valorRecebido: 250, pct: 10 });
+    assert.equal(pv.aberto, 150);
+    assert.equal(pv.emAberto, true);
+    assert.equal(pv.comissaoPrevista, 40);
+    assert.equal(pv.comissaoRealizada, 25);
+    assert.equal(previstoVsRealizado({ valor: 400 }).emAberto, false);
+    const g2 = agruparComissoes([{ userId: "a", receita: 250, receitaPrevista: 400, pct: 10 }]);
+    assert.equal(g2[0].comissao, 25);
+    assert.equal(g2[0].comissaoPrevista, 40);
+    assert.equal(g2[0].aberto, 150);
+    const fin = readFileSync(join(ROOT, "js/views/financeiro.views.js"), "utf8");
+    assert.match(fin, /Comissão no recebido/);
+    const ag = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
+    assert.match(ag, /previstoVsRealizado/);
+    assert.match(ag, /Não lança outra entrada sozinha/);
   });
 
   it("ponto antigo sem status conta como aplicado", () => {

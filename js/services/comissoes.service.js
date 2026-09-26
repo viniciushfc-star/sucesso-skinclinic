@@ -69,7 +69,7 @@ export async function listComissoesPeriodo(startDate, endDate) {
       proc?.comissao_profissional_pct != null && proc.comissao_profissional_pct !== ""
         ? Number(proc.comissao_profissional_pct)
         : padraoPct;
-    linhas.push({ userId, receita: valorEntrada(e), pct });
+    linhas.push({ userId, receita: valorEntrada(e), receitaPrevista: Number(e.valor) || 0, pct });
   }
 
   return { porProfissional: agruparComissoes(linhas), padraoPct };

@@ -54,6 +54,7 @@ import { getEntradasByAgendaId } from "../services/financeiro.service.js"
 
 import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes.service.js"
 import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa, sugerirProximaAcaoNaBaixa } from "../utils/ciclo-ouro.js"
+import { previstoVsRealizado } from "../utils/comissao-apuracao.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
@@ -1946,20 +1947,25 @@ async function submitDarBaixa(item) {
       if (error) throw error
     }
 
+    const aberto = previstoVsRealizado({ valor, valorRecebido: payload.valor_recebido })
+    const extraAberto = aberto.emAberto
+      ? ` Ficou em aberto R$ ${aberto.aberto.toFixed(2).replace(".", ",")}. Não lança outra entrada sozinha.`
+      : ""
+
     let sessoesRestantes = 0
     if (pacoteId) {
       try {
         const cons = await consumirSessao(pacoteId, item.id)
         sessoesRestantes = cons.sessoes_restantes ?? 0
-        toast(cons.already
+        toast((cons.already
           ? "Esta sessão do pacote já tinha sido descontada neste horário."
-          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada."))
+          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada.")) + extraAberto)
       } catch (e) {
         console.warn("[AGENDA] consumirSessao", e)
         toast("Erro ao descontar sessão do pacote: " + (e?.message || "tente no perfil do cliente."))
       }
     } else {
-      toast("Pagamento registrado. Entrada criada no Financeiro.")
+      toast("Pagamento registrado. Entrada criada no Financeiro." + extraAberto)
     }
 
     await audit({
