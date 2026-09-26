@@ -868,6 +868,83 @@ async function renderAniversariantes() {
    MODAIS
 ===================== */
 
+function bindAgendaEsperaWa(scope) {
+  (scope || document).querySelectorAll(".agenda-espera-wa").forEach((btn) => {
+    if (btn.dataset.boundWa) return
+    btn.dataset.boundWa = "1"
+    btn.addEventListener("click", async () => {
+      try {
+        await sendWhatsapp(btn.dataset.phone, btn.dataset.msg, {
+          origem: "agenda_espera",
+          clientId: btn.dataset.clientId || "",
+          waitlistId: btn.dataset.waitlistId || "",
+        })
+        toast("WhatsApp aberto. Confira antes de enviar.")
+      } catch (e) {
+        toast(e?.message || "Não foi possível abrir o WhatsApp.")
+      }
+    })
+  })
+}
+
+async function preencherEsperaEncaixeNoModal() {
+  const box = document.getElementById("agendaEsperaEncaixe")
+  if (!box) return
+  const data = document.getElementById("data")?.value || ""
+  const proc = (document.getElementById("proc")?.value || "").trim()
+  if (!data) {
+    box.innerHTML = ""
+    return
+  }
+  let espera = []
+  try {
+    espera = await listWaitlist("aberta")
+  } catch (_) {
+    box.innerHTML = ""
+    return
+  }
+  const matches = matchWaitlistToSlot(espera, { data, procedimento: proc })
+  if (!matches.length) {
+    box.innerHTML = ""
+    return
+  }
+  const profile = await getOrganizationProfile().catch(() => ({}))
+  const clinic = profile?.name || "nossa clínica"
+  const hora = document.getElementById("hora")?.value || ""
+  const extra = `${data} ${hora}`.trim()
+  box.innerHTML = `<p class="agenda-baixa-hint">Quem espera um horário neste dia. Encaixar preenche o formulário. WhatsApp só no clique.</p><ul class="agenda-espera-match">${
+    matches.slice(0, 5).map((w) => {
+      const tel = String(w.phone || "").replace(/\D/g, "")
+      const msg = filaWhatsappTemplate({
+        name: w.nome,
+        sinal: "espera",
+        clinic,
+        extra,
+      })
+      const encaixar = `<button type="button" class="btn-sm agenda-espera-encaixar" data-client-id="${escapeAttr(w.client_id || "")}" data-proc="${escapeAttr(w.procedure_name || "")}">Encaixar ${escapeHtml(w.nome || "")}</button>`
+      const wa = tel.length >= 10
+        ? `<button type="button" class="btn-secondary btn-sm agenda-espera-wa" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-phone="${escapeAttr(w.phone || "")}" data-msg="${escapeAttr(msg)}">Avisar</button>`
+        : ""
+      return `<li>${encaixar} ${wa}</li>`
+    }).join("")
+  }</ul>`
+  bindAgendaEsperaWa(box)
+  box.querySelectorAll(".agenda-espera-encaixar").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cliente = document.getElementById("cliente")
+      if (btn.dataset.clientId && cliente) {
+        cliente.value = btn.dataset.clientId
+        cliente.dispatchEvent(new Event("change"))
+      } else if (!btn.dataset.clientId) {
+        toast("Essa pessoa ainda não está no cadastro. Escolha o cliente no campo acima.")
+      }
+      const procEl = document.getElementById("proc")
+      if (btn.dataset.proc && procEl) procEl.value = btn.dataset.proc
+      toast("Encaixe no formulário. Confira e salve. Nada foi enviado no WhatsApp.")
+    })
+  })
+}
+
 async function openCreateModal(opts = {}){
   if (opts.date) selectedDate = opts.date
   const horaPrefill = opts.hora || ""
@@ -965,6 +1042,7 @@ async function openCreateModal(opts = {}){
 
    <label for="proc">Procedimento (nome ou texto livre)</label>
    <input id="proc" required placeholder="Preenchido ao escolher do catálogo">
+   <div id="agendaEsperaEncaixe" class="agenda-espera-encaixe" aria-live="polite"></div>
 
    <div class="agenda-retorno-option">
     <label><input type="checkbox" id="agendaIsRetorno"> Retorno (não gera receita)</label>
@@ -1052,13 +1130,21 @@ async function openCreateModal(opts = {}){
    }
    refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl)
    await filterSalasAndProfsByProcedure(procCatalogEl.value, salaEl, profEl, salas, members)
+   await preencherEsperaEncaixeNoModal()
   }
  }
  document.getElementById("btnVerDisponiveis").onclick = () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl)
  if (profEl) profEl.onchange = () => refreshProfStatus(profEl, dataEl, horaEl, procDurationEl)
  if (salaEl) salaEl.onchange = () => refreshSalaStatus(salaEl, dataEl, horaEl, procDurationEl)
- if (dataEl) dataEl.addEventListener("change", () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl))
- if (horaEl) horaEl.addEventListener("change", () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl))
+ if (dataEl) dataEl.addEventListener("change", () => {
+  refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl)
+  preencherEsperaEncaixeNoModal()
+ })
+ if (horaEl) horaEl.addEventListener("change", () => {
+  refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl)
+  preencherEsperaEncaixeNoModal()
+ })
+ if (procEl) procEl.addEventListener("change", () => preencherEsperaEncaixeNoModal())
 
  if (opts.procedureId && procCatalogEl) {
   procCatalogEl.value = opts.procedureId
@@ -1070,6 +1156,7 @@ async function openCreateModal(opts = {}){
   const has = [...profEl.options].some((o) => o.value === opts.professionalId)
   if (has) profEl.value = opts.professionalId
  }
+ await preencherEsperaEncaixeNoModal()
 }
 
 /** Filtra dropdowns de sala e profissional pelo procedimento selecionado (sala suporta tipo; profissional realiza). */
@@ -1610,20 +1697,7 @@ async function cancelarHorarioComEspera(item) {
     () => closeModal(),
     null
   )
-  document.querySelectorAll(".agenda-espera-wa").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      try {
-        await sendWhatsapp(btn.dataset.phone, btn.dataset.msg, {
-          origem: "agenda_espera",
-          clientId: btn.dataset.clientId || "",
-          waitlistId: btn.dataset.waitlistId || "",
-        })
-        toast("WhatsApp aberto. Confira antes de enviar.")
-      } catch (e) {
-        toast(e?.message || "Não foi possível abrir o WhatsApp.")
-      }
-    })
-  })
+  bindAgendaEsperaWa()
 }
 
 function escapeAttr(s) {

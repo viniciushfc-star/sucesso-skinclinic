@@ -23,6 +23,14 @@ describe("cancelamento e lista de espera", () => {
     assert.ok(!hit.some((w) => w.id === "3"));
   });
 
+  it("novo horário também sugere encaixe, WhatsApp só no clique", () => {
+    const src = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
+    assert.match(src, /preencherEsperaEncaixeNoModal/);
+    assert.match(src, /agenda-espera-encaixar/);
+    assert.match(src, /Nada foi enviado no WhatsApp/);
+    assert.equal((src.match(/origem: "agenda_espera"/g) || []).length >= 1, true);
+  });
+
   it("agenda cancela e não dispara WhatsApp sozinha", () => {
     const src = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
     assert.match(src, /releaseAppointment/);

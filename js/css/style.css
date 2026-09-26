@@ -2515,6 +2515,9 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 }
 .agenda-link-google:hover{ text-decoration:underline; }
 .agenda-modal-availability{ margin:0.75rem 0; }
+.agenda-espera-encaixe{ margin:0.75rem 0; }
+.agenda-espera-match{ margin:0.4rem 0 0; padding-left:1.1rem; }
+.agenda-espera-match li{ margin:0.35rem 0; }
 .agenda-disponiveis-msg{ margin:0.5rem 0 0; font-size:0.9rem; color:#64748b; }
 .agenda-disponiveis-msg.agenda-disponiveis-ok{ color:#059669; }
 .agenda-disponiveis-msg.agenda-disponiveis-empty{ color:#b91c1c; }
