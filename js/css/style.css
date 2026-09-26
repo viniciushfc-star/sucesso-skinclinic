@@ -857,6 +857,8 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .crm-list{ margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem; }
 .crm-row{ display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; padding:0.65rem 0; border-bottom:1px solid #e2e8f0; }
 .crm-row-actions{ display:flex; gap:0.35rem; flex-shrink:0; }
+.crm-desfecho-acoes{ display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.4rem; }
+.crm-desfecho{ font-size:0.75rem; }
 .crm-radar-filtros{ display:flex; flex-wrap:wrap; gap:0.35rem; margin:0.5rem 0 0.75rem; }
 .crm-radar-chip{ border:1px solid #e2e8f0; background:#fff; border-radius:999px; padding:0.25rem 0.7rem; font:inherit; font-size:0.8rem; cursor:pointer; color:#334155; }
 .crm-radar-chip.is-active{ background:#0f172a; color:#fff; border-color:#0f172a; }

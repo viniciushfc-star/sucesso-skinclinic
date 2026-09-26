@@ -2,7 +2,15 @@ import { toast } from "../ui/toast.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getAniversariantes, getClientes } from "../services/clientes.service.js";
 import { listInactiveClients, listLoyaltyClients, getRadarRetorno } from "../services/crm.service.js";
-import { buildCrmFila, filaWhatsappTemplate } from "../utils/crm-fila.js";
+import { createClientEvent, listCrmDesfechosRecentes } from "../services/client-events.service.js";
+import {
+  buildCrmFila,
+  filaWhatsappTemplate,
+  CRM_DESFECHOS,
+  payloadDesfecho,
+  mapaUltimoDesfecho,
+  filtrarFilaPorDesfecho,
+} from "../utils/crm-fila.js";
 import { navigate } from "../core/spa.js";
 import { addWaitlistEntry, listWaitlist, updateWaitlistStatus } from "../services/waitlist.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
@@ -24,6 +32,14 @@ function fmtDate(iso) {
   const [y, m, d] = String(iso).slice(0, 10).split("-");
   if (!d) return iso;
   return `${d}/${m}/${y}`;
+}
+
+function hojeLocalIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function clinicName(profile) {
@@ -54,6 +70,7 @@ export async function init() {
   let esperaRows = [];
   let fidelRows = [];
   let anivRows = [];
+  let desfechoMap = new Map();
 
   let profile = {};
   try {
@@ -138,9 +155,9 @@ export async function init() {
         motivo: c._quando || "Aniversário nesta semana",
       });
     }
-    const fila = buildCrmFila(chunks);
+    const fila = filtrarFilaPorDesfecho(buildCrmFila(chunks), desfechoMap, hojeLocalIso());
     if (!fila.length) {
-      listaFila.innerHTML = "<p class=\"view-hint\">Fila vazia. WhatsApp só aqui (máx. 15) e no Avisar da espera — um clique por pessoa.</p>";
+      listaFila.innerHTML = "<p class=\"view-hint\">Fila vazia. WhatsApp só no clique. Depois registre o desfecho (Falei / Agendou / Sem resposta / Não quis). Agendou ou não quis some da fila por um tempo.</p>";
       return;
     }
     const clinic = clinicName(profile);
@@ -151,9 +168,17 @@ export async function init() {
         const extra = c.sinal === "fidelidade" ? String(c.motivo || "") : "";
         const msg = filaWhatsappTemplate({ name: c.name, sinal: c.sinal, clinic, agendarUrl: url, extra });
         const tag = RADAR_LABEL[c.sinal] || (c.sinal === "espera" ? "Espera" : c.sinal === "fidelidade" ? "Fidelidade" : c.sinal === "aniversario" ? "Aniversário" : c.sinal);
+        const last = c.clientId ? desfechoMap.get(c.clientId) : null;
+        const lastHint = last?.label ? ` · último: ${last.label}` : "";
+        const desfechoBtns = c.clientId
+          ? `<div class="crm-desfecho-acoes">${CRM_DESFECHOS.map((d) =>
+              `<button type="button" class="btn-sm crm-desfecho" data-desfecho="${escapeHtml(d.id)}" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId)}">${escapeHtml(d.label)}</button>`
+            ).join("")}</div>`
+          : "";
         return `<div class="crm-row">
             <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
-            <span class="view-hint">${escapeHtml(c.motivo || "")}</span></div>
+            <span class="view-hint">${escapeHtml(c.motivo || "")}${escapeHtml(lastHint)}</span>
+            ${desfechoBtns}</div>
             <div class="crm-row-actions">
               ${c.clientId ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(c.clientId)}">Agendar</button>` : ""}
               ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_fila" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId || "")}" data-waitlist-id="${escapeHtml(c.waitlistId || "")}" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : "<span class=\"view-hint\">Sem telefone</span>"}
@@ -286,7 +311,28 @@ export async function init() {
         clientId: wa.dataset.clientId || "",
         waitlistId: wa.dataset.waitlistId || "",
       });
-      toast("WhatsApp aberto. Uma pessoa por clique — o sistema não dispara a fila sozinho.");
+      toast("WhatsApp aberto. Depois registre o desfecho na linha. Nada mais sai sozinho.");
+      return;
+    }
+    const df = e.target.closest?.(".crm-desfecho");
+    if (df) {
+      const payload = payloadDesfecho({
+        clientId: df.dataset.clientId,
+        sinal: df.dataset.sinal,
+        desfecho: df.dataset.desfecho,
+        hoje: hojeLocalIso(),
+      });
+      if (!payload) {
+        toast("Desfecho só na ficha de quem já é cliente.");
+        return;
+      }
+      try {
+        await createClientEvent(payload);
+        toast("Desfecho na ficha. Se marcou Agendou ou Não quis, some da fila por um tempo.");
+        await loadDesfechos();
+      } catch (err) {
+        toast(err.message || "Não salvou o desfecho.");
+      }
       return;
     }
     const done = e.target.closest?.(".crm-wait-done");
@@ -392,5 +438,15 @@ export async function init() {
     } catch (_) {}
   }
 
-  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera()]);
+  async function loadDesfechos() {
+    try {
+      const rows = await listCrmDesfechosRecentes();
+      desfechoMap = mapaUltimoDesfecho(rows);
+    } catch (_) {
+      desfechoMap = new Map();
+    }
+    renderFila();
+  }
+
+  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera(), loadDesfechos()]);
 }

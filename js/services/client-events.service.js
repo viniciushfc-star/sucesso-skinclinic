@@ -46,7 +46,7 @@ export async function createClientEvent({
   const { data: userData } = await supabase.auth.getUser();
   const created_by_user_id = userData?.user?.id || null;
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("client_events")
     .insert({
       org_id: orgId,
@@ -62,6 +62,46 @@ export async function createClientEvent({
     .select()
     .single();
 
+  if (error && /metadata|schema cache|column/i.test(String(error.message || ""))) {
+    const retry = await supabase
+      .from("client_events")
+      .insert({
+        org_id: orgId,
+        client_id,
+        event_type,
+        description: description || null,
+        event_date: event_date || new Date().toISOString().slice(0, 10),
+        created_by_user_id,
+        created_by_client: !!created_by_client,
+        is_critical: !!is_critical,
+      })
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
+
   if (error) throw error;
   return data;
+}
+
+/**
+ * Desfechos da fila CRM (tabela client_events, sem crm2).
+ */
+export async function listCrmDesfechosRecentes(days = 45) {
+  const orgId = getOrgOrThrow();
+  const n = Math.max(7, Number(days) || 45);
+  const from = new Date();
+  from.setDate(from.getDate() - n);
+  const fromIso = from.toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("client_events")
+    .select("client_id, event_type, event_date, description, metadata")
+    .eq("org_id", orgId)
+    .eq("event_type", "crm_desfecho")
+    .gte("event_date", fromIso)
+    .order("event_date", { ascending: false })
+    .limit(400);
+  if (error) return [];
+  return data || [];
 }

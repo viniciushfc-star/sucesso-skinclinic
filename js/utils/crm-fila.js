@@ -49,6 +49,79 @@ export function buildCrmFila(chunks, limit = CRM_FILA_MAX) {
     .slice(0, Math.max(0, limit));
 }
 
+export const CRM_EVENT_TYPE = "crm_desfecho";
+
+export const CRM_DESFECHOS = [
+  { id: "contactado", label: "Falei" },
+  { id: "agendou", label: "Agendou" },
+  { id: "nao_respondeu", label: "Sem resposta" },
+  { id: "nao_quis", label: "Não quis" },
+];
+
+export function labelDesfecho(id) {
+  return CRM_DESFECHOS.find((d) => d.id === id)?.label || "";
+}
+
+export function payloadDesfecho({ clientId, sinal, desfecho, hoje } = {}) {
+  const d = CRM_DESFECHOS.find((x) => x.id === desfecho);
+  if (!d || !clientId) return null;
+  const day = String(hoje || "").slice(0, 10);
+  return {
+    client_id: clientId,
+    event_type: CRM_EVENT_TYPE,
+    description: `CRM: ${d.label}${sinal ? ` (${sinal})` : ""}`,
+    event_date: day || undefined,
+    metadata: { origem: "crm_fila", desfecho: d.id, sinal: sinal || "" },
+  };
+}
+
+function daysBetweenIso(fromIso, hojeIso) {
+  const a = String(fromIso || "").slice(0, 10);
+  const b = String(hojeIso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return Infinity;
+  const da = new Date(`${a}T12:00:00`);
+  const db = new Date(`${b}T12:00:00`);
+  return Math.floor((db.getTime() - da.getTime()) / 86400000);
+}
+
+/** Último desfecho por cliente (eventos mais recentes primeiro). */
+export function mapaUltimoDesfecho(eventos) {
+  const map = new Map();
+  const rows = [...(eventos || [])].sort((x, y) =>
+    String(y.event_date || "").localeCompare(String(x.event_date || ""))
+  );
+  for (const e of rows) {
+    if (String(e.event_type || "") !== CRM_EVENT_TYPE) continue;
+    const id = e.client_id;
+    if (!id || map.has(id)) continue;
+    const desfecho = e.metadata?.desfecho || "";
+    map.set(id, {
+      desfecho,
+      event_date: e.event_date,
+      label: labelDesfecho(desfecho) || e.description || "",
+    });
+  }
+  return map;
+}
+
+/**
+ * Tira da fila quem recusou (30 dias) ou já agendou (14 dias). Sem resposta continua.
+ */
+export function filtrarFilaPorDesfecho(fila, ultimoPorCliente, hoje, opts = {}) {
+  const diasNaoQuis = Number(opts.diasNaoQuis) > 0 ? Number(opts.diasNaoQuis) : 30;
+  const diasAgendou = Number(opts.diasAgendou) > 0 ? Number(opts.diasAgendou) : 14;
+  const map = ultimoPorCliente instanceof Map ? ultimoPorCliente : new Map();
+  return (fila || []).filter((item) => {
+    if (!item?.clientId) return true;
+    const u = map.get(item.clientId);
+    if (!u?.desfecho) return true;
+    const n = daysBetweenIso(u.event_date, hoje);
+    if (u.desfecho === "nao_quis" && n < diasNaoQuis) return false;
+    if (u.desfecho === "agendou" && n < diasAgendou) return false;
+    return true;
+  });
+}
+
 export function filaWhatsappTemplate({ name, sinal, clinic, agendarUrl, extra = "" }) {
   const n = String(name || "").trim() || "oi";
   const c = String(clinic || "nossa clínica");
