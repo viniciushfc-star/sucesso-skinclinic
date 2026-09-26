@@ -541,6 +541,14 @@ async function renderCockpit() {
       : ""
   }
 
+  const execEl = document.getElementById("cockpitExecutive")
+  if (execEl) {
+    const cards = snap.executive?.cards || []
+    execEl.innerHTML = cards.length
+      ? `<h3 class="cockpit-executive-title">Por que mudou</h3><div class="cockpit-executive-list">${cards.map((c) => `<article class="cockpit-executive-card cockpit-executive-card--${escapeHtml(c.direcao)}"><strong>${escapeHtml(c.titulo)}</strong><span class="cockpit-row-causa">Causa: ${escapeHtml(c.causa)}</span><span class="cockpit-row-impacto">Impacto: ${escapeHtml(c.impacto)}</span><span class="cockpit-row-fonte">Fonte: ${escapeHtml(c.fonte)}</span></article>`).join("")}</div>`
+      : ""
+  }
+
   if (atencaoEl) {
     const rows = (snap.atencao || []).map((card) => insightRow(card));
     atencaoEl.innerHTML = rows.length

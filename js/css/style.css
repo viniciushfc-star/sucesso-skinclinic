@@ -3919,6 +3919,12 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .cockpit-mudanca-item{ margin:0.2rem 0; font-size:0.9rem; color:#475569; }
 .cockpit-mudanca-item--mais{ color:#166534; }
 .cockpit-mudanca-item--menos{ color:#9a3412; }
+.cockpit-executive{ margin:0 0 1.25rem; }
+.cockpit-executive-title{ margin:0 0 0.4rem; font-size:0.95rem; }
+.cockpit-executive-list{ display:flex; flex-direction:column; gap:0.5rem; }
+.cockpit-executive-card{ display:flex; flex-direction:column; gap:0.15rem; background:#f8fafc; border-radius:8px; padding:0.65rem 0.8rem; font-size:0.9rem; color:#0f172a; }
+.cockpit-executive-card--menos{ border-left:3px solid #fdba74; }
+.cockpit-executive-card--mais{ border-left:3px solid #86efac; }
 .cockpit-kpi{ display:flex; flex-direction:column; gap:2px; }
 .cockpit-kpi b{ font-size:1.35rem; color:#0f172a; font-weight:700; }
 .cockpit-kpi span{ font-size:0.75rem; color:#64748b; }

@@ -16,7 +16,9 @@ import { buildAttentionInsights, buildOpportunityInsights } from "./intelligence
 import { explainFinanceiroMetas } from "./financeiro-metas.service.js";
 import { lucroHoraOpportunity, rankLucroHora, summarizeLucroHora } from "../utils/lucro-hora.js";
 import { getEntradasHojeComAgenda } from "./financeiro.service.js";
+import { listConsumoEstoque } from "./estoque-entradas.service.js";
 import { dataOntemIso, linhasMudancaVsOntem } from "../utils/mudanca-ontem.js";
+import { explicarVariacao, somaConsumoNoDia } from "../utils/ia-executive.js";
 
 export { statusAgendaItem, horaAgenda };
 
@@ -72,11 +74,12 @@ export async function getCockpitSnapshot() {
   const ontem = dataOntemIso(hoje);
   const now = hhmmNow();
 
-  const [appointments, appointmentsOntem, entradasHoje, entradasOntem, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
+  const [appointments, appointmentsOntem, entradasHoje, entradasOntem, consumos, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
     soft(() => listAppointmentsByDate(hoje)),
     soft(() => listAppointmentsByDate(ontem)),
     soft(() => getEntradasHojeComAgenda(hoje)),
     soft(() => getEntradasHojeComAgenda(ontem)),
+    soft(() => listConsumoEstoque(500)),
     soft(() => listProcedures(true)),
     soft(() => listInactiveClients(90)),
     soft(() => listWaitlist("aberta")),
@@ -137,6 +140,18 @@ export async function getCockpitSnapshot() {
       previstoOntem,
       entradasHoje: somaRecebidoBaixas(entradasHoje),
       entradasOntem: somaRecebidoBaixas(entradasOntem),
+    }),
+    executive: explicarVariacao({
+      agendaHoje: appointments.length,
+      agendaOntem: (appointmentsOntem || []).length,
+      previstoHoje: previsto,
+      previstoOntem,
+      recebidoHoje: somaRecebidoBaixas(entradasHoje),
+      recebidoOntem: somaRecebidoBaixas(entradasOntem),
+      baixasHoje: (entradasHoje || []).length,
+      baixasOntem: (entradasOntem || []).length,
+      consumoHoje: somaConsumoNoDia(consumos, hoje),
+      consumoOntem: somaConsumoNoDia(consumos, ontem),
     }),
     ontem,
     agenda: itens,
