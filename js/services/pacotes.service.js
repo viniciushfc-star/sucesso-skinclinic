@@ -9,19 +9,38 @@ export async function listPacotesByClient(clientId) {
   const { data, error } = await withOrg(
     supabase
       .from("client_packages")
-      .select("id, client_id, procedure_id, nome_pacote, total_sessoes, sessoes_utilizadas, valor_pago, valido_ate, created_at")
+      .select("id, client_id, procedure_id, nome_pacote, total_sessoes, sessoes_utilizadas, valor_pago, valido_ate, created_at, orcamento_id")
       .eq("client_id", clientId)
       .order("created_at", { ascending: false })
   );
-  if (error) return [];
-  const rows = data ?? [];
-  const procIds = [...new Set(rows.map((r) => r.procedure_id).filter(Boolean))];
-  if (procIds.length === 0) return rows;
-  const { data: procs } = await withOrg(
-    supabase.from("procedures").select("id, name, custo_material_estimado, comissao_profissional_pct, margem_minima_desejada").in("id", procIds)
-  );
-  const procMap = (procs ?? []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
-  return rows.map((r) => {
+  if (error) {
+    if (/orcamento_id|schema cache|column/i.test(String(error.message || ""))) {
+      const retry = await withOrg(
+        supabase
+          .from("client_packages")
+          .select("id, client_id, procedure_id, nome_pacote, total_sessoes, sessoes_utilizadas, valor_pago, valido_ate, created_at")
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false })
+      );
+      if (retry.error) return [];
+      return enrichPacotes(retry.data ?? []);
+    }
+    return [];
+  }
+  return enrichPacotes(data ?? []);
+}
+
+async function enrichPacotes(rows) {
+  const list = rows || [];
+  const procIds = [...new Set(list.map((r) => r.procedure_id).filter(Boolean))];
+  let procMap = {};
+  if (procIds.length) {
+    const { data: procs } = await withOrg(
+      supabase.from("procedures").select("id, name, custo_material_estimado, comissao_profissional_pct, margem_minima_desejada").in("id", procIds)
+    );
+    procMap = (procs ?? []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+  }
+  return list.map((r) => {
     const proc = r.procedure_id ? procMap[r.procedure_id] : null;
     return {
       ...r,

@@ -3,7 +3,7 @@
  * Não inclui rascunho de IA (ia_preliminar).
  */
 
-import { statusEfetivoOrcamento, statusOrcamentoLabel } from "./orcamento.js";
+import { statusEfetivoOrcamento, statusOrcamentoLabel, idsOrcamentosVistos, contarPacotesPorOrcamento } from "./orcamento.js";
 import { mapaVersaoAnamnese } from "./anamnese-versao.js";
 import { tituloCombinadoNaLinha } from "./consulta-combinado.js";
 
@@ -29,11 +29,15 @@ export function montarLinhaDoTempo({
   anamnese = [],
   aplicados = [],
   orcamentos = [],
+  pacotes = [],
   hoje,
 } = {}) {
   const out = [];
+  const vistos = idsOrcamentosVistos(events);
+  const pkgMap = contarPacotesPorOrcamento(pacotes);
 
   for (const e of events || []) {
+    if (String(e.event_type || "") === "orcamento_visto") continue;
     const blob = `${e.event_type || ""} ${e.description || ""}`;
     if (temIaPreliminar(blob)) continue;
     out.push({
@@ -77,7 +81,10 @@ export function montarLinhaDoTempo({
   }
 
   for (const o of orcamentos || []) {
-    const st = statusEfetivoOrcamento(o, hoje);
+    const st = statusEfetivoOrcamento(o, hoje, {
+      visto: vistos.has(o.id),
+      packagesCount: pkgMap[o.id] || 0,
+    });
     const when = o.accepted_at || o.sent_at || o.created_at;
     out.push({
       date: dateKey(when),

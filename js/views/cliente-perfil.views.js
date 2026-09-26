@@ -11,7 +11,7 @@ import { listPacotesByClient } from "../services/pacotes.service.js";
 import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus, aceitarOrcamento } from "../services/orcamentos.service.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
-import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
+import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado, payloadOrcamentoVisto, idsOrcamentosVistos, contarPacotesPorOrcamento } from "../utils/orcamento.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
@@ -271,7 +271,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
             <button type="button" class="timeline-filtro" data-filtro="portal">Portal</button>
           </div>
           <ul class="timeline" id="clienteTimeline">
-            ${renderLinhaDoTempoUnificada(events, registrosAnamnese, protocolosAplicados, orcamentos)}
+            ${renderLinhaDoTempoUnificada(events, registrosAnamnese, protocolosAplicados, orcamentos, pacotes)}
           </ul>
           <div class="cliente-prontuario-por-data">
             <h4 class="cliente-evolucao-title">Prontuário por data</h4>
@@ -491,7 +491,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
           <p class="client-hint">Monte a proposta, envie no WhatsApp (um paciente por vez) e, se fechar, grave no cadastro. Não altera o preço do catálogo.</p>
           ${canEdit ? `<button type="button" class="btn-primary" id="btnNovoOrcamento">+ Novo orçamento</button>` : ""}
           <ul id="clienteOrcamentosList" class="cliente-orcamentos-list">
-            ${renderOrcamentosList(orcamentos, canEdit)}
+            ${renderOrcamentosList(orcamentos, canEdit, { events, pacotes })}
           </ul>
         </div>
       </div>
@@ -501,8 +501,8 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
   bindPerfilEvents(client, canEdit, proceduresList, orcamentos);
 }
 
-function renderLinhaDoTempoUnificada(events, anamnese, aplicados, orcamentos) {
-  const items = montarLinhaDoTempo({ events, anamnese, aplicados, orcamentos });
+function renderLinhaDoTempoUnificada(events, anamnese, aplicados, orcamentos, pacotes) {
+  const items = montarLinhaDoTempo({ events, anamnese, aplicados, orcamentos, pacotes });
   if (!items.length) {
     return "<li>Nada na linha do tempo ainda. Eventos, anamnese, o que foi aplicado e orçamentos aparecem aqui.</li>";
   }
@@ -980,21 +980,31 @@ function openRelatorioEvolucaoModal(client) {
   win.document.close();
 }
 
-function renderOrcamentosList(orcamentos, canEdit) {
+function renderOrcamentosList(orcamentos, canEdit, extra = {}) {
   if (!orcamentos?.length) {
     return "<li class=\"cliente-orcamentos-empty\">Nenhum orçamento. Clique em \"Novo orçamento\" para montar a proposta.</li>";
   }
+  const vistos = idsOrcamentosVistos(extra.events);
+  const pkgMap = contarPacotesPorOrcamento(extra.pacotes);
   return orcamentos.map((o) => {
     const items = Array.isArray(o.items) ? o.items : [];
     const total = totalOrcamento(items);
     const linhas = items.map((it) => `${escapeHtml(it.name || "Item")} × ${Number(it.qty) || 1}`).join("; ");
-    const efetivo = statusEfetivoOrcamento(o);
+    const efetivo = statusEfetivoOrcamento(o, undefined, {
+      visto: vistos.has(o.id),
+      packagesCount: pkgMap[o.id] || 0,
+    });
     const acoes = canEdit && efetivo !== "aceito" && efetivo !== "recusado" && efetivo !== "expirado" && efetivo !== "convertido"
-      ? `<button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
+      ? `${efetivo === "enviado" ? `<button type="button" class="btn-secondary btn-sm orcamento-visto" data-id="${escapeHtml(o.id)}">Marcou como visto</button>` : ""}
+         <button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
          <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
          <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
       : efetivo === "expirado"
         ? `<span class="cliente-orcamento-expirado-hint">Venceu. Monte outro orçamento.</span>`
+        : efetivo === "visualizado"
+          ? `<button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
+         <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
+         <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
         : "";
     return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(efetivo)}">
       <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(efetivo))}</span>
@@ -1129,6 +1139,21 @@ function refreshOrcamentoTotal() {
 }
 
 function bindOrcamentoCardActions(client, orcamentos) {
+  document.querySelectorAll(".orcamento-visto").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
+      if (!row) return;
+      const payload = payloadOrcamentoVisto(row.id);
+      if (!payload) return;
+      try {
+        await createClientEvent({ client_id: client.id, ...payload });
+        toast("Marcado como visualizado. O status do banco continua enviado — o CHECK não muda.");
+        await reloadPerfilOrcamentos();
+      } catch (err) {
+        toast(sqlOrcamentoHint(err), "error");
+      }
+    });
+  });
   document.querySelectorAll(".orcamento-enviar").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);

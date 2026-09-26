@@ -39,21 +39,59 @@ export function isOrcamentoExpirado(o, hoje = hojeOrcamentoIso()) {
   return v < String(hoje).slice(0, 10);
 }
 
-export function statusEfetivoOrcamento(o, hoje = hojeOrcamentoIso()) {
+export function statusEfetivoOrcamento(o, hoje = hojeOrcamentoIso(), extra = {}) {
   if (isOrcamentoExpirado(o, hoje)) return "expirado";
-  return String(o?.status || "rascunho").toLowerCase() || "rascunho";
+  const s = String(o?.status || "rascunho").toLowerCase() || "rascunho";
+  if (s === "aceito" && Number(extra.packagesCount) > 0) return "convertido";
+  if (s === "enviado" && extra.visto) return "visualizado";
+  return s;
 }
 
 export function statusOrcamentoLabel(status) {
   const map = {
     rascunho: "Rascunho",
     enviado: "Enviado",
+    visualizado: "Visualizado",
     aceito: "Aceito",
     recusado: "Recusado",
     expirado: "Expirado",
     convertido: "Convertido",
   };
   return map[status] || status || "—";
+}
+
+export const PREFIXO_ORCAMENTO_VISTO = "orcamento_visto:";
+
+export function payloadOrcamentoVisto(orcamentoId) {
+  const id = String(orcamentoId || "").trim();
+  if (!id) return null;
+  return {
+    event_type: "orcamento_visto",
+    description: `${PREFIXO_ORCAMENTO_VISTO}${id}`,
+    is_critical: false,
+    created_by_client: false,
+  };
+}
+
+export function idsOrcamentosVistos(events) {
+  const ids = new Set();
+  const prefix = PREFIXO_ORCAMENTO_VISTO;
+  for (const e of events || []) {
+    if (String(e.event_type || "") !== "orcamento_visto") continue;
+    const d = String(e.description || "");
+    if (d.startsWith(prefix)) ids.add(d.slice(prefix.length));
+  }
+  return ids;
+}
+
+export function contarPacotesPorOrcamento(pacotes) {
+  const map = {};
+  for (const p of pacotes || []) {
+    const id = p.orcamento_id;
+    if (!id) continue;
+    map[id] = (map[id] || 0) + 1;
+  }
+  return map;
 }
 
 /**
