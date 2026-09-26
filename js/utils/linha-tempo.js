@@ -4,6 +4,7 @@
  */
 
 import { statusEfetivoOrcamento, statusOrcamentoLabel } from "./orcamento.js";
+import { mapaVersaoAnamnese } from "./anamnese-versao.js";
 
 function dateKey(d) {
   if (!d) return "";
@@ -44,15 +45,18 @@ export function montarLinhaDoTempo({
     });
   }
 
+  const versoesAnamnese = mapaVersaoAnamnese(anamnese);
+
   for (const r of anamnese || []) {
     if (temIaPreliminar(r.conteudo) || temIaPreliminar(r.resultado_resumo)) continue;
     const nome = r.anamnesis_funcoes?.nome || "Anamnese";
     const resumo = String(r.conteudo || r.resultado_resumo || "").trim().slice(0, 80);
+    const versao = versoesAnamnese[r.id];
     out.push({
       date: dateKey(r.created_at),
       visibilidade: visibilidadeAnamnese(r.origem),
       fonte: "anamnese",
-      titulo: nome,
+      titulo: versao?.n ? `${nome} · v${versao.n}` : nome,
       detalhe: resumo,
       critico: false,
     });

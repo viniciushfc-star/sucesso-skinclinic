@@ -3552,7 +3552,16 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 /* =====================
    ANÁLISE DE PELE (portal + dashboard)
 ===================== */
-.anamnese-origem-portal {
+.anamnese-versao {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
   display: inline-block;
   margin-left: 0.5rem;
   padding: 0.15rem 0.45rem;

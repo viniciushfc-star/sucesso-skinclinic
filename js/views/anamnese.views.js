@@ -19,6 +19,7 @@ import {
   createCampoPersonalizado,
   deleteCampoPersonalizado
 } from "../services/anamnesis.service.js";
+import { ehDuplicataDaUltima, mapaVersaoAnamnese, rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { getRole } from "../services/permissions.service.js";
 import { startCameraCapture } from "../utils/camera.js";
 import { openModal, closeModal } from "../ui/modal.js";
@@ -791,7 +792,7 @@ export async function init() {
       const list = await listRegistrosByClientAndFuncao(currentClientId, funcaoId);
       registrosEl.innerHTML = list.length === 0
         ? "<p class=\"anamnese-empty\">Nenhum registro ainda para esta área. O histórico é evolutivo.</p>"
-        : list.map((r) => renderRegistroItem(r)).join("");
+        : list.map((r) => renderRegistroItem(r, list)).join("");
       bindCompare(list);
     } catch (e) {
       console.error("[ANAMNESE] listRegistros", e);
@@ -848,8 +849,9 @@ export async function init() {
     return "<p><strong>" + escapeHtml(label) + ":</strong> " + escapeHtml(String(val)) + "</p>";
   }
 
-  function renderRegistroItem(r) {
+  function renderRegistroItem(r, list) {
     const data = r.created_at ? new Date(r.created_at).toLocaleString("pt-BR") : "";
+    const versao = rotuloVersaoAnamnese(mapaVersaoAnamnese(list || [])[r.id]);
     let body = "";
     if (r.ficha && Object.keys(r.ficha).length > 0) {
       body += "<div class=\"anamnese-registro-ficha\">" + Object.entries(r.ficha).map(([k, v]) => fichaEntryToHtml(k, v)).join("") + "</div>";
@@ -869,7 +871,7 @@ export async function init() {
     const origemBadge = r.origem === "portal"
       ? `<span class="anamnese-origem-portal">Preenchida pelo cliente (à distância)</span>`
       : "";
-    return `<div class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span>${origemBadge}<label class="anamnese-compare-label"><input type="checkbox" class="anamnese-compare-checkbox" data-id="${escapeHtml(r.id)}"> Comparar</label></div>${body}</div>`;
+    return `<div class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span>${versao ? `<span class="anamnese-versao">${escapeHtml(versao)}</span>` : ""}${origemBadge}<label class="anamnese-compare-label"><input type="checkbox" class="anamnese-compare-checkbox" data-id="${escapeHtml(r.id)}"> Comparar</label></div>${body}</div>`;
   }
 
   function bindCompare(list) {
@@ -1119,6 +1121,17 @@ export async function init() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const fichaLimpa = sanitizeFicha(ficha);
+      const atuais = await listRegistrosByClientAndFuncao(currentClientId, funcaoId).catch(() => []);
+      if (ehDuplicataDaUltima({
+        ficha: fichaLimpa,
+        conteudo,
+        conduta,
+        fotosCount: fotosPayload.length,
+        ultima: atuais[0],
+      })) {
+        toast("Igual à última versão. Nada foi apagado; o prontuário já tem esse documento.");
+        return;
+      }
       await createRegistro({
         clientId: currentClientId,
         funcaoId,
@@ -1135,7 +1148,7 @@ export async function init() {
       renderFotosPreview();
       setFichaInForm(slug, {});
       const dataStr = new Date().toLocaleDateString("pt-BR");
-      toast("Documento salvo no prontuário do paciente (" + dataStr + "). Ele ficará disponível ao abrir o cliente.");
+      toast("Versão " + (atuais.length + 1) + " salva no prontuário (" + dataStr + "). As anteriores continuam lá.");
       await loadRegistros();
     } catch (e) {
       console.error("[ANAMNESE] createRegistro", e);

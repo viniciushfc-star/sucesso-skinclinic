@@ -14,6 +14,7 @@ import { getOrganizationProfile } from "../services/organization-profile.service
 import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
+import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -621,13 +622,14 @@ function renderEvolucaoCards(registros) {
   for (const r of registros) {
     const slug = r.anamnesis_funcoes?.slug || "geral";
     if (!byFuncao[slug]) byFuncao[slug] = [];
-    if (byFuncao[slug].length < 6) byFuncao[slug].push(r);
+    byFuncao[slug].push(r);
   }
   const urlDeFoto = (f) => (typeof f === "string" ? f : f?.url);
   const cards = Object.entries(byFuncao).map(([slug, list]) => {
     const nome = list[0].anamnesis_funcoes?.nome || slug;
     const ultimo = list[0];
     const data = ultimo.created_at ? new Date(ultimo.created_at).toLocaleDateString("pt-BR") : "—";
+    const versaoTxt = rotuloVersaoAnamnese({ n: list.length, total: list.length });
     const resumo = ultimo.conteudo && ultimo.conteudo.trim()
       ? escapeHtml(ultimo.conteudo.trim().slice(0, 120)) + (ultimo.conteudo.length > 120 ? "…" : "")
       : "";
@@ -642,7 +644,7 @@ function renderEvolucaoCards(registros) {
       <div class="cliente-evolucao-card" data-funcao-slug="${escapeHtml(slug)}">
         <div class="cliente-evolucao-header">
           <span class="cliente-evolucao-area">${escapeHtml(nome)}</span>
-          <span class="cliente-evolucao-data">${escapeHtml(data)}${badge}</span>
+          <span class="cliente-evolucao-data">${escapeHtml(data)}${versaoTxt ? ` · ${escapeHtml(versaoTxt)}` : ""}${badge}</span>
         </div>
         ${resumo ? `<p class="cliente-evolucao-resumo">${resumo}</p>` : ""}
         ${fotos}
