@@ -1,20 +1,20 @@
 /**
  * Rateio de custo fixo no P&L do procedimento.
- * Padrão: não ratear. Nunca divide por atendimentos sem a clínica escolher esse método.
- * Sem denominador ou sem lançamentos → “não informado” (não inventa).
+ * Padrão: não ratear. Cancelados não entram no denominador. Não inventa; não altera preço.
  */
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 import { listSalas } from "./salas.service.js";
+import {
+  RATEIO_METODOS,
+  labelRateio,
+  calcularRateio,
+  ocupacaoRateio,
+  simularMetodosRateio,
+} from "../utils/rateio.js";
 
-export const RATEIO_METODOS = [
-  { id: "nao_ratear", label: "Não ratear (fica só no DRE da clínica)" },
-  { id: "hora", label: "Por hora disponível" },
-  { id: "atendimento", label: "Por atendimento realizado no mês" },
-  { id: "sala", label: "Por hora de sala (salas × horas)" },
-  { id: "capacidade", label: "Por capacidade teórica do mês" },
-];
+export { RATEIO_METODOS, labelRateio, calcularRateio };
 
 const DEFAULTS = { metodo: "nao_ratear", horas_mes: null, capacidade_mes: null };
 
@@ -26,10 +26,6 @@ function n(v) {
   if (v == null || v === "") return null;
   const x = Number(v);
   return Number.isFinite(x) && x > 0 ? x : null;
-}
-
-function round2(x) {
-  return Math.round(x * 100) / 100;
 }
 
 function monthBounds() {
@@ -59,10 +55,6 @@ function writeLocal(orgId, cfg) {
   try {
     localStorage.setItem(localKey(orgId), JSON.stringify(cfg));
   } catch (_) {}
-}
-
-export function labelRateio(metodo) {
-  return RATEIO_METODOS.find((m) => m.id === metodo)?.label || "não informado";
 }
 
 export async function getRateioConfig() {
@@ -113,8 +105,7 @@ export async function saveRateioConfig(partial) {
   return cfg;
 }
 
-export async function getCustoFixoMensalAtual() {
-  const { start, end } = monthBounds();
+export async function getCustoFixoPeriodo(start, end) {
   const { data, error } = await withOrg(
     supabase
       .from("financeiro")
@@ -129,106 +120,93 @@ export async function getCustoFixoMensalAtual() {
     .reduce((s, r) => s + (Number(r.valor) || 0), 0);
 }
 
-async function countAgendaMes() {
+export async function getCustoFixoMensalAtual() {
   const { start, end } = monthBounds();
-  const { count, error } = await withOrg(
-    supabase.from("agenda").select("id", { count: "exact", head: true }).gte("data", start).lte("data", end)
+  return getCustoFixoPeriodo(start, end);
+}
+
+export async function agendaResumoPeriodo(start, end) {
+  let res = await withOrg(
+    supabase
+      .from("agenda")
+      .select("id, duration_minutes, cancelled_at")
+      .gte("data", start)
+      .lte("data", end)
+      .limit(4000)
   );
-  if (error) return 0;
-  return count || 0;
+  if (res.error && /cancelled_at|schema cache|column/i.test(String(res.error.message || ""))) {
+    res = await withOrg(
+      supabase.from("agenda").select("id, duration_minutes").gte("data", start).lte("data", end).limit(4000)
+    );
+  }
+  if (res.error) return { nAtendimentos: 0, minutos: 0 };
+  const rows = (res.data || []).filter((r) => !r.cancelled_at);
+  const minutos = rows.reduce((s, r) => s + (Number(r.duration_minutes) || 60), 0);
+  return { nAtendimentos: rows.length, minutos };
+}
+
+async function nSalasAtivas() {
+  try {
+    const salas = await listSalas(false);
+    return (salas || []).length;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function inputsRateio(cfg, fixo, agenda, nSalas) {
+  return {
+    fixoMes: fixo,
+    horasMes: cfg.horas_mes,
+    nAtendimentos: agenda.nAtendimentos,
+    nSalas,
+    capacidadeMes: cfg.capacidade_mes,
+  };
+}
+
+export async function explainCustoEstrutural(durationMinutes) {
+  const cfg = await getRateioConfig();
+  const { start, end } = monthBounds();
+  const [fixo, agenda, nSalas] = await Promise.all([
+    getCustoFixoPeriodo(start, end),
+    agendaResumoPeriodo(start, end),
+    nSalasAtivas(),
+  ]);
+  return calcularRateio({
+    metodo: cfg.metodo,
+    durationMinutes,
+    ...inputsRateio(cfg, fixo, agenda, nSalas),
+  });
 }
 
 /**
- * Custo estrutural estimado de um procedimento (duração em minutos).
- * @returns {Promise<{ valor: number|null, metodo: string, metodoLabel: string, detalhe: string }>}
+ * Painel do DRE: fórmula escolhida + ocupação + simulação dos métodos.
+ * durationMinutes = 60 para comparar sessões-padrão. Não muda preço.
  */
-export async function explainCustoEstrutural(durationMinutes) {
+export async function getPainelRateio(start, end) {
   const cfg = await getRateioConfig();
-  const metodo = cfg.metodo || "nao_ratear";
-  const metodoLabel = labelRateio(metodo);
-  if (metodo === "nao_ratear") {
-    return {
-      valor: null,
-      metodo,
-      metodoLabel,
-      detalhe: "A clínica escolheu não ratear fixo no procedimento. O valor aparece no DRE.",
-    };
-  }
-
-  const fixo = await getCustoFixoMensalAtual();
-  if (!(fixo > 0)) {
-    return {
-      valor: null,
-      metodo,
-      metodoLabel,
-      detalhe: "Não há lançamentos de custo fixo neste mês. Sem isso o rateio fica não informado.",
-    };
-  }
-
-  const horasProc = Math.max(0.05, (Number(durationMinutes) || 60) / 60);
-
-  if (metodo === "hora") {
-    const horas = cfg.horas_mes;
-    if (!horas) {
-      return { valor: null, metodo, metodoLabel, detalhe: "Informe as horas disponíveis no mês." };
-    }
-    return {
-      valor: round2((fixo / horas) * horasProc),
-      metodo,
-      metodoLabel,
-      detalhe: `R$ ${fixo.toFixed(2)} ÷ ${horas} h × ${horasProc.toFixed(2)} h deste procedimento.`,
-    };
-  }
-
-  if (metodo === "atendimento") {
-    const nAt = await countAgendaMes();
-    if (!nAt) {
-      return { valor: null, metodo, metodoLabel, detalhe: "Não há agendamentos neste mês para ratear." };
-    }
-    return {
-      valor: round2(fixo / nAt),
-      metodo,
-      metodoLabel,
-      detalhe: `R$ ${fixo.toFixed(2)} ÷ ${nAt} atendimento(s) do mês (mesmo valor por sessão, independente da duração).`,
-    };
-  }
-
-  if (metodo === "sala") {
-    const horas = cfg.horas_mes;
-    if (!horas) {
-      return { valor: null, metodo, metodoLabel, detalhe: "Informe as horas disponíveis no mês (base da hora de sala)." };
-    }
-    let nSalas = 0;
-    try {
-      const salas = await listSalas(false);
-      nSalas = (salas || []).length;
-    } catch (_) {
-      nSalas = 0;
-    }
-    if (!nSalas) {
-      return { valor: null, metodo, metodoLabel, detalhe: "Cadastre ao menos uma sala para ratear por hora de sala." };
-    }
-    const denom = nSalas * horas;
-    return {
-      valor: round2((fixo / denom) * horasProc),
-      metodo,
-      metodoLabel,
-      detalhe: `R$ ${fixo.toFixed(2)} ÷ (${nSalas} salas × ${horas} h) × ${horasProc.toFixed(2)} h.`,
-    };
-  }
-
-  if (metodo === "capacidade") {
-    const cap = cfg.capacidade_mes;
-    if (!cap) {
-      return { valor: null, metodo, metodoLabel, detalhe: "Informe a capacidade teórica (sessões possíveis no mês)." };
-    }
-    return {
-      valor: round2(fixo / cap),
-      metodo,
-      metodoLabel,
-      detalhe: `R$ ${fixo.toFixed(2)} ÷ ${cap} sessões teóricas.`,
-    };
-  }
-
-  return { valor: null, metodo, metodoLabel, detalhe: "Método não informado." };
+  const [fixo, agenda, nSalas] = await Promise.all([
+    getCustoFixoPeriodo(start, end),
+    agendaResumoPeriodo(start, end),
+    nSalasAtivas(),
+  ]);
+  const base = { durationMinutes: 60, ...inputsRateio(cfg, fixo, agenda, nSalas) };
+  const escolhido = calcularRateio({ ...base, metodo: cfg.metodo });
+  const ocupacao = ocupacaoRateio({
+    metodo: cfg.metodo,
+    minutosAgenda: agenda.minutos,
+    nAtendimentos: agenda.nAtendimentos,
+    horasMes: cfg.horas_mes,
+    nSalas,
+    capacidadeMes: cfg.capacidade_mes,
+  });
+  return {
+    cfg,
+    fixo,
+    agenda,
+    nSalas,
+    escolhido,
+    ocupacao,
+    simulacoes: simularMetodosRateio(base),
+  };
 }

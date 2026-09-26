@@ -158,7 +158,7 @@ function bindRateio(container) {
         horas_mes: horas?.value,
         capacidade_mes: cap?.value,
       });
-      toast("Metodologia de rateio salva.");
+      toast("Metodologia de rateio salva. No DRE você vê ocupação e a simulação dos métodos, sem mudar preço.");
     } catch (err) {
       toast(err?.message || "Não foi possível salvar o rateio.");
     }

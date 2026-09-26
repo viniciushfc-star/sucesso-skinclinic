@@ -11,6 +11,7 @@ import { gerarPdf }
 from "../utils/pdf.js"
 
 import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo, getFaturamentoPorUsuario, getReceitaPorProcedimento } from "../services/financeiro.service.js"
+import { getPainelRateio } from "../services/rateio.service.js"
 import { listComissoesPeriodo } from "../services/comissoes.service.js"
 import { getTodayLocal } from "../services/metrics.service.js"
 
@@ -523,6 +524,7 @@ async function renderDrePanel() {
       <p class="financeiro-dre-periodo">Período: ${start} a ${end}. ${(dre.transacoes || []).length} lançamento(s).</p>
     `
     await renderDreGerencial(start, end, fmt)
+    await renderDreRateio(start, end, fmt)
     if (detalheEl) {
       const rows = (dre.transacoes || []).slice(-50).reverse().map((t) => {
         const v = t.tipo === "entrada" ? (t.valor_recebido != null && t.valor_recebido !== "" ? Number(t.valor_recebido) : Number(t.valor) || 0) : Number(t.valor) || 0
@@ -538,6 +540,8 @@ async function renderDrePanel() {
     lastDreData = null
     resumoEl.innerHTML = "<p class=\"view-hint\">Erro ao carregar DRE. Tente outro período.</p>"
     if (detalheEl) detalheEl.innerHTML = ""
+    const rateioEl = document.getElementById("financeiroDreRateio")
+    if (rateioEl) rateioEl.innerHTML = ""
   }
 }
 
@@ -573,6 +577,42 @@ async function renderDreGerencial(start, end, fmt) {
     }
   } catch (err) {
     console.warn("[Financeiro] DRE gerencial", err)
+  }
+}
+
+function escapeDre(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;")
+}
+
+async function renderDreRateio(start, end, fmt) {
+  const el = document.getElementById("financeiroDreRateio")
+  if (!el) return
+  try {
+    const p = await getPainelRateio(start, end)
+    const ocupTxt =
+      p.ocupacao?.pct != null
+        ? `${String(p.ocupacao.pct).replace(".", ",")}% — ${escapeDre(p.ocupacao.detalhe)}`
+        : escapeDre(p.ocupacao?.detalhe || "Ocupação não informada.")
+    const escolhidoValor = p.escolhido?.valor != null ? fmt(p.escolhido.valor) : "não informado"
+    const linhas = (p.simulacoes || [])
+      .filter((s) => s.metodo !== "nao_ratear")
+      .map((s) => {
+        const v = s.valor != null ? fmt(s.valor) : "não informado"
+        const mark = s.metodo === p.cfg?.metodo ? " (método atual)" : ""
+        return `<tr><td>${escapeDre(s.metodoLabel)}${mark}</td><td>${v}</td><td>${escapeDre(s.detalhe)}</td></tr>`
+      })
+      .join("")
+    el.innerHTML = `
+      <h3 class="financeiro-dre-gerencial-title">Como o custo fixo entra no procedimento</h3>
+      <p class="view-hint">Cancelados não entram. Sem lançamento de custo fixo ou sem denominador, fica não informado. O sistema não altera o preço. Metodologia em Custo fixo / setup.</p>
+      <p class="view-hint">Fixo no período: <strong>${fmt(p.fixo)}</strong> · ${p.agenda?.nAtendimentos || 0} atendimento(s) ativos · ${p.nSalas || 0} sala(s).</p>
+      <p class="view-hint">Método atual: <strong>${escapeDre(p.escolhido?.metodoLabel)}</strong> · 60 min: <strong>${escolhidoValor}</strong></p>
+      <p class="view-hint">Ocupação: ${ocupTxt}</p>
+      <table class="financeiro-dre-tabela" aria-label="Simulação de rateio"><thead><tr><th>Método</th><th>Por sessão de 60 min</th><th>Fórmula</th></tr></thead><tbody>${linhas}</tbody></table>
+    `
+  } catch (err) {
+    console.warn("[Financeiro] rateio DRE", err)
+    el.innerHTML = `<p class="view-hint">${escapeDre(err.message || "Não carregou o rateio.")}</p>`
   }
 }
 
