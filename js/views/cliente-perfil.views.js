@@ -18,6 +18,7 @@ import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { compararEstoquePrevistoReal } from "../utils/estoque-previsto-real.js";
 import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js";
 import { payloadCombinadoConsulta } from "../utils/consulta-combinado.js";
+import { payloadSilencio, mapaSilencioPorCliente, estaEmSilencio } from "../utils/whatsapp-regua.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -200,6 +201,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         <div class="cliente-perfil-actions">
           <button type="button" class="btn-primary" id="btnAnamneseCliente" title="Ficha de anamnese e análise de caso">Anamnese</button>
           ${canEdit ? '<button type="button" class="btn-primary" id="btnEditarCliente">Editar cliente</button>' : ""}
+          <button type="button" class="btn-secondary" id="btnWhatsappSilencio">${estaEmSilencio(mapaSilencioPorCliente(events || [], new Date().toISOString().slice(0, 10)), client.id) ? "Liberar WhatsApp" : "Silêncio no WhatsApp"}</button>
           ${canEdit && (client.state || client.status) === "pre_cadastro" && !client.registration_completed_at ? `
             <button type="button" class="btn-secondary" id="btnEnviarLinkCadastro">Enviar link para completar cadastro</button>
           ` : ""}
@@ -1344,6 +1346,17 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
 
   if (canEdit) {
     document.getElementById("btnEditarCliente")?.addEventListener("click", () => openEditModal(client));
+    document.getElementById("btnWhatsappSilencio")?.addEventListener("click", async () => {
+      const on = estaEmSilencio(mapaSilencioPorCliente(events || [], new Date().toISOString().slice(0, 10)), client.id);
+      const payload = payloadSilencio(client.id, { off: on });
+      try {
+        await createClientEvent(payload);
+        toast(on ? "WhatsApp liberado. Continua só no clique." : "Silêncio gravado. Lembrete automático não manda WhatsApp.");
+        init();
+      } catch (err) {
+        toast(err.message || "Não atualizou o silêncio.");
+      }
+    });
   }
 
   document.getElementById("btnEnviarLinkCadastro")?.addEventListener("click", async () => {

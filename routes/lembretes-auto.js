@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { isCronAuthorized, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 import { canonicalPhoneDigits } from "../lib/phone-match.js";
+import { mapaSilencioPorCliente, estaEmSilencio, SILENCIO_EVENT_TYPE } from "../js/utils/whatsapp-regua.js";
 
 function getAdmin() {
   const url = process.env.SUPABASE_URL;
@@ -177,7 +178,22 @@ export default async function lembretesAuto(req, res) {
 
     const envios = [];
     if (email) envios.push(await sendEmail(email, assunto, texto));
-    if (tel.length >= 12) envios.push(await sendWhatsapp(tel, texto));
+    if (tel.length >= 12) {
+      const { data: evs } = await admin
+        .from("client_events")
+        .select("client_id, event_type, description, created_at")
+        .eq("org_id", ag.org_id)
+        .eq("client_id", cli.id)
+        .eq("event_type", SILENCIO_EVENT_TYPE)
+        .order("created_at", { ascending: true })
+        .limit(50);
+      const hoje = now.toISOString().slice(0, 10);
+      if (estaEmSilencio(mapaSilencioPorCliente(evs || [], hoje), cli.id)) {
+        envios.push({ sent: false, reason: "silencio_humano" });
+      } else {
+        envios.push(await sendWhatsapp(tel, texto));
+      }
+    }
 
     const ok = envios.some((e) => e.sent);
     if (ok) {

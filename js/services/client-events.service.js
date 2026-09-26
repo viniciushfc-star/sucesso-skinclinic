@@ -118,3 +118,16 @@ export async function listLeadOrigens() {
   if (error) return [];
   return data || [];
 }
+
+export async function listWhatsappSilencios() {
+  const orgId = getOrgOrThrow();
+  const { data, error } = await supabase
+    .from("client_events")
+    .select("client_id, event_type, description, created_at")
+    .eq("org_id", orgId)
+    .eq("event_type", "whatsapp_silencio")
+    .order("created_at", { ascending: true })
+    .limit(800);
+  if (error) return [];
+  return data || [];
+}

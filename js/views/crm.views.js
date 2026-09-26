@@ -1,8 +1,8 @@
 import { toast } from "../ui/toast.js";
-import { sendWhatsapp } from "../services/whatsapp.service.js";
+import { sendWhatsapp, listWhatsappLogs } from "../services/whatsapp.service.js";
 import { getAniversariantes, getClientes } from "../services/clientes.service.js";
 import { listInactiveClients, listLoyaltyClients, getRadarRetorno } from "../services/crm.service.js";
-import { createClientEvent, listCrmDesfechosRecentes, listLeadOrigens } from "../services/client-events.service.js";
+import { createClientEvent, listCrmDesfechosRecentes, listLeadOrigens, listWhatsappSilencios } from "../services/client-events.service.js";
 import {
   buildCrmFila,
   filaWhatsappTemplate,
@@ -22,6 +22,7 @@ import {
   idsConvertidosDesfecho,
   resumirFunilOrigem,
 } from "../utils/crm-origem.js";
+import { payloadSilencio, mapaSilencioPorCliente, estaEmSilencio, proximoPassoRegua } from "../utils/whatsapp-regua.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { getActiveOrg } from "../core/org.js";
 
@@ -82,6 +83,7 @@ export async function init() {
   let desfechoMap = new Map();
   let desfechoRows = [];
   let origemByClient = new Map();
+  let silencioMap = new Map();
 
   let profile = {};
   try {
@@ -189,13 +191,24 @@ export async function init() {
               `<button type="button" class="btn-sm crm-desfecho" data-desfecho="${escapeHtml(d.id)}" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId)}">${escapeHtml(d.label)}</button>`
             ).join("")}</div>`
           : "";
+        const silente = estaEmSilencio(silencioMap, c.clientId);
+        const passo = proximoPassoRegua("", silente);
+        const waBtn = silente
+          ? `<button type="button" class="btn-sm crm-silencio-off" data-client-id="${escapeHtml(c.clientId)}">Liberar WhatsApp</button>`
+          : tel.length >= 10
+            ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_fila" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId || "")}" data-waitlist-id="${escapeHtml(c.waitlistId || "")}" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>`
+            : "<span class=\"view-hint\">Sem telefone</span>";
+        const silencioBtn = c.clientId && !silente
+          ? `<button type="button" class="btn-sm crm-silencio" data-client-id="${escapeHtml(c.clientId)}">Silêncio</button>`
+          : "";
         return `<div class="crm-row">
             <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
-            <span class="view-hint">${escapeHtml(c.motivo || "")}${escapeHtml(origemHint)}${escapeHtml(lastHint)}</span>
+            <span class="view-hint">${escapeHtml(c.motivo || "")}${escapeHtml(origemHint)}${escapeHtml(lastHint)}${silente ? " · silêncio WhatsApp" : ` · ${escapeHtml(passo.label)}`}</span>
             ${desfechoBtns}</div>
             <div class="crm-row-actions">
               ${c.clientId ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(c.clientId)}">Agendar</button>` : ""}
-              ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_fila" data-sinal="${escapeHtml(c.sinal || "")}" data-client-id="${escapeHtml(c.clientId || "")}" data-waitlist-id="${escapeHtml(c.waitlistId || "")}" data-phone="${escapeHtml(c.phone)}" data-msg="${escapeHtml(msg)}">WhatsApp</button>` : "<span class=\"view-hint\">Sem telefone</span>"}
+              ${waBtn}
+              ${silencioBtn}
             </div>
           </div>`;
       })
@@ -326,8 +339,10 @@ export async function init() {
         sinal: wa.dataset.sinal || "",
         clientId: wa.dataset.clientId || "",
         waitlistId: wa.dataset.waitlistId || "",
+      }).then((r) => {
+        if (r?.via === "silencio") toast("Esta pessoa está em silêncio. WhatsApp não abre.");
+        else toast("WhatsApp aberto. Depois registre o desfecho na linha. Nada mais sai sozinho.");
       });
-      toast("WhatsApp aberto. Depois registre o desfecho na linha. Nada mais sai sozinho.");
       return;
     }
     const df = e.target.closest?.(".crm-desfecho");
@@ -348,6 +363,30 @@ export async function init() {
         await loadDesfechos();
       } catch (err) {
         toast(err.message || "Não salvou o desfecho.");
+      }
+      return;
+    }
+    const silOff = e.target.closest?.(".crm-silencio-off");
+    if (silOff?.dataset.clientId) {
+      const payload = payloadSilencio(silOff.dataset.clientId, { off: true });
+      try {
+        await createClientEvent(payload);
+        toast("WhatsApp liberado de novo. Continua só no clique.");
+        await loadSilencios();
+      } catch (err) {
+        toast(err.message || "Não liberou o silêncio.");
+      }
+      return;
+    }
+    const sil = e.target.closest?.(".crm-silencio");
+    if (sil?.dataset.clientId) {
+      const payload = payloadSilencio(sil.dataset.clientId);
+      try {
+        await createClientEvent(payload);
+        toast("Silêncio gravado. Lembrete automático também para de mandar WhatsApp.");
+        await loadSilencios();
+      } catch (err) {
+        toast(err.message || "Não gravou o silêncio.");
       }
       return;
     }
@@ -511,5 +550,38 @@ export async function init() {
 
   document.getElementById("crmBtnOrigemAtualizar")?.addEventListener("click", () => renderOrigemResumo());
 
-  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera(), loadDesfechos(), loadOrigens()]);
+  async function loadSilencios() {
+    try {
+      silencioMap = mapaSilencioPorCliente(await listWhatsappSilencios(), hojeLocalIso());
+    } catch (_) {
+      silencioMap = new Map();
+    }
+    renderFila();
+    await renderRegua();
+  }
+
+  async function renderRegua() {
+    const el = document.getElementById("crmReguaResumo");
+    if (!el) return;
+    try {
+      const logs = await listWhatsappLogs(12);
+      const nSil = silencioMap.size;
+      const ultimo = logs[0];
+      const passo = proximoPassoRegua(ultimo?.status || "", false);
+      const hist = logs.length
+        ? logs
+            .map((l) => {
+              const tel = escapeHtml(l.telefone || l.destino || "—");
+              const st = escapeHtml(l.status || "");
+              return `<div class="crm-row"><div><span class="view-hint">${tel} · ${st}</span></div></div>`;
+            })
+            .join("")
+        : "<p class=\"view-hint\">Nenhum clique de WhatsApp ainda nesta org.</p>";
+      el.innerHTML = `<p class="view-hint">${nSil} pessoa(s) em silêncio. Próximo passo sugerido (não envia): ${escapeHtml(passo.label)}</p>${hist}`;
+    } catch (err) {
+      el.innerHTML = `<p class="view-hint">${escapeHtml(err.message || "Sem histórico.")}</p>`;
+    }
+  }
+
+  await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera(), loadDesfechos(), loadOrigens(), loadSilencios()]);
 }

@@ -1,5 +1,8 @@
 import { supabase } from "../core/supabase.js";
 import { apiFetch } from "../core/api-fetch.js";
+import { getActiveOrg } from "../core/org.js";
+import { getEventsByClient } from "./client-events.service.js";
+import { mapaSilencioPorCliente, estaEmSilencio } from "../utils/whatsapp-regua.js";
 
 /**
  * Tenta envio pela Cloud API (só telefone de cliente/espera da org no servidor).
@@ -12,6 +15,16 @@ export async function sendWhatsapp(telefone, mensagem, meta = {}) {
   const origem = String(meta.origem || "").slice(0, 40);
   const clientId = String(meta.clientId || meta.client_id || "").trim();
   const waitlistId = String(meta.waitlistId || meta.waitlist_id || "").trim();
+
+  if (clientId) {
+    try {
+      const evs = await getEventsByClient(clientId);
+      const hoje = new Date().toISOString().slice(0, 10);
+      if (estaEmSilencio(mapaSilencioPorCliente(evs, hoje), clientId)) {
+        return { success: false, via: "silencio" };
+      }
+    } catch (_) {}
+  }
 
   if (tel.length < 10 && !clientId && !waitlistId) {
     console.warn("[WHATSAPP] Número inválido ou curto:", telefone);
@@ -33,6 +46,9 @@ export async function sendWhatsapp(telefone, mensagem, meta = {}) {
         },
       });
       const json = await res.json().catch(() => ({}));
+      if (json.reason === "silencio_humano") {
+        return { success: false, via: "silencio" };
+      }
       if (json.sent) {
         try {
           const { data: { user } } = await supabase.auth.getUser();
@@ -66,4 +82,24 @@ export async function sendWhatsapp(telefone, mensagem, meta = {}) {
   } catch (_) {}
 
   return { success: true, via: "wa" };
+}
+
+export async function listWhatsappLogs(limit = 40) {
+  const orgId = getActiveOrg();
+  if (!orgId) return [];
+  let q = await supabase
+    .from("whatsapp_logs")
+    .select("id, telefone, destino, status, created_at, mensagem, detalhe, org_id")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (q.error && /org_id|column|schema cache/i.test(String(q.error.message || ""))) {
+    q = await supabase
+      .from("whatsapp_logs")
+      .select("id, telefone, status, created_at, mensagem")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+  }
+  if (q.error) return [];
+  return q.data || [];
 }

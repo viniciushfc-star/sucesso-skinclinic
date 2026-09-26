@@ -6,6 +6,7 @@
  */
 import { getAdminClient, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 import { resolveWhatsappRecipient } from "../lib/phone-match.js";
+import { mapaSilencioPorCliente, estaEmSilencio, SILENCIO_EVENT_TYPE } from "../js/utils/whatsapp-regua.js";
 
 export default async function whatsappSend(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Método não permitido" });
@@ -42,6 +43,21 @@ export default async function whatsappSend(req, res) {
     const denyCross = dest.reason === "cliente_outra_org" || dest.reason === "espera_outra_org";
     const status = denyCross ? 403 : 400;
     return res.status(status).json({ error: "Sem permissão", reason: dest.reason || "telefone_fora_da_org" });
+  }
+
+  if (dest.source === "client" && dest.id) {
+    const { data: evs } = await getAdminClient()
+      .from("client_events")
+      .select("client_id, event_type, description, created_at")
+      .eq("org_id", auth.orgId)
+      .eq("client_id", dest.id)
+      .eq("event_type", SILENCIO_EVENT_TYPE)
+      .order("created_at", { ascending: true })
+      .limit(50);
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (estaEmSilencio(mapaSilencioPorCliente(evs || [], hoje), dest.id)) {
+      return res.status(200).json({ sent: false, fallback: false, reason: "silencio_humano" });
+    }
   }
 
   const apiUrl = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
