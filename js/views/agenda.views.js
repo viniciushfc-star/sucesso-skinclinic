@@ -55,6 +55,7 @@ import { getEntradasByAgendaId } from "../services/financeiro.service.js"
 import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes.service.js"
 import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa, sugerirProximaAcaoNaBaixa } from "../utils/ciclo-ouro.js"
 import { previstoVsRealizado } from "../utils/comissao-apuracao.js"
+import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js"
 
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
@@ -1888,7 +1889,7 @@ async function openDarBaixaModal(item) {
         ${pacotesComSaldo.map((p) => {
           const sel = sugerido && p.id === sugerido ? " selected" : ""
           const pago = p.valor_pago != null ? String(p.valor_pago) : ""
-          return `<option value="${p.id}" data-valor-pago="${pago}" data-sessoes="${p.total_sessoes || 1}"${sel}>${(p.nome_pacote || "Pacote").replace(/</g, "&lt;")} — ${p.sessoes_restantes} restantes</option>`
+          return `<option value="${p.id}" data-valor-pago="${pago}" data-sessoes="${p.total_sessoes || 1}" data-custo="${p.custo_material_estimado != null ? p.custo_material_estimado : ""}" data-comissao="${p.comissao_profissional_pct != null ? p.comissao_profissional_pct : ""}" data-margem-alvo="${p.margem_minima_desejada != null ? p.margem_minima_desejada : ""}"${sel}>${(p.nome_pacote || "Pacote").replace(/</g, "&lt;")} — ${p.sessoes_restantes} restantes</option>`
         }).join("")}
       </select>
     </div>
@@ -1923,8 +1924,9 @@ async function openDarBaixaModal(item) {
   openModal(
     "Dar baixa — Registrar pagamento",
     `
-    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Se usar pacote, o financeiro registra o valor da sessão do pacote, não o preço do catálogo de novo.</p>
+    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Se usar pacote, o financeiro registra o valor da sessão do pacote, não o preço do catálogo de novo. Custo e margem são estimativa — o atendimento não trava.</p>
     ${blocoPacote}
+    <p id="baixaEconomiaHint" class="agenda-baixa-economia" hidden></p>
     <label for="baixaDesc">Descrição</label>
     <input type="text" id="baixaDesc" value="${descricaoSugerida}" placeholder="Ex.: Agenda: Cliente – Procedimento">
     ${blocoValor}
@@ -1948,18 +1950,45 @@ async function openDarBaixaModal(item) {
     () => submitDarBaixa(item)
   )
 
-  if (temValorProcedimento) {
-    const acrescimoEl = document.getElementById("baixaAcrescimo")
+  const pacoteEl = document.getElementById("baixaPacoteId")
+  const economiaEl = document.getElementById("baixaEconomiaHint")
+  const refreshBaixaNumeros = () => {
+    const opt = pacoteEl?.selectedOptions?.[0]
+    const pacoteId = pacoteEl?.value?.trim() || ""
+    const ac = Number(document.getElementById("baixaAcrescimo")?.value) || 0
+    const base = Number(document.getElementById("baixaValorProcedimento")?.value) || valorProcedimento || 0
+    const valor = valorFinanceiroNaBaixa({
+      pacoteId: pacoteId || null,
+      valorProcedimento: base,
+      acrescimo: ac,
+      valorPagoPacote: opt?.dataset?.valorPago,
+      totalSessoes: opt?.dataset?.sessoes,
+    })
     const totalEl = document.getElementById("baixaValorTotal")
-    const updateTotal = () => {
-      const base = valorProcedimento
-      const ac = Number(acrescimoEl?.value) || 0
-      const total = base + ac
-      if (totalEl) totalEl.textContent = "R$ " + total.toFixed(2).replace(".", ",")
+    if (totalEl) totalEl.textContent = "R$ " + Number(valor).toFixed(2).replace(".", ",")
+    if (economiaEl) {
+      if (!pacoteId) {
+        economiaEl.hidden = true
+        economiaEl.textContent = ""
+        return
+      }
+      const eco = economiaSessaoPacote({
+        valorPagoPacote: opt?.dataset?.valorPago,
+        totalSessoes: opt?.dataset?.sessoes,
+        acrescimo: ac,
+        custoMaterialSessao: opt?.dataset?.custo === "" ? null : opt?.dataset?.custo,
+        comissaoPct: opt?.dataset?.comissao,
+        margemAlvoPct: opt?.dataset?.margemAlvo,
+      })
+      economiaEl.hidden = false
+      economiaEl.textContent = textoEconomiaSessao(eco)
+      economiaEl.classList.toggle("agenda-baixa-economia--alerta", !!eco.abaixoAlvo)
     }
-    acrescimoEl?.addEventListener("input", updateTotal)
-    acrescimoEl?.addEventListener("change", updateTotal)
   }
+  document.getElementById("baixaAcrescimo")?.addEventListener("input", refreshBaixaNumeros)
+  document.getElementById("baixaAcrescimo")?.addEventListener("change", refreshBaixaNumeros)
+  pacoteEl?.addEventListener("change", refreshBaixaNumeros)
+  refreshBaixaNumeros()
 }
 
 async function submitDarBaixa(item) {
@@ -2025,6 +2054,17 @@ async function submitDarBaixa(item) {
     const extraAberto = aberto.emAberto
       ? ` Ficou em aberto R$ ${aberto.aberto.toFixed(2).replace(".", ",")}. Não lança outra entrada sozinha.`
       : ""
+    let extraEco = ""
+    if (pacoteId) {
+      extraEco = " " + textoEconomiaSessao(economiaSessaoPacote({
+        valorPagoPacote: opt?.dataset?.valorPago,
+        totalSessoes: opt?.dataset?.sessoes,
+        acrescimo: ac,
+        custoMaterialSessao: opt?.dataset?.custo === "" ? null : opt?.dataset?.custo,
+        comissaoPct: opt?.dataset?.comissao,
+        margemAlvoPct: opt?.dataset?.margemAlvo,
+      }))
+    }
 
     let sessoesRestantes = 0
     if (pacoteId) {
@@ -2033,7 +2073,7 @@ async function submitDarBaixa(item) {
         sessoesRestantes = cons.sessoes_restantes ?? 0
         toast((cons.already
           ? "Esta sessão do pacote já tinha sido descontada neste horário."
-          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada.")) + extraAberto)
+          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada.")) + extraAberto + extraEco)
       } catch (e) {
         console.warn("[AGENDA] consumirSessao", e)
         toast("Erro ao descontar sessão do pacote: " + (e?.message || "tente no perfil do cliente."))

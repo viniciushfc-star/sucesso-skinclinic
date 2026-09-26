@@ -16,6 +16,7 @@ import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { compararEstoquePrevistoReal } from "../utils/estoque-previsto-real.js";
+import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -455,12 +456,20 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
 
       <div id="tabPacotes" class="tab-pane hidden">
         <div class="cliente-pacotes">
-          <p class="client-hint">Pacotes de sessões vendidos a este cliente. Dê baixa ao concluir cada atendimento (na Agenda, ao dar baixa no agendamento, ou manualmente aqui).</p>
+          <p class="client-hint">Pacotes de sessões vendidos a este cliente. Dê baixa ao concluir cada atendimento (na Agenda, ao dar baixa no agendamento, ou manualmente aqui). Custo e margem da sessão são estimativa; o preço do catálogo não muda.</p>
           ${canEdit ? `<button type="button" class="btn-primary" id="btnVenderPacote">+ Vender pacote</button>` : ""}
           <ul id="clientePacotesList" class="cliente-pacotes-list">
             ${(pacotes || []).length ? (pacotes || []).map((p) => {
               const restantes = p.sessoes_restantes ?? Math.max(0, (p.total_sessoes ?? 0) - (p.sessoes_utilizadas ?? 0));
               const valido = !p.valido_ate || new Date(p.valido_ate) >= new Date();
+              const eco = economiaSessaoPacote({
+                valorPagoPacote: p.valor_pago,
+                totalSessoes: p.total_sessoes,
+                custoMaterialSessao: p.custo_material_estimado,
+                comissaoPct: p.comissao_profissional_pct,
+                margemAlvoPct: p.margem_minima_desejada,
+              });
+              const ecoCls = eco.abaixoAlvo ? " cliente-pacote-economia--alerta" : "";
               return `<li class="cliente-pacote-item ${restantes === 0 ? "cliente-pacote-esgotado" : ""} ${!valido ? "cliente-pacote-vencido" : ""}" data-package-id="${p.id}">
                 <span class="cliente-pacote-nome">${escapeHtml(p.nome_pacote)}</span>
                 ${p.procedure_name ? `<span class="cliente-pacote-proc">${escapeHtml(p.procedure_name)}</span>` : ""}
@@ -468,6 +477,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
                 ${restantes > 0 && valido ? `<span class="cliente-pacote-restantes">${restantes} restantes</span>` : ""}
                 ${p.valido_ate ? `<span class="cliente-pacote-valido">Válido até ${formatDate(p.valido_ate)}</span>` : ""}
                 ${p.valor_pago != null ? `<span class="cliente-pacote-valor">R$ ${Number(p.valor_pago).toFixed(2).replace(".", ",")}</span>` : ""}
+                <span class="cliente-pacote-economia${ecoCls}">${escapeHtml(textoEconomiaSessao(eco))}</span>
               </li>`;
             }).join("") : "<li class=\"cliente-pacotes-empty\">Nenhum pacote. Clique em \"Vender pacote\" para registrar.</li>"}
           </ul>

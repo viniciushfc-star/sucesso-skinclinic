@@ -18,14 +18,20 @@ export async function listPacotesByClient(clientId) {
   const procIds = [...new Set(rows.map((r) => r.procedure_id).filter(Boolean))];
   if (procIds.length === 0) return rows;
   const { data: procs } = await withOrg(
-    supabase.from("procedures").select("id, name").in("id", procIds)
+    supabase.from("procedures").select("id, name, custo_material_estimado, comissao_profissional_pct, margem_minima_desejada").in("id", procIds)
   );
-  const procMap = (procs ?? []).reduce((acc, p) => { acc[p.id] = p.name; return acc; }, {});
-  return rows.map((r) => ({
-    ...r,
-    procedure_name: r.procedure_id ? procMap[r.procedure_id] : null,
-    sessoes_restantes: Math.max(0, (r.total_sessoes ?? 0) - (r.sessoes_utilizadas ?? 0)),
-  }));
+  const procMap = (procs ?? []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+  return rows.map((r) => {
+    const proc = r.procedure_id ? procMap[r.procedure_id] : null;
+    return {
+      ...r,
+      procedure_name: proc?.name || null,
+      custo_material_estimado: proc?.custo_material_estimado ?? null,
+      comissao_profissional_pct: proc?.comissao_profissional_pct ?? null,
+      margem_minima_desejada: proc?.margem_minima_desejada ?? null,
+      sessoes_restantes: Math.max(0, (r.total_sessoes ?? 0) - (r.sessoes_utilizadas ?? 0)),
+    };
+  });
 }
 
 /**
