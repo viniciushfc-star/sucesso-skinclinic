@@ -48,6 +48,8 @@ export async function init(){
     analises: analises || [],
     sessoes: sessoes || [],
     hasSkincare: !!skincareRotina,
+    protocol,
+    records: records || [],
   });
 
   renderDashboard(protocol, records || [], !!skincareRotina, jornada);

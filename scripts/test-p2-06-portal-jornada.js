@@ -49,4 +49,22 @@ describe("P2-6 portal jornada", () => {
     assert.match(dash, /Minha jornada/);
     assert.doesNotMatch(dash, /ia_preliminar/);
   });
+
+  it("plano e orientações entram sem rascunho de IA", () => {
+    const steps = buildPortalJornada({
+      today: "2026-09-21",
+      cadastroCompleto: true,
+      protocol: { name: "Protocolo laser", ia_preliminar: "SEGREDO" },
+      records: [{ content: "hidratacao" }],
+    });
+    assert.equal(steps.find((s) => s.id === "plano").detalhe, "Protocolo laser");
+    assert.equal(steps.find((s) => s.id === "tratamentos").estado, "feito");
+    assert.equal(jornadaJsonProibido(steps), false);
+    const semHorario = buildPortalJornada({
+      today: "2026-09-21",
+      cadastroCompleto: true,
+      anamneses: [{ id: 1 }],
+    });
+    assert.match(semHorario.find((s) => s.id === "proximo").detalhe, /marcar o próximo horário/);
+  });
 });
