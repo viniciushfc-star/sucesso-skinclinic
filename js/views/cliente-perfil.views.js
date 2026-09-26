@@ -8,6 +8,10 @@ import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } from "../services/evolution-photos.service.js";
 import { listProcedures } from "../services/procedimentos.service.js";
 import { listPacotesByClient, createPacote } from "../services/pacotes.service.js";
+import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus } from "../services/orcamentos.service.js";
+import { sendWhatsapp } from "../services/whatsapp.service.js";
+import { getOrganizationProfile } from "../services/organization-profile.service.js";
+import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal } from "../utils/orcamento.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -50,7 +54,7 @@ export async function init() {
 
   try {
     currentClient = await getClientById(clientId);
-    const [events, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther, pacotes] = await Promise.all([
+    const [events, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther, pacotes, orcamentos] = await Promise.all([
       getEventsByClient(clientId),
       getSkincareRotinaByClient(clientId).catch(() => null),
       getProtocolos().catch(() => []),
@@ -61,6 +65,7 @@ export async function init() {
       getResumoPorProduto().catch(() => []),
       currentClient.cpf ? getOtherClientWithSameCpf(currentClient.cpf, clientId).catch(() => null) : Promise.resolve(null),
       listPacotesByClient(clientId).catch(() => []),
+      listOrcamentosByClient(clientId).catch(() => []),
     ]);
     const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
     const canManage = await checkPermission("clientes:manage");
@@ -68,15 +73,15 @@ export async function init() {
     canEditClient = canManage || canEditPerm;
     canLgpdClient = canManage;
     editPermissionUsed = canManage ? "clientes:manage" : "clientes:edit";
-    renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes);
+    renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes, orcamentos);
     if (sessionStorage.getItem("clientePerfilOpenEdit") === "1") {
       sessionStorage.removeItem("clientePerfilOpenEdit");
       if (canEditClient) setTimeout(() => openEditModal(currentClient), 100);
     }
     const openTab = sessionStorage.getItem("clientePerfilOpenTab");
-    if (openTab === "protocolo") {
+    if (openTab) {
       sessionStorage.removeItem("clientePerfilOpenTab");
-      document.querySelector('.tab-btn[data-tab="protocolo"]')?.click();
+      document.querySelector(`.tab-btn[data-tab="${openTab}"]`)?.click();
     }
   } catch (err) {
     console.error(err);
@@ -140,7 +145,7 @@ function renderLgpdBlock(client) {
   </div>`;
 }
 
-function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], produtosEstoque = [], cpfOther = null, pacotes = []) {
+function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], produtosEstoque = [], cpfOther = null, pacotes = [], orcamentos = []) {
   const container = document.getElementById("clientePerfilContent");
   if (!container) return;
   cachedProceduresList = proceduresList || [];
@@ -205,6 +210,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         <button type="button" class="tab-btn" data-tab="evolucao">Evolução</button>
         <button type="button" class="tab-btn" data-tab="rotina-skincare">Rotina skincare</button>
         <button type="button" class="tab-btn" data-tab="pacotes">Pacotes</button>
+        <button type="button" class="tab-btn" data-tab="orcamentos">Orçamentos</button>
       </div>
 
       <div id="tabDados" class="tab-pane active">
@@ -456,10 +462,20 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
           </ul>
         </div>
       </div>
+
+      <div id="tabOrcamentos" class="tab-pane hidden">
+        <div class="cliente-orcamentos">
+          <p class="client-hint">Monte a proposta, envie no WhatsApp (um paciente por vez) e, se fechar, grave no cadastro. Não altera o preço do catálogo.</p>
+          ${canEdit ? `<button type="button" class="btn-primary" id="btnNovoOrcamento">+ Novo orçamento</button>` : ""}
+          <ul id="clienteOrcamentosList" class="cliente-orcamentos-list">
+            ${renderOrcamentosList(orcamentos, canEdit)}
+          </ul>
+        </div>
+      </div>
     </div>
   `;
 
-  bindPerfilEvents(client, canEdit, proceduresList, pacotes);
+  bindPerfilEvents(client, canEdit, proceduresList, orcamentos);
 }
 
 function dateKey(d) {
@@ -892,7 +908,226 @@ function openRelatorioEvolucaoModal(client) {
   win.document.close();
 }
 
-function bindPerfilEvents(client, canEdit) {
+function renderOrcamentosList(orcamentos, canEdit) {
+  if (!orcamentos?.length) {
+    return "<li class=\"cliente-orcamentos-empty\">Nenhum orçamento. Clique em \"Novo orçamento\" para montar a proposta.</li>";
+  }
+  return orcamentos.map((o) => {
+    const items = Array.isArray(o.items) ? o.items : [];
+    const total = totalOrcamento(items);
+    const linhas = items.map((it) => `${escapeHtml(it.name || "Item")} × ${Number(it.qty) || 1}`).join("; ");
+    const acoes = canEdit && o.status !== "aceito" && o.status !== "recusado"
+      ? `<button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
+         <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
+         <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
+      : "";
+    return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(o.status || "rascunho")}">
+      <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(o.status))}</span>
+      <span class="cliente-orcamento-total">${brl(total)}</span>
+      <span class="cliente-orcamento-itens">${linhas || "—"}</span>
+      ${o.valid_until ? `<span class="cliente-orcamento-valid">Até ${formatDate(o.valid_until)}</span>` : ""}
+      <span class="cliente-orcamento-acoes">${acoes}</span>
+    </li>`;
+  }).join("");
+}
+
+async function reloadPerfilOrcamentos() {
+  sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
+  await init();
+}
+
+function sqlOrcamentoHint(err) {
+  const msg = String(err?.message || err || "");
+  if (/orcamentos|42P01|PGRST205|schema cache|does not exist/i.test(msg)) {
+    return "Cole supabase-orcamentos-colar.sql no Supabase.";
+  }
+  return msg || "Erro no orçamento.";
+}
+
+function openOrcamentoModal(client, proceduresList) {
+  const procs = proceduresList || [];
+  const opts = procs.map((p) => {
+    const price = p.valor_cobrado != null ? Number(p.valor_cobrado) : 0;
+    return `<option value="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" data-price="${price}">${escapeHtml(p.name)}${price ? " — " + brl(price) : ""}</option>`;
+  }).join("");
+  const validade = new Date();
+  validade.setDate(validade.getDate() + 15);
+  const validStr = validade.toISOString().slice(0, 10);
+  openModal(
+    "Novo orçamento",
+    `
+    <p class="client-hint">Os valores vêm do catálogo só como ponto de partida. Você pode alterar. Não muda o preço do procedimento.</p>
+    <label for="orcamentoProc">Procedimento</label>
+    <select id="orcamentoProc"><option value="">— Selecione —</option>${opts}</select>
+    <label for="orcamentoQty">Quantidade / sessões</label>
+    <input type="number" id="orcamentoQty" min="1" step="1" value="1">
+    <label for="orcamentoPreco">Valor unitário (R$)</label>
+    <input type="number" id="orcamentoPreco" min="0" step="0.01" value="0">
+    <label for="orcamentoNomeLivre">Ou descreva o item</label>
+    <input type="text" id="orcamentoNomeLivre" placeholder="Ex.: Harmonização — 2ml">
+    <ul id="orcamentoLinhas" class="cliente-orcamento-linhas"></ul>
+    <p id="orcamentoTotal" class="cliente-orcamento-total-preview">Total: ${brl(0)}</p>
+    <label for="orcamentoValid">Válido até</label>
+    <input type="date" id="orcamentoValid" value="${validStr}">
+    <label for="orcamentoNotes">Observação (opcional)</label>
+    <textarea id="orcamentoNotes" rows="2" placeholder="Ex.: incluir avaliação, forma de pagamento"></textarea>
+    `,
+    async () => {
+      const items = readOrcamentoLinhas();
+      if (!items.length) {
+        toast("Adicione pelo menos um item.");
+        return false;
+      }
+      const notes = document.getElementById("orcamentoNotes")?.value?.trim() || null;
+      const valid_until = document.getElementById("orcamentoValid")?.value || null;
+      try {
+        await createOrcamento({ client_id: client.id, items, notes, valid_until, status: "rascunho" });
+        closeModal();
+        toast("Orçamento salvo no paciente.");
+        await reloadPerfilOrcamentos();
+      } catch (err) {
+        toast(sqlOrcamentoHint(err), "error");
+        return false;
+      }
+    }
+  );
+  const sel = document.getElementById("orcamentoProc");
+  const preco = document.getElementById("orcamentoPreco");
+  sel?.addEventListener("change", () => {
+    const opt = sel.selectedOptions[0];
+    if (opt?.dataset.price) preco.value = opt.dataset.price;
+  });
+  document.getElementById("orcamentoAddLinha")?.addEventListener("click", () => {
+    const opt = sel?.selectedOptions[0];
+    const livre = document.getElementById("orcamentoNomeLivre")?.value?.trim() || "";
+    const name = (opt?.dataset.name && sel?.value) ? opt.dataset.name : livre;
+    const procedure_id = sel?.value || null;
+    const qty = Number(document.getElementById("orcamentoQty")?.value) || 1;
+    const unit_price = Number(document.getElementById("orcamentoPreco")?.value) || 0;
+    if (!name) {
+      toast("Escolha um procedimento ou descreva o item.");
+      return;
+    }
+    pushOrcamentoLinha({ procedure_id, name, qty, unit_price, sessions: qty });
+    sel.value = "";
+    const livreEl = document.getElementById("orcamentoNomeLivre");
+    if (livreEl) livreEl.value = "";
+  });
+}
+
+function readOrcamentoLinhas() {
+  const ul = document.getElementById("orcamentoLinhas");
+  const items = [];
+  ul?.querySelectorAll("li[data-name]")?.forEach((li) => {
+    items.push({
+      procedure_id: li.dataset.procedureId || null,
+      name: li.dataset.name,
+      qty: Number(li.dataset.qty) || 1,
+      unit_price: Number(li.dataset.price) || 0,
+      sessions: Number(li.dataset.sessions) || Number(li.dataset.qty) || 1,
+    });
+  });
+  return items;
+}
+
+function pushOrcamentoLinha(item) {
+  const ul = document.getElementById("orcamentoLinhas");
+  if (!ul) return;
+  const li = document.createElement("li");
+  li.dataset.name = item.name;
+  li.dataset.procedureId = item.procedure_id || "";
+  li.dataset.qty = String(item.qty);
+  li.dataset.price = String(item.unit_price);
+  li.dataset.sessions = String(item.sessions || item.qty);
+  li.innerHTML = `<span>${escapeHtml(item.name)} × ${item.qty} — ${brl(linhaTotal(item))}</span> <button type="button" class="btn-sm" aria-label="Remover">×</button>`;
+  li.querySelector("button")?.addEventListener("click", () => {
+    li.remove();
+    refreshOrcamentoTotal();
+  });
+  ul.appendChild(li);
+  refreshOrcamentoTotal();
+}
+
+function refreshOrcamentoTotal() {
+  const el = document.getElementById("orcamentoTotal");
+  if (el) el.textContent = "Total: " + brl(totalOrcamento(readOrcamentoLinhas()));
+}
+
+function bindOrcamentoCardActions(client, orcamentos) {
+  document.querySelectorAll(".orcamento-enviar").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
+      if (!row) return;
+      try {
+        const profile = await getOrganizationProfile().catch(() => ({}));
+        const msg = formatOrcamentoMensagem({
+          nomeClinica: profile?.name,
+          nomeCliente: client.name,
+          items: row.items,
+          notes: row.notes,
+          validUntil: row.valid_until,
+        });
+        await sendWhatsapp(client.phone, msg, { origem: "orcamento", clientId: client.id });
+        if (row.status === "rascunho") await updateOrcamentoStatus(row.id, "enviado");
+        toast("WhatsApp aberto. Confira a mensagem antes de enviar.");
+        await reloadPerfilOrcamentos();
+      } catch (err) {
+        toast(sqlOrcamentoHint(err), "error");
+      }
+    });
+  });
+  document.querySelectorAll(".orcamento-aceitar").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
+      if (!row) return;
+      if (!confirm("Fechou o orçamento? Ele fica no cadastro e vira pacote de sessões (se houver quantidade).")) return;
+      try {
+        await updateOrcamentoStatus(row.id, "aceito");
+        const items = Array.isArray(row.items) ? row.items : [];
+        await createClientEvent({
+          client_id: client.id,
+          event_type: "Orçamento aceito",
+          description: formatOrcamentoMensagem({ nomeCliente: client.name, items, notes: row.notes }),
+        });
+        for (const it of items) {
+          const sessoes = Math.max(1, Number(it.sessions) || Number(it.qty) || 1);
+          await createPacote({
+            client_id: client.id,
+            procedure_id: it.procedure_id || null,
+            nome_pacote: it.name || "Orçamento",
+            total_sessoes: sessoes,
+            valor_pago: linhaTotal(it),
+          }).catch((e) => console.warn("[ORCAMENTO] pacote", e));
+        }
+        await audit({
+          action: "orcamento.aceito",
+          tableName: "orcamentos",
+          recordId: row.id,
+          permissionUsed: "clientes:manage",
+          metadata: { client_id: client.id, total: totalOrcamento(items) },
+        }).catch(() => {});
+        toast("Orçamento no paciente. Pacotes na aba Pacotes.");
+        sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
+        await init();
+      } catch (err) {
+        toast(sqlOrcamentoHint(err), "error");
+      }
+    });
+  });
+  document.querySelectorAll(".orcamento-recusar").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await updateOrcamentoStatus(btn.dataset.id, "recusado");
+        toast("Orçamento marcado como recusado.");
+        await reloadPerfilOrcamentos();
+      } catch (err) {
+        toast(sqlOrcamentoHint(err), "error");
+      }
+    });
+  });
+}
+
+function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = []) {
   document.getElementById("btnVoltarClientes")?.addEventListener("click", () => {
     closeModal();
     sessionStorage.removeItem("clientePerfilId");
@@ -1033,11 +1268,14 @@ function bindPerfilEvents(client, canEdit) {
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
       document.querySelectorAll(".tab-pane").forEach((p) => p.classList.add("hidden"));
       btn.classList.add("active");
-      const paneId = tab === "dados" ? "tabDados" : tab === "historico" ? "tabHistorico" : tab === "protocolo" ? "tabProtocolo" : tab === "evolucao" ? "tabEvolucao" : tab === "pacotes" ? "tabPacotes" : "tabRotinaSkincare";
+      const paneId = tab === "dados" ? "tabDados" : tab === "historico" ? "tabHistorico" : tab === "protocolo" ? "tabProtocolo" : tab === "evolucao" ? "tabEvolucao" : tab === "pacotes" ? "tabPacotes" : tab === "orcamentos" ? "tabOrcamentos" : "tabRotinaSkincare";
       const pane = document.getElementById(paneId);
       if (pane) pane.classList.remove("hidden");
     });
   });
+
+  document.getElementById("btnNovoOrcamento")?.addEventListener("click", () => openOrcamentoModal(client, proceduresList));
+  bindOrcamentoCardActions(client, orcamentos);
 
   document.getElementById("btnProtocoloAddProduto")?.addEventListener("click", () => {
     const sel = document.getElementById("protocoloProdutoSelect");

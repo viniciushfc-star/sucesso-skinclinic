@@ -3898,6 +3898,18 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .dashboard-sala-espera-acoes{ display:flex; flex-wrap:wrap; gap:0.25rem; }
 .dashboard-sala-espera-empty{ margin:0; font-size:0.9rem; color:#64748b; }
 .anamnese-mapa-dot--planejado, .injetaveis-mapa-dot--planejado{ background:transparent; border:2px dashed #4e54c8; }
+.cliente-orcamentos-list{ list-style:none; margin:0.75rem 0 0; padding:0; display:flex; flex-direction:column; gap:0.5rem; }
+.cliente-orcamento-item{ display:flex; flex-wrap:wrap; gap:0.35rem 0.75rem; align-items:center; padding:0.6rem 0.75rem; background:#f8fafc; border-radius:8px; font-size:0.9rem; }
+.cliente-orcamento-item--aceito{ background:#ecfdf5; }
+.cliente-orcamento-item--recusado{ background:#f8fafc; opacity:0.75; }
+.cliente-orcamento-status{ font-weight:700; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.03em; color:#475569; }
+.cliente-orcamento-total{ font-weight:600; color:#1e293b; }
+.cliente-orcamento-itens{ color:#64748b; flex:1 1 12rem; }
+.cliente-orcamento-acoes{ display:flex; flex-wrap:wrap; gap:0.25rem; }
+.cliente-orcamento-linhas{ list-style:none; margin:0.5rem 0; padding:0; }
+.cliente-orcamento-linhas li{ display:flex; justify-content:space-between; gap:0.5rem; padding:0.25rem 0; }
+.cliente-orcamento-total-preview{ font-weight:600; }
+.cliente-orcamentos-empty{ color:#64748b; }
 @media (max-width:800px){
   .cockpit-cols{ grid-template-columns:1fr; }
   .dashboard-agenda-hoje-item{ grid-template-columns:auto 1fr; }

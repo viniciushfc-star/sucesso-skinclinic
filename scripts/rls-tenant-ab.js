@@ -36,6 +36,7 @@ const TABLES = [
   "ai_usage_events",
   "client_events",
   "anamnesis_registros",
+  "orcamentos",
 ];
 
 const OPTIONAL_TABLES = new Set([
@@ -49,6 +50,7 @@ const OPTIONAL_TABLES = new Set([
   "ai_usage_events",
   "client_events",
   "anamnesis_registros",
+  "orcamentos",
 ]);
 
 function isMissingRelation(error) {

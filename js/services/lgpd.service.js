@@ -31,6 +31,7 @@ export const LGPD_CLIENT_TABLES = [
   "protocolos_aplicados",
   "planos_terapeuticos",
   "agenda_waitlist",
+  "orcamentos",
 ];
 
 async function selectEq(table, orgId, col, value) {
