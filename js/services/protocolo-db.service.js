@@ -7,6 +7,7 @@ import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { getTodayLocal } from "./metrics.service.js";
 import { getResumoPorProduto, registrarConsumoEstimado } from "./estoque-entradas.service.js";
+import { itensParaConsumoEstoque } from "../utils/estoque-previsto-real.js";
 
 function getOrgId() {
   const orgId = getActiveOrg();
@@ -169,20 +170,13 @@ export async function createProtocoloAplicado(payload) {
         }))
     : [];
 
+  let previstos = [];
   if (protocoloId) {
     try {
-      const descartaveis = await getDescartaveisByProtocolo(protocoloId);
-      const have = new Set(produtosUsados.map((p) => p.produto_nome.toLowerCase()));
-      for (const d of descartaveis) {
-        const nome = (d.produto_nome || "").trim();
-        if (!nome || have.has(nome.toLowerCase())) continue;
-        produtosUsados.push({
-          produto_nome: nome,
-          quantidade: Math.max(0, Number(d.quantidade) || 1),
-        });
-        have.add(nome.toLowerCase());
-      }
-    } catch (_) {}
+      previstos = await getDescartaveisByProtocolo(protocoloId);
+    } catch (_) {
+      previstos = [];
+    }
   }
 
   const { data, error } = await supabase
@@ -202,7 +196,7 @@ export async function createProtocoloAplicado(payload) {
     .single();
   if (error) throw error;
 
-  for (const p of produtosUsados) {
+  for (const p of itensParaConsumoEstoque(previstos, produtosUsados)) {
     try {
       await registrarConsumoEstimado({
         produto_nome: p.produto_nome,

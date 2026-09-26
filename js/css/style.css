@@ -3719,6 +3719,7 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .protocolo-aplicado-obs{ width:100%; margin:0.25rem 0 0; font-size:0.9rem; color:#475569; }
 .protocolo-aplicado-desc{ width:100%; margin:0.25rem 0 0; font-size:0.9rem; color:#334155; }
 .protocolo-aplicado-produtos{ width:100%; margin:0.2rem 0 0; font-size:0.85rem; color:#64748b; }
+.protocolo-estoque-previsto{ width:100%; margin:0.35rem 0 0; padding-left:1.1rem; font-size:0.82rem; color:#9a3412; }
 .protocolo-produtos-wrap{ margin:0.75rem 0; }
 .protocolo-produtos-hint{ margin:0.25rem 0 0.5rem; font-size:0.85rem; }
 .protocolo-produtos-add{ display:flex; flex-wrap:wrap; align-items:center; gap:0.5rem; margin-bottom:0.5rem; }

@@ -1,7 +1,7 @@
 import { getClientById, getOtherClientWithSameCpf, updateClient, updateClientState, uploadClientPhoto, createClientPortalSession, CLIENT_STATES } from "../services/clientes.service.js";
 import { getEventsByClient, createClientEvent } from "../services/client-events.service.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina, liberarSkincareRotina } from "../services/skincare-rotina.service.js";
-import { getProtocolos, getProtocolosAplicadosByClient, createProtocoloAplicado, getAlertaEstoqueProtocolo } from "../services/protocolo-db.service.js";
+import { getProtocolos, getProtocolosAplicadosByClient, createProtocoloAplicado, getAlertaEstoqueProtocolo, getDescartaveisByProtocolo } from "../services/protocolo-db.service.js";
 import { getResumoPorProduto } from "../services/estoque-entradas.service.js";
 import { createEstudoCaso } from "../services/estudo-caso.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
@@ -15,6 +15,7 @@ import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, lin
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
+import { compararEstoquePrevistoReal } from "../utils/estoque-previsto-real.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
@@ -71,6 +72,14 @@ export async function init() {
       listOrcamentosByClient(clientId).catch(() => []),
     ]);
     const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const protoIds = [...new Set((protocolosAplicados || []).map((a) => a.protocolo_id).filter(Boolean))];
+    const previstosEntries = await Promise.all(
+      protoIds.map(async (id) => [id, await getDescartaveisByProtocolo(id).catch(() => [])])
+    );
+    const previstosById = Object.fromEntries(previstosEntries);
+    for (const a of protocolosAplicados || []) {
+      a._previsto = a.protocolo_id ? previstosById[a.protocolo_id] || [] : [];
+    }
     const canManage = await checkPermission("clientes:manage");
     const canEditPerm = await checkPermission("clientes:edit");
     canEditClient = canManage || canEditPerm;
@@ -322,7 +331,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
             <textarea id="protocoloDescricao" rows="3" placeholder="Ex.: Limpeza de pele, aplicação de toxina na região frontal, peelings..."></textarea>
             <div class="protocolo-produtos-wrap">
               <label>Produtos utilizados (estoque)</label>
-              <p class="client-hint protocolo-produtos-hint">Adicione os produtos que foram usados; o estoque será atualizado.</p>
+              <p class="client-hint protocolo-produtos-hint">O que você listar é o consumo real. Se escolher um protocolo e não listar o item, o estoque assume o descartável cadastrado. O atendimento não trava.</p>
               <div class="protocolo-produtos-add">
                 <select id="protocoloProdutoSelect">
                   <option value="">— Selecione um produto —</option>
@@ -568,12 +577,24 @@ function renderProtocoloAplicadoItem(a) {
   const desc = (a.descricao || "").trim();
   const prods = Array.isArray(a.produtos_usados) ? a.produtos_usados : [];
   const produtosStr = prods.length ? prods.map((p) => `${escapeHtml(p.produto_nome || "")}${(p.quantidade && p.quantidade !== 1) ? " × " + p.quantidade : ""}`).join(", ") : "";
+  const cmp = compararEstoquePrevistoReal({ previsto: a._previsto || [], real: prods });
+  const estoqueHtml = cmp.temDivergencia
+    ? `<ul class="protocolo-estoque-previsto">${cmp.linhas.map((l) => {
+        const label = l.tipo === "faltou"
+          ? `previsto ${l.previsto}, não listado no real`
+          : l.tipo === "extra"
+            ? `só no real (${l.real})`
+            : `previsto ${l.previsto} × real ${l.real}`;
+        return `<li><strong>${escapeHtml(l.nome)}</strong> — ${escapeHtml(label)}</li>`;
+      }).join("")}</ul>`
+    : "";
   return `
     <li class="protocolo-aplicado-item">
       <span class="protocolo-aplicado-data">${formatDateTime(a.aplicado_em)}</span>
       ${nome ? `<span class="protocolo-aplicado-nome">${escapeHtml(nome)}</span>` : ""}
       ${desc ? `<p class="protocolo-aplicado-desc">${escapeHtml(desc)}</p>` : ""}
       ${produtosStr ? `<p class="protocolo-aplicado-produtos">Produtos: ${produtosStr}</p>` : ""}
+      ${estoqueHtml}
       ${a.observacao ? `<p class="protocolo-aplicado-obs">${escapeHtml(a.observacao)}</p>` : ""}
     </li>`;
 }
