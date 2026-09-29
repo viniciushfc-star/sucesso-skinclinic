@@ -36,7 +36,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Envie org_id e client_id no body" });
   }
 
-  const supabase = getAdminClient();
+  let supabase;
+  try {
+    supabase = getAdminClient();
+  } catch (e) {
+    return sendAuthError(res, e);
+  }
 
   const { data: client } = await supabase
     .from("clients")

@@ -30,6 +30,8 @@ export async function getTaxas() {
   out.parcelamento_max_parcelas = profile.parcelamento_max_parcelas != null ? profile.parcelamento_max_parcelas : null;
   out.margem_alvo_padrao_pct = profile.margem_alvo_padrao_pct != null ? Number(profile.margem_alvo_padrao_pct) : 40;
   out.comissao_profissional_padrao_pct = profile.comissao_profissional_padrao_pct != null ? Number(profile.comissao_profissional_padrao_pct) : null;
+  out.vende_para_cliente = profile.vende_para_cliente !== false;
+  out.vende_para_profissional = profile.vende_para_profissional === true;
   return out;
 }
 
@@ -139,6 +141,8 @@ export async function saveTaxas(payload) {
   if (payload.comissao_profissional_padrao_pct !== undefined) {
     update.comissao_profissional_padrao_pct = (payload.comissao_profissional_padrao_pct === "" || payload.comissao_profissional_padrao_pct == null) ? null : toNum(payload.comissao_profissional_padrao_pct);
   }
+  if (payload.vende_para_cliente !== undefined) update.vende_para_cliente = !!payload.vende_para_cliente;
+  if (payload.vende_para_profissional !== undefined) update.vende_para_profissional = !!payload.vende_para_profissional;
   await updateOrganizationProfile(update);
 }
 

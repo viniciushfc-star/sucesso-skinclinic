@@ -155,7 +155,7 @@ export async function getSession() {
 
 /** Chaves de sessionStorage que guardam estado de navegação (perfil, edição, etc.). Limpar ao sair para não vazar entre usuários. */
 const SESSION_KEYS_TO_CLEAR = [
-  "clientePerfilId", "clientePerfilOpenEdit", "clientePerfilOpenTab", "clientePerfilAgendaId",
+  "clientePerfilId", "clientePerfilOpenEdit", "clientePerfilOpenTab", "clientePerfilAgendaId", "clientePerfilOrcamentoId",
   "profissionalPerfilId", "procedimentoEditId", "teamShowManage",
   "anamnese_client_id", "anamnese_agenda_id", "anamnese_procedimento", "anamnese_funcao_slug",
   "skincare_client_id", "skincare_from_profile", "skincare_protocol_id",

@@ -29,6 +29,7 @@ export function openModal(
   modalFields.innerHTML = fields
 
   modal.classList.remove("hidden")
+  if (modalForm) modalForm.noValidate = true
   // Modal não fecha ao clicar no fundo (apenas Cancelar ou Salvar), para não fechar por acidente (ex.: Nova sala)
   if (!modal._noOverlayClose) {
     modal._noOverlayClose = true

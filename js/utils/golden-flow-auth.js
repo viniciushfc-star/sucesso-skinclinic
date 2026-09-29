@@ -40,6 +40,27 @@ export function interpretarLeituraElo({ error, count, optional } = {}) {
   return { ok: true, estado: q > 0 ? "com_dado" : "vazio", count: q };
 }
 
+/**
+ * Escolhe a org do JWT com mais pacientes (não a primeira linha).
+ * Só SELECT.
+ */
+export async function escolherOrgComPacientes(user) {
+  const { data: memberships, error } = await user.from("organization_users").select("org_id, role");
+  if (error) return { ok: false, detalhe: error.message, memberships: [] };
+  const list = memberships || [];
+  if (!list.length) return { ok: false, detalhe: "sem membership", memberships: [] };
+  let melhor = { orgId: list[0].org_id, role: list[0].role, clientes: -1 };
+  for (const m of list) {
+    const { count, error: cErr } = await user
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", m.org_id);
+    const n = cErr ? -1 : Number(count) || 0;
+    if (n > melhor.clientes) melhor = { orgId: m.org_id, role: m.role, clientes: n };
+  }
+  return { ok: true, ...melhor, memberships: list };
+}
+
 export function credenciaisGoldenAuth(env = process.env) {
   const url = String(env.SUPABASE_URL || "").trim();
   const anon = String(env.SUPABASE_ANON_KEY || "").trim();

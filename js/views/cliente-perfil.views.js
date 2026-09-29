@@ -1,4 +1,4 @@
-import { getClientById, getOtherClientWithSameCpf, updateClient, updateClientState, uploadClientPhoto, createClientPortalSession, CLIENT_STATES } from "../services/clientes.service.js";
+import { getClientById, getOtherClientWithSameCpf, updateClient, updateClientState, uploadClientPhoto, createClientPortalSession, applyRelacaoComercial, CLIENT_STATES } from "../services/clientes.service.js";
 import { getEventsByClient, createClientEvent } from "../services/client-events.service.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina, liberarSkincareRotina } from "../services/skincare-rotina.service.js";
 import { getProtocolos, getProtocolosAplicadosByClient, createProtocoloAplicado, getAlertaEstoqueProtocolo, getDescartaveisByProtocolo } from "../services/protocolo-db.service.js";
@@ -9,9 +9,13 @@ import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } 
 import { listProcedures } from "../services/procedimentos.service.js";
 import { listPacotesByClient } from "../services/pacotes.service.js";
 import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus, aceitarOrcamento } from "../services/orcamentos.service.js";
+import { listProdutosCatalogo } from "../services/estoque-produtos.service.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
+import { getTaxas, getTaxaForParcelas, calcularLiquido } from "../services/precificacao-taxas.service.js";
 import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado, payloadOrcamentoVisto, idsOrcamentosVistos, contarPacotesPorOrcamento } from "../utils/orcamento.js";
+import { resumoMargemOrcamento, maxParcelasPreservandoLucro, custoUnitarioServico } from "../utils/orcamento-margem.js";
+import { custoCatalogoComFrete } from "../utils/estoque-revenda.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
@@ -27,17 +31,27 @@ import { getActiveOrg } from "../core/org.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
+import { relacaoComercialLabel } from "../utils/cliente-relacao.js";
+import {
+  htmlEnderecoCliente,
+  bindEnderecoCliente,
+  readEnderecoCliente,
+  htmlFotoCadastro,
+  captureIds,
+  wireFotoCadastro,
+  photoFileFromCadastro,
+} from "../utils/cliente-cadastro.js";
 import { MAPAS, PRODUTOS_APLICACAO, pontoStatus } from "../utils/injetaveis-mapas.js";
+
+let orcamentoTaxasCtx = {};
 
 let currentClient = null;
 /** Registros de anamnese injetáveis (rosto_injetaveis) para abrir o mapa pelo id */
 let cachedRegistrosInjetaveis = [];
 /** Stream da câmera no modal de editar cliente */
-let cameraStream = null;
-/** Data URL da foto capturada pela câmera (garante uso no submit mesmo antes do toBlob) */
-let capturedPhotoDataUrl = null;
-/** Blob da foto capturada (preenchido assincronamente pelo toBlob) */
-let capturedPhotoBlob = null;
+let fotoCadastroState = { stream: null, blob: null, dataUrl: null };
+let fotoCadastroIds = captureIds("editClient");
+let fotoCadastroWire = null;
 /** Se o usuário pode editar cliente (usado no callback do modal após salvar) */
 let canEditClient = false;
 /** Portabilidade / exclusão LGPD (clientes:manage) */
@@ -97,6 +111,15 @@ export async function init() {
     if (openTab) {
       sessionStorage.removeItem("clientePerfilOpenTab");
       document.querySelector(`.tab-btn[data-tab="${openTab}"]`)?.click();
+    }
+    const focusOrc = sessionStorage.getItem("clientePerfilOrcamentoId");
+    if (focusOrc) {
+      sessionStorage.removeItem("clientePerfilOrcamentoId");
+      const el = document.querySelector(`.cliente-orcamento-item[data-id="${CSS.escape(focusOrc)}"]`);
+      if (el) {
+        el.classList.add("cliente-orcamento-item--focus");
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     }
   } catch (err) {
     console.error(err);
@@ -192,6 +215,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
             <h2>${escapeHtml(client.name)}</h2>
             <p class="cliente-perfil-meta">
               <span class="cliente-state-badge cliente-state-${(client.state || client.status || "").replace("_", "-")}">${stateLabel(client.state || client.status)}</span>
+              <span class="clientes-relacao clientes-relacao-${escapeHtml(client.relacao_comercial || "none")}">${escapeHtml(relacaoComercialLabel(client.relacao_comercial))}</span>
               ${client.phone ? ` · ${escapeHtml(client.phone)}` : ""}
               ${client.email ? ` · ${escapeHtml(client.email)}` : ""}
             </p>
@@ -200,6 +224,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
         </div>
         <div class="cliente-perfil-actions">
           <button type="button" class="btn-primary" id="btnAnamneseCliente" title="Ficha de anamnese e análise de caso">Anamnese</button>
+          <button type="button" class="btn-secondary" id="btnAgendarCliente" title="Abrir a agenda com esta pessoa">Agendar</button>
           ${canEdit ? '<button type="button" class="btn-primary" id="btnEditarCliente">Editar cliente</button>' : ""}
           <button type="button" class="btn-secondary" id="btnWhatsappSilencio">${estaEmSilencio(mapaSilencioPorCliente(events || [], new Date().toISOString().slice(0, 10)), client.id) ? "Liberar WhatsApp" : "Silêncio no WhatsApp"}</button>
           ${canEdit && (client.state || client.status) === "pre_cadastro" && !client.registration_completed_at ? `
@@ -231,12 +256,13 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
 
       <div id="tabDados" class="tab-pane active">
         <div class="cliente-dados">
-          <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
+          <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button> · <button type="button" class="btn-link" id="btnAgendarClienteDados" title="Abrir a agenda com esta pessoa">Agendar horário</button></p>
           ${cpfOther ? `<div class="form-warning cliente-cpf-duplicado-aviso" role="alert"><strong>Atenção:</strong> Outro cliente nesta organização possui o mesmo CPF: ${escapeHtml(cpfOther.name || "cliente cadastrado")}. Revise os cadastros para evitar duplicidade.</div>` : ""}
           <p><strong>Nome:</strong> ${escapeHtml(client.name)} ${client.is_paciente_modelo ? '<span class="cliente-badge-modelo">Paciente modelo</span>' : ""}</p>
           ${client.is_paciente_modelo && client.model_discount_pct != null ? `<p><strong>Desconto modelo:</strong> ${Number(client.model_discount_pct)}%</p>` : ""}
           <p><strong>Contato:</strong> ${escapeHtml(client.phone || "—")} / ${escapeHtml(client.email || "—")}</p>
           ${client.cpf ? `<p><strong>CPF:</strong> ${formatCpfForInput(client.cpf)}</p>` : ""}
+          ${client.cep || client.endereco || client.cidade ? `<p><strong>Endereço:</strong> ${escapeHtml([client.endereco, client.complemento, client.cidade, client.estado, client.cep].filter(Boolean).join(" · ") || "—")}</p>` : ""}
           <p><strong>Nascimento:</strong> ${formatDate(client.birth_date)}</p>
           <p><strong>Sexo:</strong> ${escapeHtml(client.sex || "—")}</p>
           <p><strong>Observações:</strong> ${escapeHtml(client.notes || "—")}</p>
@@ -1008,7 +1034,7 @@ function renderOrcamentosList(orcamentos, canEdit, extra = {}) {
          <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
          <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
         : "";
-    return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(efetivo)}">
+    return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(efetivo)}" data-id="${escapeHtml(o.id)}">
       <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(efetivo))}</span>
       <span class="cliente-orcamento-total">${brl(total)}</span>
       <span class="cliente-orcamento-itens">${linhas || "—"}</span>
@@ -1033,27 +1059,60 @@ function sqlOrcamentoHint(err) {
 
 function openOrcamentoModal(client, proceduresList) {
   const procs = proceduresList || [];
+  Promise.all([
+    listProdutosCatalogo().catch(() => []),
+    getTaxas().catch(() => ({})),
+    getOrganizationProfile().catch(() => null),
+  ]).then(([catalogo, taxas, profile]) => {
+    bindOrcamentoModal(client, procs, catalogo || [], taxas || {}, profile);
+  });
+}
+
+function bindOrcamentoModal(client, procs, catalogo, taxas, profile) {
   const opts = procs.map((p) => {
     const price = p.valor_cobrado != null ? Number(p.valor_cobrado) : 0;
-    return `<option value="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}" data-price="${price}">${escapeHtml(p.name)}${price ? " — " + brl(price) : ""}</option>`;
+    const cost = custoUnitarioServico(p, { comissaoPadraoPct: profile?.comissao_profissional_padrao_pct });
+    return `<option value="${escapeHtml(p.id)}" data-kind="servico" data-name="${escapeHtml(p.name)}" data-price="${price}" data-cost="${cost ?? ""}">${escapeHtml(p.name)}${price ? " — " + brl(price) : ""}</option>`;
+  }).join("");
+  const vendePro = profile?.vende_para_profissional === true;
+  const optsProd = (catalogo || []).map((p) => {
+    const price = vendePro && p.preco_profissional != null
+      ? Number(p.preco_profissional)
+      : (p.preco_cliente != null ? Number(p.preco_cliente) : 0);
+    const cost = custoCatalogoComFrete(p.custo_pago, p.frete_padrao);
+    return `<option value="${escapeHtml(p.id)}" data-kind="produto" data-name="${escapeHtml(p.nome)}" data-price="${price || 0}" data-cost="${cost ?? ""}">${escapeHtml(p.nome)}${price ? " — " + brl(price) : ""}</option>`;
   }).join("");
   const validade = new Date();
   validade.setDate(validade.getDate() + 15);
   const validStr = validade.toISOString().slice(0, 10);
+  const margemAlvo = profile?.margem_alvo_padrao_pct != null ? Number(profile.margem_alvo_padrao_pct) : 40;
+  const maxFixo = profile?.parcelamento_max_parcelas != null ? Number(profile.parcelamento_max_parcelas) : 12;
   openModal(
     "Novo orçamento",
     `
-    <p class="client-hint">Os valores vêm do catálogo só como ponto de partida. Você pode alterar. Não muda o preço do procedimento.</p>
-    <label for="orcamentoProc">Procedimento</label>
-    <select id="orcamentoProc"><option value="">— Selecione —</option>${opts}</select>
+    <p class="client-hint">Monte serviço e produto no mesmo orçamento. Os valores do catálogo são ponto de partida — você altera. O sistema não muda preço sozinho.</p>
+    <fieldset class="orcamento-kind">
+      <legend>Tipo da linha</legend>
+      <label><input type="radio" name="orcamentoKind" value="servico" checked> Serviço</label>
+      <label><input type="radio" name="orcamentoKind" value="produto"> Produto</label>
+    </fieldset>
+    <div id="orcamentoBlocoServico">
+      <label for="orcamentoProc">Procedimento</label>
+      <select id="orcamentoProc"><option value="">— Selecione —</option>${opts}</select>
+    </div>
+    <div id="orcamentoBlocoProduto" class="hidden">
+      <label for="orcamentoProd">Produto do portfólio</label>
+      <select id="orcamentoProd"><option value="">— Selecione —</option>${optsProd}</select>
+    </div>
     <label for="orcamentoQty">Quantidade / sessões</label>
     <input type="number" id="orcamentoQty" min="1" step="1" value="1">
     <label for="orcamentoPreco">Valor unitário (R$)</label>
     <input type="number" id="orcamentoPreco" min="0" step="0.01" value="0">
     <label for="orcamentoNomeLivre">Ou descreva o item</label>
     <input type="text" id="orcamentoNomeLivre" placeholder="Ex.: Harmonização — 2ml">
+    <button type="button" class="btn-secondary" id="orcamentoAddLinha">Adicionar à proposta</button>
     <ul id="orcamentoLinhas" class="cliente-orcamento-linhas"></ul>
-    <p id="orcamentoTotal" class="cliente-orcamento-total-preview">Total: ${brl(0)}</p>
+    <div id="orcamentoTotal" class="cliente-orcamento-total-preview">Total: ${brl(0)}</div>
     <label for="orcamentoValid">Válido até</label>
     <input type="date" id="orcamentoValid" value="${validStr}">
     <label for="orcamentoNotes">Observação (opcional)</label>
@@ -1069,6 +1128,7 @@ function openOrcamentoModal(client, proceduresList) {
       const valid_until = document.getElementById("orcamentoValid")?.value || null;
       try {
         await createOrcamento({ client_id: client.id, items, notes, valid_until, status: "rascunho" });
+        await applyRelacaoComercial(client.id, client.relacao_comercial, "orcamento_criado");
         closeModal();
         toast("Orçamento salvo no paciente.");
         await reloadPerfilOrcamentos();
@@ -1078,40 +1138,64 @@ function openOrcamentoModal(client, proceduresList) {
       }
     }
   );
-  const sel = document.getElementById("orcamentoProc");
-  const preco = document.getElementById("orcamentoPreco");
-  sel?.addEventListener("change", () => {
-    const opt = sel.selectedOptions[0];
-    if (opt?.dataset.price) preco.value = opt.dataset.price;
-  });
+  const syncKind = () => {
+    const kind = document.querySelector("input[name=orcamentoKind]:checked")?.value || "servico";
+    document.getElementById("orcamentoBlocoServico")?.classList.toggle("hidden", kind !== "servico");
+    document.getElementById("orcamentoBlocoProduto")?.classList.toggle("hidden", kind !== "produto");
+  };
+  document.querySelectorAll("input[name=orcamentoKind]").forEach((el) => el.addEventListener("change", syncKind));
+  const fillFromSelect = (sel) => {
+    const opt = sel?.selectedOptions?.[0];
+    const preco = document.getElementById("orcamentoPreco");
+    if (opt?.dataset.price && preco) preco.value = opt.dataset.price;
+  };
+  document.getElementById("orcamentoProc")?.addEventListener("change", (e) => fillFromSelect(e.target));
+  document.getElementById("orcamentoProd")?.addEventListener("change", (e) => fillFromSelect(e.target));
   document.getElementById("orcamentoAddLinha")?.addEventListener("click", () => {
-    const opt = sel?.selectedOptions[0];
+    const kind = document.querySelector("input[name=orcamentoKind]:checked")?.value || "servico";
+    const sel = kind === "produto" ? document.getElementById("orcamentoProd") : document.getElementById("orcamentoProc");
+    const opt = sel?.selectedOptions?.[0];
     const livre = document.getElementById("orcamentoNomeLivre")?.value?.trim() || "";
     const name = (opt?.dataset.name && sel?.value) ? opt.dataset.name : livre;
-    const procedure_id = sel?.value || null;
     const qty = Number(document.getElementById("orcamentoQty")?.value) || 1;
     const unit_price = Number(document.getElementById("orcamentoPreco")?.value) || 0;
     if (!name) {
-      toast("Escolha um procedimento ou descreva o item.");
+      toast(kind === "produto" ? "Escolha um produto ou descreva o item." : "Escolha um procedimento ou descreva o item.");
       return;
     }
-    pushOrcamentoLinha({ procedure_id, name, qty, unit_price, sessions: qty });
-    sel.value = "";
+    const costRaw = opt?.dataset.cost;
+    const unit_cost = costRaw === "" || costRaw == null ? null : Number(costRaw);
+    pushOrcamentoLinha({
+      kind,
+      procedure_id: kind === "servico" ? (sel?.value || null) : null,
+      product_id: kind === "produto" ? (sel?.value || null) : null,
+      name,
+      qty,
+      unit_price,
+      sessions: kind === "servico" ? qty : 1,
+      unit_cost: Number.isFinite(unit_cost) ? unit_cost : null,
+    });
+    if (sel) sel.value = "";
     const livreEl = document.getElementById("orcamentoNomeLivre");
     if (livreEl) livreEl.value = "";
   });
+  orcamentoTaxasCtx = { taxas, margemAlvo, maxFixo };
 }
 
 function readOrcamentoLinhas() {
   const ul = document.getElementById("orcamentoLinhas");
   const items = [];
   ul?.querySelectorAll("li[data-name]")?.forEach((li) => {
+    const unit_cost = li.dataset.cost === "" || li.dataset.cost == null ? null : Number(li.dataset.cost);
     items.push({
+      kind: li.dataset.kind || "servico",
       procedure_id: li.dataset.procedureId || null,
+      product_id: li.dataset.productId || null,
       name: li.dataset.name,
       qty: Number(li.dataset.qty) || 1,
       unit_price: Number(li.dataset.price) || 0,
       sessions: Number(li.dataset.sessions) || Number(li.dataset.qty) || 1,
+      unit_cost: Number.isFinite(unit_cost) ? unit_cost : null,
     });
   });
   return items;
@@ -1122,11 +1206,15 @@ function pushOrcamentoLinha(item) {
   if (!ul) return;
   const li = document.createElement("li");
   li.dataset.name = item.name;
+  li.dataset.kind = item.kind || "servico";
   li.dataset.procedureId = item.procedure_id || "";
+  li.dataset.productId = item.product_id || "";
   li.dataset.qty = String(item.qty);
   li.dataset.price = String(item.unit_price);
   li.dataset.sessions = String(item.sessions || item.qty);
-  li.innerHTML = `<span>${escapeHtml(item.name)} × ${item.qty} — ${brl(linhaTotal(item))}</span> <button type="button" class="btn-sm" aria-label="Remover">×</button>`;
+  li.dataset.cost = item.unit_cost == null ? "" : String(item.unit_cost);
+  const tipo = item.kind === "produto" ? "Produto" : "Serviço";
+  li.innerHTML = `<span>${escapeHtml(tipo)} · ${escapeHtml(item.name)} × ${item.qty} — ${brl(linhaTotal(item))}</span> <button type="button" class="btn-sm" aria-label="Remover">×</button>`;
   li.querySelector("button")?.addEventListener("click", () => {
     li.remove();
     refreshOrcamentoTotal();
@@ -1137,7 +1225,29 @@ function pushOrcamentoLinha(item) {
 
 function refreshOrcamentoTotal() {
   const el = document.getElementById("orcamentoTotal");
-  if (el) el.textContent = "Total: " + brl(totalOrcamento(readOrcamentoLinhas()));
+  if (!el) return;
+  const items = readOrcamentoLinhas();
+  const resumo = resumoMargemOrcamento(items);
+  const ctx = orcamentoTaxasCtx || {};
+  const taxas = ctx.taxas || {};
+  const margemAlvo = ctx.margemAlvo != null ? ctx.margemAlvo : 40;
+  const parc = maxParcelasPreservandoLucro({
+    valor: resumo.receita,
+    custo: resumo.custoTotal || 0,
+    margemAlvoPct: margemAlvo,
+    maxFixo: ctx.maxFixo || 12,
+    getLiquido: (n) => calcularLiquido(resumo.receita, getTaxaForParcelas(taxas, n, "credito")),
+  });
+  const linhaP = resumo.receitaProduto > 0
+    ? `Produto: ${brl(resumo.receitaProduto)}${resumo.margemProdutoPct != null ? ` · margem ${resumo.margemProdutoPct}% (${brl(resumo.lucroProduto)})` : " · informe custo no portfólio"}`
+    : "";
+  const linhaS = resumo.receitaServico > 0
+    ? `Serviço: ${brl(resumo.receitaServico)}${resumo.margemServicoPct != null ? ` · margem ${resumo.margemServicoPct}% (${brl(resumo.lucroServico)})` : " · informe custo/material no procedimento"}`
+    : "";
+  el.innerHTML = `<strong>Total: ${brl(resumo.receita)}</strong>
+    ${linhaS ? `<p>${linhaS}</p>` : ""}
+    ${linhaP ? `<p>${linhaP}</p>` : ""}
+    <p>Para manter a margem alvo de ${margemAlvo}% depois da taxa da maquininha: <strong>até ${parc.maxParcelas}x</strong>. Você decide o parcelamento.</p>`;
 }
 
 function bindOrcamentoCardActions(client, orcamentos) {
@@ -1193,6 +1303,7 @@ function bindOrcamentoCardActions(client, orcamentos) {
       if (!confirm("Fechou o orçamento? Ele fica no cadastro e vira pacote de sessões (se houver quantidade).")) return;
       try {
         const aceite = await aceitarOrcamento(row.id);
+        await applyRelacaoComercial(client.id, client.relacao_comercial, "orcamento_aceito");
         if (!aceite.created) {
           toast("Este orçamento já estava no cadastro. Pacote não foi duplicado.");
         } else {
@@ -1246,6 +1357,13 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   };
   document.getElementById("btnAnamneseCliente")?.addEventListener("click", goToAnamnese);
   document.querySelectorAll(".btn-open-anamnese").forEach((btn) => btn.addEventListener("click", goToAnamnese));
+  const goToAgenda = () => {
+    sessionStorage.setItem("agendaPrefillClientId", client.id);
+    navigate("agenda");
+    toast("Escolha o horário: a pessoa já vem selecionada.");
+  };
+  document.getElementById("btnAgendarCliente")?.addEventListener("click", goToAgenda);
+  document.getElementById("btnAgendarClienteDados")?.addEventListener("click", goToAgenda);
 
   document.getElementById("btnLgpdExport")?.addEventListener("click", async () => {
     try {
@@ -1696,40 +1814,19 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
 
 /** Encerra o hardware: para cada track do MediaStream (limpa trilhos). */
 function fecharCameraEdit() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach((track) => track.stop());
-    cameraStream = null;
-  }
-  const v = document.getElementById("editCameraVideo");
-  if (v) v.srcObject = null;
-  const area = document.getElementById("editClientesCameraArea");
-  if (area) area.classList.add("hidden");
+  fotoCadastroWire?.fechar?.();
+  fotoCadastroState.stream = null;
 }
 
 function openEditModal(client) {
   const cpfFormatted = formatCpfForInput(client.cpf || "");
-  capturedPhotoDataUrl = null;
-  capturedPhotoBlob = null;
-  cameraStream = null;
+  fotoCadastroState = { stream: null, blob: null, dataUrl: null };
+  fotoCadastroIds = captureIds("editClient");
 
   openModal(
     "Editar cliente",
     `
-    <label>Foto (opcional)</label>
-    <div class="clientes-foto-wrap">
-      <input type="file" id="editClientPhoto" accept="image/jpeg,image/png,image/webp,image/gif" class="clientes-foto-input">
-      <div class="clientes-foto-buttons">
-        <button type="button" class="clientes-foto-btn" id="btnEditEscolherFoto">Escolher arquivo</button>
-        <button type="button" class="clientes-foto-btn clientes-foto-btn-camera" id="btnEditTirarFoto">Tirar foto (câmera)</button>
-      </div>
-      <div class="clientes-camera-area hidden" id="editClientesCameraArea">
-        <video id="editCameraVideo" class="clientes-camera-video" autoplay playsinline muted></video>
-        <button type="button" class="clientes-foto-btn clientes-foto-btn-capture" id="btnEditCapturarFoto">Capturar foto</button>
-      </div>
-      <div class="clientes-foto-preview" id="editClientPhotoPreview">
-        ${client.avatar_url ? `<img src="${escapeHtml(client.avatar_url)}" alt="Foto" class="clientes-foto-preview-img">` : ""}
-      </div>
-    </div>
+    ${htmlFotoCadastro(fotoCadastroIds, { existingUrl: client.avatar_url || "" })}
     <label>Nome completo <span class="required">*</span></label>
     <input id="editName" required value="${escapeHtml(client.name || "")}" placeholder="Nome completo">
     <label>CPF</label>
@@ -1738,6 +1835,7 @@ function openEditModal(client) {
     <input id="editPhone" type="tel" value="${escapeHtml(client.phone || "")}" placeholder="(00) 00000-0000" maxlength="15">
     <label>E-mail</label>
     <input id="editEmail" type="email" value="${escapeHtml(client.email || "")}" placeholder="email@exemplo.com">
+    ${htmlEnderecoCliente("editClient", client)}
     <label>Data de nascimento</label>
     <input id="editBirthDate" type="date" value="${client.birth_date ? client.birth_date.slice(0, 10) : ""}">
     <label>Sexo</label>
@@ -1747,8 +1845,16 @@ function openEditModal(client) {
       <option value="M" ${client.sex === "M" ? "selected" : ""}>Masculino</option>
       <option value="Outro" ${client.sex === "Outro" ? "selected" : ""}>Outro</option>
     </select>
+    <label>Relação comercial</label>
+    <select id="editRelacaoComercial">
+      <option value="" ${!client.relacao_comercial ? "selected" : ""}>Não definido</option>
+      <option value="orcamento" ${client.relacao_comercial === "orcamento" ? "selected" : ""}>Só orçamento</option>
+      <option value="comprou" ${client.relacao_comercial === "comprou" ? "selected" : ""}>Comprou</option>
+      <option value="revenda" ${client.relacao_comercial === "revenda" ? "selected" : ""}>Revenda da clínica</option>
+    </select>
     <label>Observações</label>
     <textarea id="editNotes" rows="2" placeholder="Opcional">${escapeHtml(client.notes || "")}</textarea>
+    <p class="form-hint"><button type="button" class="btn-secondary" id="btnAgendarDoCadastro">Agendar horário para esta pessoa</button></p>
     <div class="cliente-modelo-option">
      <label><input type="checkbox" id="editIsPacienteModelo" ${client.is_paciente_modelo ? "checked" : ""}> Paciente modelo</label>
      <p class="cliente-modelo-hint">Ex.: modelo de botox; ao agendar será possível aplicar o desconto definido abaixo.</p>
@@ -1764,30 +1870,9 @@ function openEditModal(client) {
       const birth_date = document.getElementById("editBirthDate")?.value || null;
       const sex = document.getElementById("editSex")?.value || null;
       const notes = document.getElementById("editNotes")?.value?.trim() || null;
+      const endereco = readEnderecoCliente("editClient");
+      const photoFile = await photoFileFromCadastro(fotoCadastroIds, fotoCadastroState);
       fecharCameraEdit();
-
-      let photoFile = document.getElementById("editClientPhoto")?.files?.[0];
-      if (!photoFile && capturedPhotoBlob && capturedPhotoBlob.size > 0) {
-        photoFile = new File([capturedPhotoBlob], "avatar.jpg", { type: "image/jpeg" });
-      }
-      if (!photoFile && capturedPhotoDataUrl) {
-        const blob = dataUrlToBlobSync(capturedPhotoDataUrl);
-        if (blob && blob.size > 0) photoFile = new File([blob], "avatar.jpg", { type: "image/jpeg" });
-      }
-      if (!photoFile) {
-        const previewEl = document.getElementById("editClientPhotoPreview");
-        const previewImg = previewEl?.querySelector("img");
-        if (previewImg?.src) {
-          try {
-            const blob = previewImg.src.startsWith("data:")
-              ? dataUrlToBlobSync(previewImg.src)
-              : await fetch(previewImg.src).then((r) => r.blob());
-            if (blob && blob.size > 0) photoFile = new File([blob], "avatar.jpg", { type: blob.type || "image/jpeg" });
-          } catch (e) {
-            console.warn("[Cliente perfil] Fallback preview→blob falhou:", e);
-          }
-        }
-      }
 
       if (!name) {
         toast("Nome é obrigatório");
@@ -1816,6 +1901,8 @@ function openEditModal(client) {
           birth_date: birth_date || null,
           sex: sex || null,
           notes: notes || null,
+          ...endereco,
+          relacao_comercial: document.getElementById("editRelacaoComercial")?.value || null,
           is_paciente_modelo: !!isPacienteModelo,
           model_discount_pct: model_discount_pct,
         };
@@ -1876,101 +1963,15 @@ function openEditModal(client) {
     maskPhoneInput(phoneInput); // formata valor inicial ao abrir o modal
   }
 
-  const photoInput = document.getElementById("editClientPhoto");
-  const btnFoto = document.getElementById("btnEditEscolherFoto");
-  const btnTirar = document.getElementById("btnEditTirarFoto");
-  const btnCapturar = document.getElementById("btnEditCapturarFoto");
-  const preview = document.getElementById("editClientPhotoPreview");
-  const cameraArea = document.getElementById("editClientesCameraArea");
-  const videoEl = document.getElementById("editCameraVideo");
-
-  if (btnFoto && photoInput) {
-    btnFoto.addEventListener("click", () => photoInput.click());
-    photoInput.addEventListener("change", (e) => {
-      const file = e.target.files?.[0];
-      if (!preview) return;
-      capturedPhotoDataUrl = null;
-      capturedPhotoBlob = null;
-      fecharCameraEdit();
-      if (!file) return;
-      const url = URL.createObjectURL(file);
-      preview.innerHTML = `<img src="${url}" alt="Preview" class="clientes-foto-preview-img">`;
-      btnFoto.textContent = "Trocar arquivo";
-    });
-  }
-  if (btnTirar) {
-    btnTirar.addEventListener("click", () => abrirCameraEdit());
-  }
-  if (btnCapturar) {
-    btnCapturar.addEventListener("click", () => tirarFotoEdit());
-  }
-
-  async function abrirCameraEdit() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast("Câmera não disponível neste navegador.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-      cameraStream = stream;
-      if (!videoEl || !cameraArea) return;
-      videoEl.srcObject = stream;
-      await videoEl.play();
-      cameraArea.classList.remove("hidden");
-      const wrap = document.querySelector(".clientes-foto-wrap");
-      if (wrap) wrap.classList.remove("is-capturing");
-      if (preview) preview.innerHTML = "";
-      if (photoInput) photoInput.value = "";
-      if (btnFoto) btnFoto.textContent = "Escolher arquivo";
-      // Garante que o vídeo e o botão "Capturar foto" fiquem visíveis no modal
-      const btnCapturarEl = document.getElementById("btnEditCapturarFoto");
-      requestAnimationFrame(() => {
-        btnCapturarEl?.scrollIntoView({ behavior: "smooth", block: "center" });
-      });
-    } catch (err) {
-      console.warn("[Cliente perfil] Câmera:", err);
-      toast("Não foi possível acessar a câmera. Verifique as permissões.");
-    }
-  }
-
-  function tirarFotoEdit() {
-    const video = document.getElementById("editCameraVideo");
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      toast("Aguarde a câmera carregar.");
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // 1. Congelar: Base64 no avatar de imediato (síncrono)
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    capturedPhotoDataUrl = dataUrl;
-    // Blob para upload já no momento da captura (síncrono) — garante uso no submit
-    const blobSync = dataUrlToBlobSync(dataUrl);
-    if (blobSync && blobSync.size > 0) {
-      capturedPhotoBlob = blobSync;
-    }
-    if (preview) {
-      preview.innerHTML = "";
-      const img = document.createElement("img");
-      img.alt = "Preview";
-      img.className = "clientes-foto-preview-img";
-      img.src = dataUrl;
-      preview.appendChild(img);
-    }
-    // 2. Esconder vídeo e mostrar foto (estado visual)
-    if (cameraArea) cameraArea.classList.add("hidden");
-    const wrap = document.querySelector(".clientes-foto-wrap");
-    if (wrap) wrap.classList.add("is-capturing");
-    // 3. Limpa trilhos: desliga o hardware imediatamente após capturar
+  bindEnderecoCliente("editClient", toast);
+  fotoCadastroWire = wireFotoCadastro(fotoCadastroIds, fotoCadastroState, toast);
+  document.getElementById("btnAgendarDoCadastro")?.addEventListener("click", () => {
+    closeModal();
     fecharCameraEdit();
-    if (btnFoto) btnFoto.textContent = "Trocar arquivo";
-  }
+    sessionStorage.setItem("agendaPrefillClientId", client.id);
+    navigate("agenda");
+    toast("Escolha o horário: a pessoa já vem selecionada.");
+  });
 }
 
 function openCombinadoModal(client) {

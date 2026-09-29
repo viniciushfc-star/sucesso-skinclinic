@@ -86,6 +86,10 @@ export async function init() {
       setVal("precificacaoParcelamentoMax", taxasAtuais.parcelamento_max_parcelas != null ? taxasAtuais.parcelamento_max_parcelas : "");
       setVal("precificacaoMargemAlvoPadrao", taxasAtuais.margem_alvo_padrao_pct != null ? taxasAtuais.margem_alvo_padrao_pct : 40);
       setVal("precificacaoComissaoPadrao", taxasAtuais.comissao_profissional_padrao_pct != null ? taxasAtuais.comissao_profissional_padrao_pct : "");
+      const vendeCli = document.getElementById("precificacaoVendeCliente");
+      const vendePro = document.getElementById("precificacaoVendeProfissional");
+      if (vendeCli) vendeCli.checked = taxasAtuais.vende_para_cliente !== false;
+      if (vendePro) vendePro.checked = taxasAtuais.vende_para_profissional === true;
     } catch (e) {
       console.error("[PRECIFICACAO-TAXAS] Erro ao carregar taxas", e);
       toast("Erro ao carregar taxas da organização");
@@ -132,6 +136,8 @@ export async function init() {
       if (maxEl) payload.parcelamento_max_parcelas = maxEl.value.trim() === "" ? null : (parseInt(maxEl.value, 10) || null);
       if (margemAlvoEl) payload.margem_alvo_padrao_pct = margemAlvoEl.value.trim() === "" ? 40 : parseFloat(margemAlvoEl.value, 10) || 40;
       if (comissaoPadraoEl) payload.comissao_profissional_padrao_pct = comissaoPadraoEl.value.trim() === "" ? null : (parseFloat(comissaoPadraoEl.value, 10) || null);
+      payload.vende_para_cliente = document.getElementById("precificacaoVendeCliente")?.checked !== false;
+      payload.vende_para_profissional = document.getElementById("precificacaoVendeProfissional")?.checked === true;
       try {
         taxasAtuais = await updateTaxasOrganizacao(payload);
         toast("Taxas salvas.");

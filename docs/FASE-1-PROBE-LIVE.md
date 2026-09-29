@@ -1,11 +1,11 @@
-# Probe live do schema — 2026-09-23
+# Probe live do schema — 2026-09-27
 
 Gerado por `scripts/schema-probe-live.js` (PostgREST head count).  
 **Não** é pg_dump. Colunas, RLS e RPCs **não** são listados aqui.
 
 Projeto URL host: `ipaayevpoqllucltvuhj.supabase.co`
 
-## Existe no live (68)
+## Existe no live (69)
 
 - `organizations`
 - `organization_users`
@@ -41,6 +41,7 @@ Projeto URL host: `ipaayevpoqllucltvuhj.supabase.co`
 - `protocolos_aplicados`
 - `estoque_entradas`
 - `estoque_consumo`
+- `estoque_produtos`
 - `sugestoes_estoque`
 - `financeiro`
 - `contas_a_pagar`
@@ -86,6 +87,5 @@ _nenhum_
 
 ## Interpretação
 
-Todas as tabelas da lista de probe **existem** neste projeto live, inclusive `ocr_notas`, `market_radar_refs` e `agenda_google_events`.
-- `appointments` / `clientes` / `convites` / `logs` / `assinaturas`: legado paralelo, não ausente.
-- `organization_user_permissions` existe → fail-closed de catálogo não derruba a API hoje.
+- `appointments` / `clientes` / `convites` / `logs` / `assinaturas`: se AUSENTE, o código que ainda aponta para elas é legado morto ou quebrado.
+- `organization_user_permissions`: se AUSENTE, fail-closed em produção passa a 500 até a tabela existir (ciclo P0).

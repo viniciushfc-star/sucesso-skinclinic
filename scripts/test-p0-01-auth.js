@@ -16,6 +16,7 @@ import {
   applyPermissionDecision,
   isMissingPermissionCatalog,
   isDeployedRuntime,
+  sendAuthError,
 } from "../lib/api-auth.js";
 import webhookHandler from "../routes/webhook-transacoes.js";
 import { createSignedOAuthState, verifySignedOAuthState } from "../lib/oauth-state.js";
@@ -252,9 +253,38 @@ describe("P0 fail-closed e CORS", () => {
     assert.match(vercel, /no-store/);
   });
 
+  it("membership lê JWT primeiro; vazio é 403 (service role só se a leitura JWT der erro)", () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "api-auth.js"), "utf8");
+    const from = src.indexOf("export async function requireOrganizationMember");
+    const to = src.indexOf("function permissionAllowedByRole");
+    const block = src.slice(from, to);
+    assert.match(block, /dbForStaffJwt/);
+    assert.match(block, /getAdminClient/);
+    assert.match(block, /if \(!jwtRead\.error\) throw new ApiAuthError\(403/);
+  });
+
   it("tabela de permissão ausente não é fail-closed 500", () => {
     assert.equal(isMissingPermissionCatalog({ code: "42P01", message: "relation does not exist" }), true);
     assert.equal(isMissingPermissionCatalog({ code: "PGRST205", message: "Could not find the table" }), true);
     assert.equal(isMissingPermissionCatalog({ message: "db down" }), false);
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "api-auth.js"), "utf8");
+    const from = src.indexOf("export async function requirePermission");
+    const to = src.indexOf("export async function requireAnyMembership");
+    const block = src.slice(from, to);
+    assert.doesNotMatch(block, /isDeployedRuntime/);
+    assert.match(block, /applyPermissionDecision\(null, null, membershipRole, permission\)/);
+  });
+
+  it("membership sem linha é 403; wrap da API não vira 500 em ApiAuthError", () => {
+    const res = mockRes();
+    sendAuthError(res, new ApiAuthError(403, "Sem permissão"));
+    assert.equal(res.statusCode, 403);
+    const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "server.js"), "utf8");
+    assert.match(server, /sendAuthError\(res, err\)/);
+    const mem = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "api-auth.js"), "utf8");
+    const from = mem.indexOf("export async function requireOrganizationMember");
+    const to = mem.indexOf("function permissionAllowedByRole");
+    assert.match(mem.slice(from, to), /ApiAuthError\(403/);
+    assert.doesNotMatch(mem.slice(from, to), /ApiAuthError\(500/);
   });
 });

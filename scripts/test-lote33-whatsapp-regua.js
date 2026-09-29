@@ -14,6 +14,7 @@ import {
   proximoPassoRegua,
   PREFIXO_SILENCIO,
 } from "../js/utils/whatsapp-regua.js";
+import { decisaoWhatsappLembrete } from "../routes/lembretes-auto.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -52,7 +53,44 @@ describe("regua e silencio whatsapp", () => {
     assert.match(send, /via: "silencio"/);
     assert.match(api, /silencio_humano/);
     assert.match(cron, /silencio_humano/);
+    assert.match(cron, /whatsapp-regua\.js/);
+    assert.match(cron, /SILENCIO_EVENT_TYPE/);
+    assert.match(cron, /decisaoWhatsappLembrete/);
     const wa = [...crm.matchAll(/class="[^"]*\bcrm-wa\b/g)];
     assert.equal(wa.length, 2);
+  });
+
+  it("caminho do cron: telefone + silêncio não autoriza envio", () => {
+    const events = [
+      {
+        client_id: "cli-1",
+        event_type: "whatsapp_silencio",
+        description: "whatsapp_silencio:indefinido",
+        created_at: "2026-01-01",
+      },
+    ];
+    const skip = decisaoWhatsappLembrete({
+      events,
+      hojeIso: "2026-09-29",
+      clientId: "cli-1",
+      temTelefone: true,
+    });
+    assert.equal(skip.enviar, false);
+    assert.equal(skip.reason, "silencio_humano");
+    const ok = decisaoWhatsappLembrete({
+      events: [],
+      hojeIso: "2026-09-29",
+      clientId: "cli-1",
+      temTelefone: true,
+    });
+    assert.equal(ok.enviar, true);
+    const semTel = decisaoWhatsappLembrete({
+      events: [],
+      hojeIso: "2026-09-29",
+      clientId: "cli-1",
+      temTelefone: false,
+    });
+    assert.equal(semTel.enviar, false);
+    assert.equal(semTel.reason, "sem_telefone");
   });
 });

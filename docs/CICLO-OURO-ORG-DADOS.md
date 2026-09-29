@@ -1,0 +1,75 @@
+# Ciclo ouro na org com pacientes — 2026-09-27T01:55:08
+Org alvo: `e0951cef-b050-49f1-ae20-6131b058ba65`. Membership: ja_existia. Agenda órfã apagada: 0.
+## Elos (JWT, SELECT)
+- paciente (`clients`): **com_dado** n=4 
+- avaliacao (`analise_pele`): **vazio** n=0 
+- anamnese (`anamnesis_registros`): **vazio** n=0 
+- plano (`planos_terapeuticos`): **vazio** n=0 
+- protocolo (`protocolos`): **vazio** n=0 
+- aplicado (`protocolos_aplicados`): **vazio** n=0 
+- estoque (`estoque_entradas`): **com_dado** n=7 
+- custo (`procedures`): **com_dado** n=7 
+- margem (`financeiro`): **com_dado** n=11 
+- crm (`agenda`): **com_dado** n=1 
+- orcamento (`orcamentos`): **vazio** n=0 
+- pacote (`client_packages`): **vazio** n=0 
+- eventos (`client_events`): **vazio** n=0 
+## RLS tabelas na org
+- `clients`: OK n=4 leak=0 
+- `agenda`: OK n=1 leak=0 
+- `financeiro`: OK n=11 leak=0 
+- `estoque_entradas`: OK n=7 leak=0 
+- `protocolos_aplicados`: OK n=0 leak=0 
+- `analise_pele`: OK n=0 leak=0 
+- `client_sessions`: OK n=0 leak=0 
+- `audit_logs`: OK n=20 leak=0 
+- `organization_invites`: OK n=0 leak=0 
+- `profiles`: OK n=0 leak=0 
+- `ocr_notas`: OK n=0 leak=0 
+- `market_radar_refs`: OK n=0 leak=0 
+- `lgpd_requests`: OK n=0 leak=0 
+- `api_error_events`: OK n=0 leak=0 
+- `agenda_google_events`: OK n=0 leak=0 
+- `google_calendar_connections`: OK n=0 leak=0 
+- `whatsapp_logs`: OK n=0 leak=0 
+- `ai_usage_events`: OK n=0 leak=0 
+- `client_events`: OK n=0 leak=0 
+- `anamnesis_registros`: OK n=0 leak=0 
+- `orcamentos`: OK n=0 leak=0 
+- `estoque_produtos`: OK n=0 leak=0 
+- `client_packages`: OK n=0 leak=0 
+- `package_consumptions`: OK n=0 leak=0 sem org_id (via pacote)
+- `estoque_consumo`: OK n=0 leak=0 
+- `agenda_waitlist`: OK n=0 leak=0 
+## Extra
+- `procedures`: OK n=7 
+- `salas`: OK n=2 
+- `estoque_entradas`: OK n=7 
+- `sugestoes_estoque`: OK n=2 
+- `anamnesis_funcoes`: OK n=4 
+- `notificacoes`: OK n=0 
+- `appointment_confirmations`: OK n=4 
+- `team_payment_models`: OK n=1 
+- `afazeres`: OK n=1 
+## RPC / storage / agenda / financeiro
+- RPC `get_client_session_by_token`: OK  sem sessão
+- RPC `get_client_by_token`: OK  sem sessão
+- RPC `get_analises_pele_by_token`: OK 42601 vazio/erro 42601
+- storage `analise-pele-fotos`: OK n=0 
+- storage `client-photos`: OK n=4 
+- storage `anamnese-fotos`: OK n=0 
+- agenda org n=1 clientes=1 match=1
+- financeiro n=11 entradas=8500 saídas=2903.3699999999994 saldo=5596.630000000001
+## Cruzado / HTTP / papéis
+- agenda_jwt_vs_service: OK JWT n=1 service n=1 (Git: membro da org lê agenda)
+- clients.id_outra_org: OK sem vítima n=0
+- clients.insert_outra_org: OK new row violates row-level security policy for table "clients" n=
+- HTTP `/api/health`: 200 OK 
+- HTTP `/`: 200 OK 
+- HTTP `/financeiro.html`: 404 OK 
+- HTTP `/agenda.html`: 200 OK 
+- HTTP `/clientes.html`: 404 OK 
+- HTTP `/api/copiloto`: 500 OK HTTP 500 (rota exige contexto/corpo válido)
+- HTTP `/api/whatsapp-send`: 500 OK HTTP 500 (rota exige contexto/corpo válido)
+- GESTOR: OK n=0
+- FUNCIONARIO: OK n=0

@@ -1,6 +1,6 @@
 /**
  * Ciclo ouro SkinClinic — o que o código já amarra.
- * E2E autenticado (leitura) está em scripts/test-lote32-golden-auth.js.
+ * E2E autenticado (gravação) está em scripts/e2e-golden-flow.js.
  */
 
 export const GOLDEN_CYCLE = [

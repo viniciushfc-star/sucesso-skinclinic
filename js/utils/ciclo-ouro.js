@@ -7,6 +7,12 @@ import { linhaTotal, round2 } from "./orcamento.js";
 
 export function pacotesDoAceite(items, clientId, orcamentoId) {
   return (items || [])
+    .filter((it) => {
+      const kind = String(it?.kind || "").toLowerCase();
+      if (kind === "produto") return false;
+      if (it?.product_id && !it?.procedure_id) return false;
+      return true;
+    })
     .map((it) => {
       const sessoes = Math.max(1, Number(it.sessions) || Number(it.qty) || 1);
       const nome = String(it.name || "").trim() || "Orçamento";

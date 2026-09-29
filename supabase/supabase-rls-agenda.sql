@@ -8,10 +8,18 @@
 -- 1) Ativar RLS na tabela agenda (se ainda não existir)
 ALTER TABLE public.agenda ENABLE ROW LEVEL SECURITY;
 
--- 2) Remover políticas antigas com mesmo nome (para poder rodar de novo)
-DROP POLICY IF EXISTS "Org members can read agenda" ON public.agenda;
-DROP POLICY IF EXISTS "Org members can insert agenda" ON public.agenda;
-DROP POLICY IF EXISTS "Org members can update agenda" ON public.agenda;
+-- 2) Remover TODAS as policies (nomes antigos / app.org_id). Senão o live continua a esconder a agenda.
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT policyname FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'agenda'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.agenda', r.policyname);
+  END LOOP;
+END $$;
 
 -- 3) Políticas: só usuários que pertencem à org (organization_users) veem/editam a agenda daquela org
 CREATE POLICY "Org members can read agenda"

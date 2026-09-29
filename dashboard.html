@@ -2,19 +2,20 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#16213e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SkinClinic">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect fill='%2316213e' width='32' height='32' rx='4'/><text x='16' y='22' font-size='18' text-anchor='middle' fill='white'>S</text></svg>">
+<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
 <title>SkinClinic</title>
 
 <script
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=p2-metas">
+<link rel="stylesheet" href="./js/css/style.css?v=polish-9">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -24,11 +25,18 @@
 <body>
 
 <div class="app-wrapper">
+  <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
 
   <!-- SIDEBAR (menu lateral – abre/fecha) -->
   <aside class="sidebar" id="sidebar" aria-label="Menu principal">
     <div class="sidebar-header">
-      <span class="sidebar-logo" id="sidebarLogo" data-fallback="SkinClinic">SkinClinic</span>
+    <div class="sidebar-brand-block">
+      <span class="sidebar-logo" id="sidebarLogo" data-fallback="SkinClinic">
+        <span class="sidebar-logo-text">SkinClinic</span>
+        <span class="sidebar-logo-collapsed" aria-hidden="true">S</span>
+      </span>
+      <span class="sidebar-tagline">Beleza com propósito</span>
+    </div>
       <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Abrir/fechar menu" title="Abrir/fechar menu">
         <span class="sidebar-toggle-icon" aria-hidden="true"></span>
       </button>
@@ -102,6 +110,7 @@
   <div class="main-content">
     <header class="main-header">
       <div class="main-header-top">
+        <button type="button" class="sidebar-open-mobile" id="sidebarOpenMobile" aria-label="Abrir menu" title="Menu">☰</button>
         <div>
           <h1 id="mainHeaderTitle">SkinClinic</h1>
           <p id="headerViewTitle">Sistema Inteligente</p>
@@ -162,9 +171,9 @@
       <section id="view-dashboard" class="view">
         <div id="setupProgressBar" class="setup-progress hidden" hidden></div>
         <div class="cockpit-head">
-          <p class="cockpit-kicker">Operação</p>
+          <p class="cockpit-kicker">Hoje na clínica</p>
           <h2 class="cockpit-title">O que olhar agora</h2>
-          <p class="cockpit-lead">Intelligence escolhe no máximo 5 temas por coluna. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
+          <p class="cockpit-lead">Aqui está o que importa hoje na sua clínica. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
         </div>
         <div class="cockpit-tabs" role="tablist" aria-label="Período do cockpit">
           <button type="button" class="cockpit-tab is-active" role="tab" aria-selected="true" data-cockpit-tab="hoje" id="cockpitTabHoje">Hoje</button>
@@ -541,7 +550,14 @@
         </div>
         <div class="view-clientes-toolbar">
           <label for="clientesSearch" class="sr-only">Buscar clientes</label>
-          <input type="search" id="clientesSearch" placeholder="Buscar por nome, telefone ou e-mail" class="clientes-search" aria-label="Buscar por nome, telefone ou e-mail">
+          <input type="search" id="clientesSearch" placeholder="Nome, telefone, orçamento, revenda, comprou…" class="clientes-search" aria-label="Buscar por nome, telefone, e-mail ou orçamento">
+          <label for="clientesFilterRelacao" class="sr-only">Relação comercial</label>
+          <select id="clientesFilterRelacao" class="clientes-filter" aria-label="Filtrar por relação comercial">
+            <option value="">Toda relação comercial</option>
+            <option value="orcamento">Só orçamento</option>
+            <option value="comprou">Comprou</option>
+            <option value="revenda">Revenda da clínica</option>
+          </select>
           <label for="clientesFilterState" class="sr-only">Estado do cliente</label>
           <select id="clientesFilterState" class="clientes-filter" aria-label="Filtrar por estado do cliente">
             <option value="">Todos os estados</option>
@@ -552,11 +568,14 @@
             <option value="arquivado">Arquivado</option>
           </select>
         </div>
+        <p class="view-hint">Digite <strong>orçamento</strong> para listar as propostas e abrir direto. Revenda / comprou / só orçamento você define no cadastro. Se o tipo não gravar, rode supabase/supabase-cliente-relacao-colar.sql.</p>
+        <div id="clientesBuscaOrcamentos" class="clientes-busca-orcamentos hidden"></div>
         <div class="clientes-table-wrap">
           <table class="clientes-table" id="clientesTable">
             <thead>
               <tr>
                 <th>Nome</th>
+                <th>Relação</th>
                 <th>Estado</th>
                 <th>Contato</th>
                 <th>Criação</th>
@@ -587,6 +606,12 @@
               <button type="button" id="agendaNextWeek" class="agenda-toolbar-btn" title="Próxima semana" aria-label="Próxima semana">›</button>
             </div>
             <h2 id="agendaWeekTitle" class="agenda-toolbar-title">—</h2>
+            <div class="agenda-toolbar-filter">
+              <label for="agendaFiltroProfissional" class="agenda-filtro-label">Profissional</label>
+              <select id="agendaFiltroProfissional" class="agenda-filtro-select" aria-label="Filtrar agenda por profissional">
+                <option value="">Todos</option>
+              </select>
+            </div>
             <div class="agenda-toolbar-actions">
               <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
               <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
@@ -602,28 +627,23 @@
               <button type="button" id="agendaNextMonth" class="agenda-toolbar-btn" title="Próximo mês" aria-label="Próximo mês">›</button>
             </div>
             <div id="agendaCalendar" class="agenda-calendar" role="grid" aria-label="Calendário mensal"></div>
-            <div class="agenda-day-filtro">
-              <label for="agendaFiltroProfissional" class="agenda-filtro-label">Profissional</label>
-              <select id="agendaFiltroProfissional" class="agenda-filtro-select" aria-label="Filtrar agenda por profissional">
-                <option value="">Todos</option>
-              </select>
-              <p class="agenda-filtro-hint">Esporádico: filtre o profissional para ver ocupado na agenda pessoal (só o horário). A clínica não lê o conteúdo do Google.</p>
-            </div>
+            <p class="agenda-filtro-hint">Filtre o profissional no topo para ver só a grade dela e o ocupado da agenda pessoal (sem o conteúdo do Google).</p>
           </div>
           <div class="agenda-day-wrap">
+            <p class="agenda-week-hint">Clique num horário vazio para marcar. Clique no compromisso para abrir ficha, WhatsApp e baixa.</p>
             <div id="agendaWeekGrid" class="agenda-week" role="grid" aria-label="Agenda da semana"></div>
-            <h3 id="agendaDayTitle" class="agenda-day-title">Dia selecionado</h3>
-            <div id="listaAgenda" class="lista-agenda lista-agenda--day"></div>
-            <div id="agendaAfazeresWrap" class="agenda-afazeres-wrap">
-              <h4 class="agenda-afazeres-title">Tarefas do dia (não ocupam horário)</h4>
-              <p class="agenda-afazeres-hint">Lembretes para este dia; não bloqueiam horários na agenda.</p>
-              <div id="listaAgendaAfazeres" class="lista-agenda-afazeres"></div>
-            </div>
-            <div id="agendaAniversariantesWrap" class="agenda-aniversariantes-wrap">
-              <h3 class="agenda-aniversariantes-title">Aniversariantes</h3>
-              <p class="agenda-aniversariantes-hint">Clientes que fazem aniversário hoje ou nesta semana. Envie uma mensagem (ou oferta de brinde, se ativado em <strong>Empresa</strong>).</p>
-              <div id="agendaAniversariantesList" class="agenda-aniversariantes-list"></div>
-            </div>
+            <details class="agenda-day-aside" open>
+              <summary class="agenda-day-title" id="agendaDayTitle">Dia selecionado</summary>
+              <div id="listaAgenda" class="lista-agenda lista-agenda--day"></div>
+              <div id="agendaAfazeresWrap" class="agenda-afazeres-wrap">
+                <h4 class="agenda-afazeres-title">Tarefas do dia (não ocupam horário)</h4>
+                <div id="listaAgendaAfazeres" class="lista-agenda-afazeres"></div>
+              </div>
+              <div id="agendaAniversariantesWrap" class="agenda-aniversariantes-wrap">
+                <h3 class="agenda-aniversariantes-title">Aniversariantes da semana</h3>
+                <div id="agendaAniversariantesList" class="agenda-aniversariantes-list"></div>
+              </div>
+            </details>
           </div>
         </div>
         </div>
@@ -1023,6 +1043,12 @@
               </div>
             </div>
             <div class="precificacao-margem-comissao-policy">
+              <h4 class="precificacao-parcelamento-policy-title">Para quem a clínica vende produto</h4>
+              <p class="view-hint precificacao-parcelamento-hint">Nem toda clínica é revendedora. Marque só o que combina com a operação. Não muda preço sozinho.</p>
+              <label class="precificacao-canal-check"><input type="checkbox" id="precificacaoVendeCliente" checked> Vende para cliente (pessoa física)</label>
+              <label class="precificacao-canal-check"><input type="checkbox" id="precificacaoVendeProfissional"> Revende para profissional</label>
+            </div>
+            <div class="precificacao-margem-comissao-policy">
               <h4 class="precificacao-parcelamento-policy-title">Margem alvo e comissão (análise por procedimento)</h4>
               <p class="view-hint precificacao-parcelamento-hint">Usado no Financeiro para ver quais procedimentos estão abaixo da margem desejada (custo = material + comissão do profissional). A IA poderá usar esses dados + mercado para sugerir preço, custo ou margem.</p>
               <div class="precificacao-parcelamento-fields">
@@ -1371,21 +1397,21 @@
       <section id="view-estoque" class="view hidden">
         <div class="view-header">
           <h2>Estoque</h2>
-          <p class="view-lead">Cadastre o produto no portfólio sem quantidade. Entrada, nota e XML são só quando o estoque chega. Validade com menos de 1 ano é sinalizada.</p>
+          <p class="view-lead">Cadastre o produto uma vez no portfólio (com foto, se quiser). As outras listas usam esse cadastro — sem repetir preço em várias tabelas.</p>
         </div>
-        <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql. Para mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
+        <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql. Foto do produto: supabase/supabase-produto-imagem-canal-colar.sql. Para mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
         <div class="view-card">
           <h3 class="view-card-title">Portfólio</h3>
-          <p class="view-hint">Nome, o que você paga, preço da profissional, preço do cliente e frete típico. Sem quantidade.</p>
+          <p class="view-hint">Fonte única: nome, foto, custo e preço de venda. Quantidade só na entrada. Preço para profissional só aparece se a clínica marcar revenda em Precificação.</p>
           <div class="estoque-entrada-actions">
             <button type="button" id="btnEstoqueCadastrarProduto" class="btn-primary">Cadastrar produto</button>
           </div>
           <div id="estoqueCatalogoList" class="estoque-catalogo-list"></div>
           <p id="estoqueCatalogoEmpty" class="estoque-empty hidden">Nenhum produto no portfólio ainda.</p>
         </div>
-        <div class="view-card">
-          <h3 class="view-card-title">Revenda — saídas e lucro</h3>
-          <p class="view-hint">Ranking do que mais sai (consumo). Lucro usa custo + frete e o preço de cliente; não altera preço de procedimento.</p>
+        <div class="view-card" id="estoqueRevendaCard">
+          <h3 class="view-card-title">O que mais sai</h3>
+          <p class="view-hint">Ranking de saídas e lucro estimado. Preços ficam no portfólio, não se repetem aqui.</p>
           <div id="estoqueRevendaGrafico" class="estoque-revenda-grafico"></div>
           <div id="estoqueRevendaTabela" class="estoque-revenda-tabela"></div>
         </div>
@@ -1596,11 +1622,13 @@
       </section>
 
       <section id="view-anamnese" class="view hidden">
-        <div class="view-header">
-          <h2>Ficha de Anamnese</h2>
-          <p class="view-lead">Ficha por área/queixa (cabelo, rosto — pele ou injetáveis —, corpo). Abra pelo perfil do cliente ou pela Agenda, ou escolha o cliente abaixo. <strong>Registro completo</strong> (ficha) ou só <strong>evolução</strong> (fotos e comentário).</p>
+        <div class="view-header anamnese-page-header">
+          <div>
+            <h2>Ficha de Anamnese</h2>
+            <p class="view-lead">Ficha da sessão, histórico e comparativo de fotos ficam em abas separadas.</p>
+          </div>
         </div>
-        <div class="view-card">
+        <div class="view-card anamnese-card">
         <div class="anamnese-cliente-select-wrap">
           <label for="anamneseClienteSelect">Cliente</label>
           <select id="anamneseClienteSelect" class="anamnese-cliente-select">
@@ -1608,36 +1636,80 @@
           </select>
         </div>
         <div id="anamneseContext" class="anamnese-context hidden"></div>
-        <div id="anamneseFormWrap" class="anamnese-form-wrap hidden">
-          <label>Tipo de registro</label>
-          <select id="anamneseTipoRegistro">
-            <option value="completo">Ficha completa (primeira vez ou reassessment)</option>
-            <option value="evolucao">Só evolução (fotos e comentário desta sessão)</option>
-          </select>
-          <label>Área / Queixa</label>
-          <select id="anamneseFuncao"></select>
+        <div class="anamnese-tabs" role="tablist" aria-label="Anamnese">
+          <button type="button" class="anamnese-tab is-active" data-anamnese-tab="ficha" role="tab" aria-selected="true">Ficha</button>
+          <button type="button" class="anamnese-tab" data-anamnese-tab="historico" role="tab" aria-selected="false" id="btnAnamneseHistorico" disabled>Histórico</button>
+          <button type="button" class="anamnese-tab" data-anamnese-tab="comparativo" role="tab" aria-selected="false" id="btnAnamneseComparativo" disabled>Antes e depois</button>
+        </div>
+        <div id="anamneseFormWrap" class="anamnese-form-wrap hidden" data-anamnese-pane="ficha">
+          <div class="anamnese-form-top">
+            <div class="anamnese-field">
+              <label for="anamneseTipoRegistro">Tipo de registro</label>
+              <select id="anamneseTipoRegistro">
+                <option value="completo">Ficha completa</option>
+                <option value="evolucao">Só evolução (fotos e comentário)</option>
+              </select>
+            </div>
+            <div class="anamnese-field">
+              <label for="anamneseFuncao">Área / Queixa</label>
+              <select id="anamneseFuncao"></select>
+            </div>
+          </div>
           <div id="anamneseFichaCamposWrap" class="anamnese-ficha-wrap">
             <div id="anamneseFichaCampos" class="anamnese-ficha-campos"></div>
           </div>
-          <label>Observações gerais</label>
-          <textarea id="anamneseConteudo" placeholder="Observações livres deste atendimento…" rows="3"></textarea>
-          <label>Fotos</label>
-          <p class="anamnese-fotos-hint">Adicione arquivos ou tire foto. Para cada foto você pode datar e colocar uma observação.</p>
-          <div class="anamnese-fotos-actions">
-            <input type="file" id="anamneseFotos" accept="image/*" multiple aria-label="Selecionar fotos">
-            <button type="button" id="btnAnamneseTirarFoto" class="btn-secondary">Tirar foto</button>
+          <div class="anamnese-field anamnese-field--wide">
+            <label for="anamneseConteudo">Observações gerais</label>
+            <textarea id="anamneseConteudo" placeholder="Observações livres deste atendimento…" rows="3"></textarea>
           </div>
-          <div id="anamneseFotosPreview" class="anamnese-fotos-preview"></div>
-          <label>Conduta do tratamento</label>
-          <textarea id="anamneseConduta" placeholder="Plano, próximos passos, como conduzir o tratamento…" rows="3"></textarea>
-          <button type="button" id="btnAnamneseSalvar">Salvar ficha</button>
+            <div class="anamnese-fotos-block" tabindex="0">
+            <label>Fotos desta sessão</label>
+            <p class="anamnese-fotos-hint">Na mesma ficha: foto de <strong>antes</strong> e de <strong>depois</strong> do procedimento. Cole do WhatsApp, envie arquivo ou tire foto. O comparativo (quais fotos entram no lado a lado) fica na aba <strong>Antes e depois</strong>.</p>
+            <div class="anamnese-fotos-ad">
+              <div class="anamnese-fotos-col" data-momento="antes">
+                <h3 class="anamnese-fotos-col-title">Antes do procedimento</h3>
+                <div class="anamnese-fotos-actions">
+                  <input type="file" id="anamneseFotosAntes" accept="image/*" multiple aria-label="Fotos de antes">
+                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="antes">Tirar foto</button>
+                </div>
+                <div id="anamneseFotosPreviewAntes" class="anamnese-fotos-preview"></div>
+              </div>
+              <div class="anamnese-fotos-col" data-momento="depois">
+                <h3 class="anamnese-fotos-col-title">Depois do procedimento</h3>
+                <div class="anamnese-fotos-actions">
+                  <input type="file" id="anamneseFotosDepois" accept="image/*" multiple aria-label="Fotos de depois">
+                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="depois">Tirar foto</button>
+                </div>
+                <div id="anamneseFotosPreviewDepois" class="anamnese-fotos-preview"></div>
+              </div>
+            </div>
+          </div>
+          <div class="anamnese-field anamnese-field--wide">
+            <label for="anamneseConduta">Conduta do tratamento</label>
+            <textarea id="anamneseConduta" placeholder="Plano, próximos passos, como conduzir o tratamento…" rows="3"></textarea>
+          </div>
+          <button type="button" id="btnAnamneseSalvar" class="btn-primary">Salvar ficha</button>
         </div>
         <div id="anamneseSemCliente" class="anamnese-sem-cliente hidden">
-          <p>Selecione um cliente no campo acima para acessar a ficha e o histórico.</p>
+          <p>Selecione um cliente no campo acima para acessar a ficha.</p>
         </div>
-        <div id="anamneseHistorio" class="anamnese-historio">
-          <h3>Histórico (evolutivo)</h3>
+        <div id="anamneseHistorio" class="anamnese-historio-pane hidden" data-anamnese-pane="historico">
+          <header class="anamnese-historio-head">
+            <div>
+              <h3>Histórico evolutivo</h3>
+              <p class="anamnese-historio-lead">Todos os registros desta área. Use a aba <strong>Antes e depois</strong> para escolher as fotos do comparativo.</p>
+            </div>
+          </header>
           <div id="anamneseRegistros"></div>
+        </div>
+        <div id="anamneseComparativoPane" class="anamnese-comparativo-pane hidden" data-anamnese-pane="comparativo">
+          <header class="anamnese-historio-head">
+            <div>
+              <h3>Antes e depois</h3>
+              <p class="anamnese-historio-lead">Sinalize quais fotos entram no comparativo. Só entram as que você marcar.</p>
+            </div>
+          </header>
+          <div id="anamneseFotoPicker" class="anamnese-foto-picker"></div>
           <div id="anamneseCompareWrap" class="anamnese-compare-wrap hidden"></div>
         </div>
         </div>
@@ -1909,7 +1981,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=p1-8-roles"></script>
+<script type="module" src="./js/core/spa.js"></script>
 
 </body>
 </html>

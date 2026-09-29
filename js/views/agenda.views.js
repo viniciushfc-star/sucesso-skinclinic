@@ -73,6 +73,8 @@ import { getCustoRealProcedimento, getResumoPorProduto } from "../services/estoq
 import { getTaxas, getTaxaForParcelas } from "../services/precificacao-taxas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
+import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js"
+import { listAfazeresByPrazo } from "../services/afazeres.service.js"
 import { listWaitlist } from "../services/waitlist.service.js"
 import { matchWaitlistToSlot } from "../utils/espera-encaixe.js"
 import { filaWhatsappTemplate } from "../utils/crm-fila.js"
@@ -119,10 +121,14 @@ export async function init() {
   calendarYear = t.getFullYear()
   calendarMonth = t.getMonth() + 1
   bindUI()
-  await renderCalendarAndDay()
+  getOrgMembers().catch(() => {})
+  renderCalendarAndDay().catch((err) => {
+    console.error("[AGENDA] erro render", err)
+    toast("Erro ao carregar agenda")
+  })
   renderAniversariantes()
   if (sessionStorage.getItem("agendaPrefillClientId")) {
-    openCreateModal()
+    openCreateModal().catch(() => {})
   }
 }
 
@@ -222,9 +228,8 @@ async function renderCalendarAndDay() {
 
     if (filtroEl && filtroEl.options.length <= 1) {
       const members = await getOrgMembers()
-      const roleLabel = (r) => ({ master: "Administrador", gestor: "Gestor", staff: "Colaborador", viewer: "Visualização" }[r] || r)
       const opts = (members || []).map((m, i) => {
-        const label = roleLabel(m.role) || `Profissional ${i + 1}`
+        const label = memberLabel(m, i)
         return `<option value="${m.user_id}">${String(label).replace(/</g, "&lt;")}</option>`
       })
       filtroEl.innerHTML = "<option value=\"\">Todos</option>" + opts.join("")
@@ -331,8 +336,15 @@ function shiftWeek(deltaWeeks) {
 }
 
 const WEEK_START_HOUR = 8
-const WEEK_END_HOUR = 18
+const WEEK_END_HOUR = 20
 const WEEK_DAY_COUNT = 6
+const ROLE_AGENDA = { master: "Administrador", gestor: "Gestor", recepcao: "Recepção", profissional: "Profissional", funcionario: "Equipe", staff: "Colaborador", viewer: "Visualização" }
+
+function memberLabel(m, i = 0) {
+  const role = ROLE_AGENDA[m?.role] || m?.role || `Profissional ${i + 1}`
+  const short = String(m?.user_id || "").slice(0, 6)
+  return short ? `${role} · ${short}` : role
+}
 
 function escapeHtml(s) {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
@@ -410,8 +422,9 @@ async function renderWeekGrid(professionalId = null) {
           const nome = isEvent ? apt.event_title || "Evento" : cliente.nome || cliente.name || "—"
           const proc = isEvent ? apt.event_type || "" : apt.procedimento || ""
           const kind = isEvent ? "event" : "ok"
+          const horaTxt = String(apt.hora || "").slice(0, 5)
           return `<button type="button" class="agenda-week-block agenda-week-block--${kind}" data-id="${apt.id}">
-            <b>${escapeHtml(nome)}</b>
+            <b>${escapeHtml(horaTxt)} ${escapeHtml(nome)}</b>
             <span>${escapeHtml(proc)}</span>
           </button>`
         })
@@ -452,7 +465,6 @@ async function renderWeekGrid(professionalId = null) {
   grid.querySelectorAll(".agenda-week-cell").forEach((cell) => {
     cell.onclick = () => {
       selectedDate = cell.dataset.date
-      if (cell.querySelector(".agenda-week-block")) return
       openCreateModal({ hora: cell.dataset.hour })
     }
   })
@@ -460,6 +472,13 @@ async function renderWeekGrid(professionalId = null) {
 }
 
 /** Converte "09:00" ou "9:00" em minutos desde meia-noite. */
+function parseHoraToMinutes(horaStr) {
+  if (!horaStr) return 0
+  const s = String(horaStr).trim().slice(0, 5)
+  const [h, m] = s.split(":").map((n) => parseInt(n, 10) || 0)
+  return h * 60 + m
+}
+
 function htmlAcoesLembrete(a) {
   if (a.item_type === "event") return ""
   const r = rotuloLembrete(a)
@@ -472,17 +491,8 @@ function htmlAcoesLembrete(a) {
   const glyph = r.n >= 2 ? "2ª" : "📋"
   return `${primeira}<button type="button" class="btn-lembrete btn-icon-sm" data-id="${a.id}" data-tentativa="${r.n}" title="${escapeHtml(r.title)}">${glyph}</button>`
 }
-  if (!horaStr) return 0
-  const s = String(horaStr).trim().slice(0, 5)
-  const [h, m] = s.split(":").map((n) => parseInt(n, 10) || 0)
-  return h * 60 + m
-}
 
 /** Timeline: 6h–22h (horário comercial), blocos maiores estilo Google. */
-const TIMELINE_START_HOUR = 6
-const TIMELINE_END_HOUR = 22
-const TIMELINE_PX_PER_HOUR = 64
-
 function renderDayList(date, professionalId = null, weekItems = null) {
   const listaAgenda = document.getElementById("listaAgenda")
   const dayTitleEl = document.getElementById("agendaDayTitle")
@@ -512,38 +522,30 @@ function renderDayList(date, professionalId = null, weekItems = null) {
 
       if (items.length === 0 && !(externals || []).length) {
         listaAgenda.innerHTML = `
-          <p class="agenda-empty">Nenhum agendamento neste dia. Use o botão <strong>Criar</strong> para agendar.</p>
+          <p class="agenda-empty">Nenhum horário neste dia. Clique na grade acima ou em <strong>Novo horário</strong>.</p>
         `
         renderAgendaAfazeres(date)
         return
       }
 
-      const totalHours = TIMELINE_END_HOUR - TIMELINE_START_HOUR
-      const totalHeight = totalHours * TIMELINE_PX_PER_HOUR
-      const hourLabels = []
-      for (let h = TIMELINE_START_HOUR; h < TIMELINE_END_HOUR; h++) {
-        hourLabels.push(`<div class="agenda-timeline-hour" style="height:${TIMELINE_PX_PER_HOUR}px">${String(h).padStart(2, "0")}:00</div>`)
-      }
-
-      const startMinutesBase = TIMELINE_START_HOUR * 60
-      const eventBlocks = items
+      const rows = items
+        .slice()
+        .sort((a, b) => parseHoraToMinutes(a.hora) - parseHoraToMinutes(b.hora))
         .map((a) => {
-          const startMin = parseHoraToMinutes(a.hora)
-          const durationMin = Math.max(15, Number(a.duration_minutes) || 60)
-          const top = ((startMin - startMinutesBase) / 60) * TIMELINE_PX_PER_HOUR
-          const height = Math.max(44, (durationMin / 60) * TIMELINE_PX_PER_HOUR - 4)
           const nome = isEvent(a)
-            ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
-            : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")
-          const titulo = escapeHtml(nome)
+            ? (a.event_title || "Evento")
+            : (cliente(a).nome || cliente(a).name || "—")
+          const proc = isEvent(a) ? (a.event_type || "") : (a.procedimento || "")
           return `
-    <div class="calendar-event calendar-event--block ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
-         style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
+    <div class="calendar-event agenda-day-row ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
          data-id="${a.id}"
          data-tel="${(cliente(a).telefone || cliente(a).phone || "").replace(/"/g, "&quot;")}"
          data-email="${(cliente(a).email || "").replace(/"/g, "&quot;")}">
-      <div class="calendar-event-block-time">${hora(a)}${durationMin !== 60 ? ` · ${durationMin} min` : ""}</div>
-      <div class="calendar-event-block-name" title="${titulo}">${titulo}</div>
+      <div class="agenda-day-row-time">${escapeHtml(hora(a))}</div>
+      <div class="agenda-day-row-main">
+        <strong>${escapeHtml(nome)}</strong>
+        <span>${escapeHtml(proc)}${a.is_retorno ? " · retorno" : ""}</span>
+      </div>
       <div class="calendar-event-block-actions">
         ${htmlAcoesLembrete(a)}
         ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete btn-icon-sm" data-id="${a.id}" title="E-mail">✉️</button>` : ""}
@@ -553,104 +555,24 @@ function renderDayList(date, professionalId = null, weekItems = null) {
         })
         .join("")
 
-      const ocupadoBlocks = (externals || []).map((b) => {
+      const ocupadoRows = (externals || []).map((b) => {
         const ini = new Date(b.start_at)
         const fim = new Date(b.end_at)
-        const startMin = ini.getHours() * 60 + ini.getMinutes()
-        const durationMin = Math.max(15, (fim.getTime() - ini.getTime()) / 60000)
-        const top = ((startMin - startMinutesBase) / 60) * TIMELINE_PX_PER_HOUR
-        const height = Math.max(44, (durationMin / 60) * TIMELINE_PX_PER_HOUR - 4)
         const t0 = `${String(ini.getHours()).padStart(2, "0")}:${String(ini.getMinutes()).padStart(2, "0")}`
         const t1 = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`
-        const titulo = labelOcupadoPessoal()
         return `
-    <div class="calendar-event calendar-event--block calendar-event--ocupado"
-         style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
-         title="Agenda pessoal — a clínica não vê o conteúdo">
-      <div class="calendar-event-block-time">${t0}–${t1}</div>
-      <div class="calendar-event-block-name">${escapeHtml(titulo)}</div>
+    <div class="calendar-event agenda-day-row calendar-event--ocupado" title="Agenda pessoal — a clínica não vê o conteúdo">
+      <div class="agenda-day-row-time">${t0}–${t1}</div>
+      <div class="agenda-day-row-main"><strong>${escapeHtml(labelOcupadoPessoal())}</strong></div>
     </div>`
       }).join("")
 
-      listaAgenda.innerHTML = `
-        <div class="agenda-day-timeline">
-          <div class="agenda-timeline-hours">${hourLabels.join("")}</div>
-          <div class="agenda-timeline-events" style="min-height:${totalHeight}px">
-            ${eventBlocks}${ocupadoBlocks}
-          </div>
-        </div>`
+      listaAgenda.innerHTML = `<div class="agenda-day-list">${rows}${ocupadoRows}</div>`
 
       bindEditEvents()
       bindLembreteButtons(items, date)
       bindEmailLembreteButtons(items, date)
       notificarSemResponsavel().catch(() => {})
-
-      const firstBlock = listaAgenda.querySelector(".calendar-event--block")
-      if (firstBlock) {
-        firstBlock.scrollIntoView({ behavior: "smooth", block: "nearest" })
-      }
-
-      renderAgendaAfazeres(date)
-    })
-    .catch((err) => {
-      console.error("[AGENDA] erro lista dia", err)
-      listaAgenda.innerHTML = `<p class="agenda-empty">Erro ao carregar agendamentos.</p>`
-    })
-}
-
-      const totalHours = TIMELINE_END_HOUR - TIMELINE_START_HOUR
-      const totalHeight = totalHours * TIMELINE_PX_PER_HOUR
-      const hourLabels = []
-      for (let h = TIMELINE_START_HOUR; h < TIMELINE_END_HOUR; h++) {
-        hourLabels.push(`<div class="agenda-timeline-hour" style="height:${TIMELINE_PX_PER_HOUR}px">${String(h).padStart(2, "0")}:00</div>`)
-      }
-
-      const startMinutesBase = TIMELINE_START_HOUR * 60
-      const eventBlocks = items
-        .map((a) => {
-          const startMin = parseHoraToMinutes(a.hora)
-          const durationMin = Math.max(15, Number(a.duration_minutes) || 60)
-          const top = ((startMin - startMinutesBase) / 60) * TIMELINE_PX_PER_HOUR
-          const height = Math.max(44, (durationMin / 60) * TIMELINE_PX_PER_HOUR - 4)
-          const nome = isEvent(a)
-            ? (a.event_title || "Evento") + (a.event_type ? ` (${a.event_type})` : "")
-            : (cliente(a).nome || cliente(a).name || "—") + " – " + (a.procedimento || "Agendamento")
-          const titulo = escapeHtml(nome)
-          return `
-    <div class="calendar-event calendar-event--block ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
-         style="top:${Math.max(0, top)}px;height:${height}px;min-height:${height}px"
-         data-id="${a.id}"
-         data-tel="${(cliente(a).telefone || cliente(a).phone || "").replace(/"/g, "&quot;")}"
-         data-email="${(cliente(a).email || "").replace(/"/g, "&quot;")}">
-      <div class="calendar-event-block-time">${hora(a)}${durationMin !== 60 ? ` · ${durationMin} min` : ""}</div>
-      <div class="calendar-event-block-name" title="${titulo}">${titulo}</div>
-      <div class="calendar-event-block-actions">
-        ${htmlAcoesLembrete(a)}
-        ${!isEvent(a) ? `<button type="button" class="btn-email-lembrete btn-icon-sm" data-id="${a.id}" title="E-mail">✉️</button>` : ""}
-        ${!isEvent(a) ? `<button class="btn-whats btn-icon-sm" title="WhatsApp">📲</button>` : ""}
-      </div>
-    </div>`
-        })
-        .join("")
-
-      listaAgenda.innerHTML = `
-        <div class="agenda-day-timeline">
-          <div class="agenda-timeline-hours">${hourLabels.join("")}</div>
-          <div class="agenda-timeline-events" style="min-height:${totalHeight}px">
-            ${eventBlocks}
-          </div>
-        </div>`
-
-      bindEditEvents()
-      bindLembreteButtons(items, date)
-      bindEmailLembreteButtons(items, date)
-      notificarSemResponsavel().catch(() => {})
-
-      const firstBlock = listaAgenda.querySelector(".calendar-event--block")
-      if (firstBlock) {
-        firstBlock.scrollIntoView({ behavior: "smooth", block: "nearest" })
-      }
-
       renderAgendaAfazeres(date)
     })
     .catch((err) => {
@@ -957,8 +879,9 @@ async function preencherEsperaEncaixeNoModal() {
 }
 
 async function openCreateModal(opts = {}){
+ try {
   if (opts.date) selectedDate = opts.date
-  const horaPrefill = opts.hora || ""
+  const horaPrefill = opts.hora || "09:00"
 
  let clientes = []
  try {
@@ -971,7 +894,7 @@ async function openCreateModal(opts = {}){
 
  const members = await getOrgMembers()
  const profOptions = (members || []).map((m, i) => {
-  const label = m.role ? `${m.role} (${(m.user_id || "").slice(0, 8)}…)` : `Profissional ${i + 1}`
+  const label = memberLabel(m, i)
   return `<option value="${m.user_id}">${label}</option>`
  }).join("")
 
@@ -1013,15 +936,15 @@ async function openCreateModal(opts = {}){
     <p id="agendaDisponiveis" class="agenda-disponiveis-msg" aria-live="polite"></p>
    </div>
 
-   <label for="sala">Sala/Cabine${config.sala_obrigatoria ? " *" : ""}</label>
-   <select id="sala" ${config.sala_obrigatoria ? "required" : ""}>
+   <label for="sala">Sala/Cabine${config.sala_obrigatoria && (salas || []).length ? " *" : ""}</label>
+   <select id="sala">
     <option value="">Selecione a sala…</option>
     ${salaOptions}
    </select>
    <p id="agendaSalaStatus" class="agenda-sala-status" aria-live="polite"></p>
 
-   <label for="profissional">Profissional${config.profissional_obrigatorio ? " *" : ""}</label>
-   <select id="profissional" ${config.profissional_obrigatorio ? "required" : ""}>
+   <label for="profissional">Profissional${config.profissional_obrigatorio && (members || []).length ? " *" : ""}</label>
+   <select id="profissional">
     <option value="">Selecione o profissional…</option>
     ${profOptions}
    </select>
@@ -1029,6 +952,7 @@ async function openCreateModal(opts = {}){
 
    <label for="cliente">Cliente</label>
    <select id="cliente">
+    <option value="">Selecione o cliente…</option>
     ${(clientes || []).map(c=>`
      <option value="${c.id}" ${c.id === prefillClient ? "selected" : ""} data-modelo="${c.is_paciente_modelo ? "1" : "0"}" data-discount="${c.model_discount_pct != null ? c.model_discount_pct : ""}">${(c.nome || c.name || "").replace(/</g, "&lt;")}${c.is_paciente_modelo ? " (modelo)" : ""}</option>
     `).join("")}
@@ -1040,6 +964,15 @@ async function openCreateModal(opts = {}){
     <input type="number" id="agendaDescontoModeloPct" min="0" max="100" step="0.5" placeholder="Ex.: 30">
    </div>
 
+   <label for="procCatalog">Procedimento (catálogo)</label>
+   <select id="procCatalog">${procCatalogOptions}</select>
+
+   <label for="proc">Procedimento (nome ou texto livre)</label>
+   <input id="proc" placeholder="Ex.: Limpeza de pele">
+   <div id="agendaEsperaEncaixe" class="agenda-espera-encaixe" aria-live="polite"></div>
+
+   <details class="agenda-modal-mais">
+   <summary>Plano, retorno e outras opções</summary>
    <label for="agendaPlano">Plano terapêutico (opcional)</label>
    <select id="agendaPlano">${planoOptions}</select>
    <p id="agendaPlanoPreview" class="agenda-plano-preview"></p>
@@ -1047,13 +980,6 @@ async function openCreateModal(opts = {}){
     <input type="checkbox" id="agendaPlanoSessoes" checked>
     Agendar as demais sessões a cada 7 dias (mesmo horário). Conflito pula a sessão.
    </label>
-
-   <label for="procCatalog">Procedimento (catálogo)</label>
-   <select id="procCatalog">${procCatalogOptions}</select>
-
-   <label for="proc">Procedimento (nome ou texto livre)</label>
-   <input id="proc" required placeholder="Preenchido ao escolher do catálogo">
-   <div id="agendaEsperaEncaixe" class="agenda-espera-encaixe" aria-live="polite"></div>
 
    <div class="agenda-retorno-option">
     <label><input type="checkbox" id="agendaIsRetorno"> Retorno (não gera receita)</label>
@@ -1074,6 +1000,7 @@ async function openCreateModal(opts = {}){
       O horário aparecerá como ocupado na disponibilidade do profissional, mas não criará atendimento na agenda da clínica.
     </p>
    </div>
+   </details>
   `,
 
   createAgenda
@@ -1144,7 +1071,8 @@ async function openCreateModal(opts = {}){
    await preencherEsperaEncaixeNoModal()
   }
  }
- document.getElementById("btnVerDisponiveis").onclick = () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl)
+ const btnDisp = document.getElementById("btnVerDisponiveis")
+ if (btnDisp) btnDisp.onclick = () => refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl)
  if (profEl) profEl.onchange = () => refreshProfStatus(profEl, dataEl, horaEl, procDurationEl)
  if (salaEl) salaEl.onchange = () => refreshSalaStatus(salaEl, dataEl, horaEl, procDurationEl)
  if (dataEl) dataEl.addEventListener("change", () => {
@@ -1168,6 +1096,10 @@ async function openCreateModal(opts = {}){
   if (has) profEl.value = opts.professionalId
  }
  await preencherEsperaEncaixeNoModal()
+ } catch (err) {
+  console.error("[AGENDA] abrir novo horário", err)
+  toast(err?.message || "Não foi possível abrir o agendamento.")
+ }
 }
 
 /** Filtra dropdowns de sala e profissional pelo procedimento selecionado (sala suporta tipo; profissional realiza). */
@@ -1180,8 +1112,7 @@ async function filterSalasAndProfsByProcedure(procedureId, salaEl, profEl, salas
   if (!procedureId || procedureId.trim() === "") {
     salaEl.innerHTML = emptyOptionSala + allSalas.map(s => `<option value="${s.id}">${(s.nome || "").replace(/</g, "&lt;")}</option>`).join("")
     profEl.innerHTML = emptyOptionProf + allMembers.map((m, i) => {
-      const label = m.role ? `${m.role} (${(m.user_id || "").slice(0, 8)}…)` : `Profissional ${i + 1}`
-      return `<option value="${m.user_id}">${label}</option>`
+      return `<option value="${m.user_id}">${memberLabel(m, i)}</option>`
     }).join("")
     return
   }
@@ -1192,8 +1123,7 @@ async function filterSalasAndProfsByProcedure(procedureId, salaEl, profEl, salas
   const membersFiltrados = profIds && profIds.length > 0 ? allMembers.filter(m => profIds.includes(m.user_id)) : allMembers
   salaEl.innerHTML = emptyOptionSala + salasFiltradas.map(s => `<option value="${s.id}">${(s.nome || "").replace(/</g, "&lt;")}</option>`).join("")
   profEl.innerHTML = emptyOptionProf + membersFiltrados.map((m, i) => {
-    const label = m.role ? `${m.role} (${(m.user_id || "").slice(0, 8)}…)` : `Profissional ${i + 1}`
-    return `<option value="${m.user_id}">${label}</option>`
+    return `<option value="${m.user_id}">${memberLabel(m, i)}</option>`
   }).join("")
 }
 
@@ -1523,7 +1453,7 @@ async function openEditModal(id){
 
   const members = await getOrgMembers()
   const profOptionsEdit = (members || []).map((m, i) => {
-   const label = m.role ? `${m.role} (${(m.user_id || "").slice(0, 8)}…)` : `Profissional ${i + 1}`
+   const label = memberLabel(m, i)
    const sel = data.user_id === m.user_id ? " selected" : ""
    return `<option value="${m.user_id}"${sel}>${label}</option>`
   }).join("")
@@ -1563,14 +1493,14 @@ async function openEditModal(id){
     <input type="number" id="procDuration" min="5" step="5" value="${procDuration}">
 
     <label for="sala">Sala/Cabine${config.sala_obrigatoria ? " *" : ""}</label>
-    <select id="sala" ${config.sala_obrigatoria ? "required" : ""}>
+    <select id="sala">
      <option value="">Selecione a sala…</option>
      ${salaOptionsEdit}
     </select>
     <p id="agendaSalaStatus" class="agenda-sala-status" aria-live="polite"></p>
 
     <label for="profissional">Profissional${config.profissional_obrigatorio ? " *" : ""}</label>
-    <select id="profissional" ${config.profissional_obrigatorio ? "required" : ""}>
+    <select id="profissional">
      <option value="">Selecione o profissional…</option>
      ${profOptionsEdit}
     </select>
@@ -2231,6 +2161,19 @@ async function insertAgendaRow(payload) {
     error = retry.error
     data = retry.data
   }
+  if (error && /is_retorno|is_modelo|desconto_modelo|procedure_id|sala_id|duration_minutes/i.test(error.message || "")) {
+    const core = {
+      org_id: payload.org_id,
+      data: payload.data,
+      hora: payload.hora,
+      procedimento: payload.procedimento,
+    }
+    if (payload.cliente_id) core.cliente_id = payload.cliente_id
+    if (payload.user_id) core.user_id = payload.user_id
+    const retry2 = await supabase.from("agenda").insert(core).select("id").single()
+    error = retry2.error
+    data = retry2.data
+  }
   if (error) throw error
   if (data?.id && payload.user_id) {
     occupyProfessionalCalendar(data.id).then((r) => {
@@ -2295,6 +2238,19 @@ async function createAgenda(){
     console.error("[AGENDA] erro ao criar bloqueio externo", e)
     toast("Erro ao marcar indisponibilidade.")
    }
+   return
+  }
+
+  let cfgAgenda = { sala_obrigatoria: false, profissional_obrigatorio: false }
+  try { cfgAgenda = await getAgendaConfig() } catch (_) {}
+  const temSalaOpcao = salaInput && [...salaInput.options].some((o) => o.value)
+  const temProfOpcao = profissionalInput && [...profissionalInput.options].some((o) => o.value)
+  if (cfgAgenda.sala_obrigatoria && temSalaOpcao && !salaId) {
+   toast("Selecione a sala.")
+   return
+  }
+  if (cfgAgenda.profissional_obrigatorio && temProfOpcao && !profissionalId) {
+   toast("Selecione o profissional.")
    return
   }
 
@@ -2379,6 +2335,14 @@ async function createAgenda(){
   }
 
   const clienteId = (clienteInput.value || "").trim()
+  if (!procInput?.value?.trim() && !procedureId) {
+    toast("Informe o procedimento (catálogo ou texto).")
+    return
+  }
+  if (!dataInput.value || !horaInput.value) {
+    toast("Informe data e hora.")
+    return
+  }
   let criados = 0
   let pulados = 0
   for (const slot of slots) {
@@ -2459,7 +2423,7 @@ async function createAgenda(){
  }catch(err){
 
   console.error("[AGENDA] erro create", err)
-  toast("Erro ao criar")
+  toast(err?.message || "Erro ao criar o horário.")
  }
 }
 

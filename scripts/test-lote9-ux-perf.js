@@ -41,7 +41,9 @@ describe("Lote 9 UX e desempenho", () => {
     const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
     assert.match(agenda, /weekItems/);
     assert.match(agenda, /export async function init/);
-    assert.match(sw, /catch\(\(\) => caches\.match/);
-    assert.match(sw, /v6/);
+    assert.match(sw, /fetch\(event\.request\)/);
+    assert.match(sw, /caches\.match\(event\.request\)/);
+    assert.doesNotMatch(sw, /return cached \|\| fetchPromise/);
+    assert.match(sw, /skinclinic-v7/);
   });
 });

@@ -226,6 +226,9 @@ function normalizeSpaUrl() {
 }
 
 async function init() {
+  if (window.__scSpaBooted) return;
+  window.__scSpaBooted = true;
+
   if (normalizeSpaUrl()) return;
 
   await protectPage();
@@ -676,6 +679,30 @@ async function carregarView(viewName) {
   }
 }
 
+function paintSidebarBrand(el, name, logoUrl) {
+  if (!el) return;
+  el.innerHTML = "";
+  el.classList.remove("sidebar-logo--img");
+  if (logoUrl && /^https?:\/\//i.test(logoUrl)) {
+    const img = document.createElement("img");
+    img.src = logoUrl;
+    img.alt = name;
+    img.className = "sidebar-logo-img";
+    el.appendChild(img);
+    el.classList.add("sidebar-logo--img");
+    return;
+  }
+  const text = document.createElement("span");
+  text.className = "sidebar-logo-text";
+  text.textContent = name;
+  el.appendChild(text);
+  const short = document.createElement("span");
+  short.className = "sidebar-logo-collapsed";
+  short.setAttribute("aria-hidden", "true");
+  short.textContent = (name || "S").trim().charAt(0).toUpperCase() || "S";
+  el.appendChild(short);
+}
+
 /** Atualiza identidade da empresa no sidebar (nome ou logo) e título da página (co-marca). Mostra banner se API falhar. */
 async function updateAppIdentity() {
   const el = document.getElementById("sidebarLogo");
@@ -690,37 +717,20 @@ async function updateAppIdentity() {
         banner.classList.remove("hidden");
         banner.querySelector(".api-error-banner-text").textContent = "Dados da organização não carregaram (conexão ou configuração). Acesse Configurações ou tente novamente.";
       }
-      if (el) { el.innerHTML = ""; el.textContent = fallback; el.classList.remove("sidebar-logo--img"); }
+      paintSidebarBrand(el, fallback, "");
       const headerTitle = document.getElementById("mainHeaderTitle");
       if (headerTitle) headerTitle.textContent = "SkinClinic";
       document.title = "SkinClinic";
       return;
     }
     const name = (profile.name || "").trim() || fallback;
-    if (el) {
-      el.innerHTML = "";
-      if (profile.logo_url && /^https?:\/\//i.test(profile.logo_url)) {
-        const img = document.createElement("img");
-        img.src = profile.logo_url;
-        img.alt = name;
-        img.className = "sidebar-logo-img";
-        el.appendChild(img);
-        el.classList.add("sidebar-logo--img");
-      } else {
-        el.textContent = name;
-        el.classList.remove("sidebar-logo--img");
-      }
-    }
+    paintSidebarBrand(el, name, profile.logo_url);
     const headerTitle = document.getElementById("mainHeaderTitle");
     if (headerTitle) headerTitle.textContent = name;
     document.title = name && name !== fallback ? `${name} – SkinClinic` : "SkinClinic";
   } catch (_) {
     if (banner) banner.classList.remove("hidden");
-    if (el) {
-      el.innerHTML = "";
-      el.textContent = fallback;
-      el.classList.remove("sidebar-logo--img");
-    }
+    paintSidebarBrand(el, fallback, "");
     const headerTitle = document.getElementById("mainHeaderTitle");
     if (headerTitle) headerTitle.textContent = "SkinClinic";
     document.title = "SkinClinic";
@@ -887,24 +897,79 @@ function updateThemeButtonIcon() {
   btn.setAttribute("aria-label", isDark ? "Mudar para tema claro" : "Mudar para tema escuro");
 }
 
+const SIDEBAR_COLLAPSED_KEY = "skinclinic_sidebar_collapsed";
+const SIDEBAR_MOBILE_MQ = "(max-width: 800px)";
+
+function isMobileSidebar() {
+  return window.matchMedia(SIDEBAR_MOBILE_MQ).matches;
+}
+
+function persistSidebarCollapsed(sidebar) {
+  if (isMobileSidebar()) return;
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebar.classList.contains("sidebar-collapsed") ? "1" : "0");
+}
+
+function syncSidebarBackdrop(sidebar) {
+  const backdrop = document.getElementById("sidebarBackdrop");
+  if (!backdrop) return;
+  const open = isMobileSidebar() && !sidebar.classList.contains("sidebar-collapsed");
+  backdrop.hidden = !open;
+}
+
 /* Sidebar: abre/fecha (guarda estado no localStorage). Usa delegação para garantir que o clique funcione. */
 function bindSidebarToggle() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
 
-  const KEY = "skinclinic_sidebar_collapsed";
-  if (localStorage.getItem(KEY) === "1") {
+  if (isMobileSidebar()) {
+    sidebar.classList.add("sidebar-collapsed");
+  } else if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") {
     sidebar.classList.add("sidebar-collapsed");
   }
+  syncSidebarBackdrop(sidebar);
 
-  /* Delegação no document: captura clique no botão ou no ícone dentro dele */
+  window.matchMedia(SIDEBAR_MOBILE_MQ).addEventListener("change", () => {
+    if (isMobileSidebar()) {
+      sidebar.classList.add("sidebar-collapsed");
+    } else if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") {
+      sidebar.classList.add("sidebar-collapsed");
+    } else {
+      sidebar.classList.remove("sidebar-collapsed");
+    }
+    syncSidebarBackdrop(sidebar);
+  });
+
   document.addEventListener("click", (e) => {
+    if (e.target.closest("#sidebarOpenMobile")) {
+      e.preventDefault();
+      e.stopPropagation();
+      sidebar.classList.remove("sidebar-collapsed");
+      persistSidebarCollapsed(sidebar);
+      syncSidebarBackdrop(sidebar);
+      return;
+    }
+    if (e.target.closest("#sidebarBackdrop")) {
+      e.preventDefault();
+      sidebar.classList.add("sidebar-collapsed");
+      persistSidebarCollapsed(sidebar);
+      syncSidebarBackdrop(sidebar);
+      return;
+    }
     const toggle = e.target.closest("#sidebarToggle");
     if (!toggle) return;
     e.preventDefault();
     e.stopPropagation();
     sidebar.classList.toggle("sidebar-collapsed");
-    localStorage.setItem(KEY, sidebar.classList.contains("sidebar-collapsed") ? "1" : "0");
+    persistSidebarCollapsed(sidebar);
+    syncSidebarBackdrop(sidebar);
+  });
+
+  sidebar.addEventListener("click", (e) => {
+    if (!isMobileSidebar()) return;
+    const item = e.target.closest(".sidebar-item");
+    if (!item || item.matches(".sidebar-item-parent")) return;
+    sidebar.classList.add("sidebar-collapsed");
+    syncSidebarBackdrop(sidebar);
   });
 }
 
@@ -947,20 +1012,23 @@ async function initPushNotifications() {
    BROWSER
 ========================= */
 
-window.onpopstate = async () => {
-  const hash = location.hash.replace("#", "");
-
-  if (!hash) {
-    await navigate("bootstrap");
+if (!window.__scSpaNavBound) {
+  window.__scSpaNavBound = true;
+  window.onpopstate = async () => {
+    const hash = location.hash.replace("#", "");
+    if (!hash) {
+      await navigate("bootstrap");
+    } else {
+      await navigate(hash);
+    }
+  };
+  window.addEventListener("hashchange", () => {
+    const hash = location.hash.replace("#", "").trim();
+    if (hash && routes[hash]) navigate(hash);
+  });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
   } else {
-    await navigate(hash);
+    init();
   }
-};
-
-/* Links internos com href="#view" (ex.: card margem em risco "Ver na Auditoria") */
-window.addEventListener("hashchange", () => {
-  const hash = location.hash.replace("#", "").trim();
-  if (hash && routes[hash]) navigate(hash);
-});
-
-document.addEventListener("DOMContentLoaded", init);
+}

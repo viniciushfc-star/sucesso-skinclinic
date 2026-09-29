@@ -14,8 +14,15 @@ function orgIdOrThrow() {
   return orgId;
 }
 
-function missingMinimo(error) {
-  return /quantidade_minima|schema cache|column/i.test(String(error?.message || ""));
+function money(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function missingOptionalCol(error, col) {
+  const msg = String(error?.message || "");
+  return new RegExp(col, "i").test(msg) || /schema cache|column/i.test(msg);
 }
 
 async function writeCatalogo(kind, row, filter) {
@@ -29,12 +36,14 @@ async function writeCatalogo(kind, row, filter) {
     return q.select().single();
   };
   let { data, error } = await attempt(row);
-  if (error && missingMinimo(error) && Object.prototype.hasOwnProperty.call(row, "quantidade_minima")) {
-    const copy = { ...row };
-    delete copy.quantidade_minima;
-    const retry = await attempt(copy);
-    data = retry.data;
-    error = retry.error;
+  for (const col of ["quantidade_minima", "imagem_url"]) {
+    if (error && missingOptionalCol(error, col) && Object.prototype.hasOwnProperty.call(row, col)) {
+      const copy = { ...row };
+      delete copy[col];
+      const retry = await attempt(copy);
+      data = retry.data;
+      error = retry.error;
+    }
   }
   return { data, error };
 }
@@ -72,10 +81,12 @@ export async function upsertProdutoCatalogo(payload) {
     unidade: String(payload.unidade || "").trim() || null,
     observacao: String(payload.observacao || "").trim() || null,
     quantidade_minima: money(payload.quantidade_minima),
+    imagem_url: payload.imagem_url ? String(payload.imagem_url).trim() : payload.imagem_url === "" ? null : undefined,
     ativo: payload.ativo === false ? false : true,
     updated_at: new Date().toISOString(),
     created_by: user?.id ?? null,
   };
+  if (row.imagem_url === undefined) delete row.imagem_url;
 
   if (payload.id) {
     const { data, error } = await writeCatalogo("update", row, { id: payload.id });
@@ -142,4 +153,17 @@ export function custoMedioComFreteDasEntradas(entradas) {
     out[nome] = v.qty > 0 ? v.total / v.qty : null;
   }
   return out;
+}
+
+export async function uploadProdutoImagem(file, produtoId) {
+  const orgId = orgIdOrThrow();
+  if (!file || !orgId) throw new Error("Arquivo de imagem inválido");
+  const id = String(produtoId || crypto.randomUUID());
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const safe = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext) ? ext : "jpg";
+  const path = `${orgId}/produtos/${id}.${safe}`;
+  const { error } = await supabase.storage.from("org-logos").upload(path, file, { upsert: true });
+  if (error) throw error;
+  const { data } = supabase.storage.from("org-logos").getPublicUrl(path);
+  return data?.publicUrl || null;
 }

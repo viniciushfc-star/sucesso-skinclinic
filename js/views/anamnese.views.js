@@ -7,7 +7,7 @@
 import { supabase } from "../core/supabase.js";
 import { navigate } from "../core/spa.js";
 import { toast } from "../ui/toast.js";
-import { getClientes } from "../services/clientes.service.js";
+import { getClientes, getClientById } from "../services/clientes.service.js";
 import {
   listFuncoes,
   suggestFuncaoFromProcedimento,
@@ -22,7 +22,9 @@ import {
 import { ehDuplicataDaUltima, mapaVersaoAnamnese, rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { getRole } from "../services/permissions.service.js";
 import { startCameraCapture } from "../utils/camera.js";
+import { fileFromClipboardEvent, downloadImageUrl } from "../utils/cliente-cadastro.js";
 import { openModal, closeModal } from "../ui/modal.js";
+import { MAPAS_EDIT, PRODUTOS_APLICACAO } from "../utils/injetaveis-mapas.js";
 
 const STORAGE_AGENDA = "anamnese_agenda_id";
 const STORAGE_CLIENT = "anamnese_client_id";
@@ -31,31 +33,32 @@ const STORAGE_PROCEDIMENTO = "anamnese_procedimento";
 /** Tipos de campo: section (título), text, textarea, select, sim_nao, sim_nao_complement */
 function renderFichaField(c, escapeHtml) {
   const id = "ficha_" + c.key;
+  const wrap = (inner, extra = "") => `<div class="anamnese-field ${extra}">${inner}</div>`;
   if (c.type === "section") {
     return `<h4 class="anamnese-ficha-section">${escapeHtml(c.label)}</h4>`;
   }
   if (c.type === "select") {
     const opts = (c.options || []).map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("");
-    return `<label for="${id}">${escapeHtml(c.label)}</label><select id="${id}" data-ficha-key="${c.key}"><option value="">—</option>${opts}</select>`;
+    return wrap(`<label for="${id}">${escapeHtml(c.label)}</label><select id="${id}" data-ficha-key="${c.key}"><option value="">—</option>${opts}</select>`);
   }
   if (c.type === "sim_nao") {
-    return `<label for="${id}">${escapeHtml(c.label)}</label><select id="${id}" data-ficha-key="${c.key}"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select>`;
+    return wrap(`<label for="${id}">${escapeHtml(c.label)}</label><select id="${id}" data-ficha-key="${c.key}"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select>`);
   }
   if (c.type === "sim_nao_complement") {
     const complementId = id + "_complement";
     const complementPlaceholder = c.complementPlaceholder || "Qual? / Por quê? / Há quanto tempo?";
-    return `<label for="${id}">${escapeHtml(c.label)}</label><select id="${id}" data-ficha-key="${c.key}"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select><input type="text" id="${complementId}" data-ficha-key="${c.key}_complement" placeholder="${escapeHtml(complementPlaceholder)}" class="anamnese-ficha-complement">`;
+    return wrap(`<label for="${id}">${escapeHtml(c.label)}</label><select id="${id}" data-ficha-key="${c.key}"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select><input type="text" id="${complementId}" data-ficha-key="${c.key}_complement" placeholder="${escapeHtml(complementPlaceholder)}" class="anamnese-ficha-complement">`, "anamnese-field--wide");
   }
   if (c.type === "textarea") {
-    return `<label for="${id}">${escapeHtml(c.label)}</label><textarea id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}" rows="2"></textarea>`;
+    return wrap(`<label for="${id}">${escapeHtml(c.label)}</label><textarea id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}" rows="3"></textarea>`, "anamnese-field--wide");
   }
   if (c.type === "number") {
-    return `<label for="${id}">${escapeHtml(c.label)}</label><input type="number" id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}" step="any">`;
+    return wrap(`<label for="${id}">${escapeHtml(c.label)}</label><input type="number" id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}" step="any">`);
   }
-  return `<label for="${id}">${escapeHtml(c.label)}</label><input type="text" id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}">`;
+  return wrap(`<label for="${id}">${escapeHtml(c.label)}</label><input type="text" id="${id}" data-ficha-key="${c.key}" placeholder="${escapeHtml(c.placeholder || "")}">`);
 }
 
-/** Zonas do mapa facial para injetáveis (áreas de aplicação) — documento visual atrelado ao registro */
+/** Zonas do mapa facial (rótulos no histórico de registros antigos) */
 const FACE_ZONAS = [
   { id: "testa", label: "Testa" },
   { id: "glabella", label: "Glabela" },
@@ -69,44 +72,6 @@ const FACE_ZONAS = [
   { id: "outras", label: "Outras (descreva na observação)" }
 ];
 
-/** Produtos aplicáveis e unidade de medida (por ponto) */
-const PRODUTOS_APLICACAO = [
-  { id: "botox", label: "Toxina botulínica (Botox)", unidade: "UI" },
-  { id: "bioestimulador", label: "Bioestimulador", unidade: "UI" },
-  { id: "preenchimento", label: "Preenchimento (AH)", unidade: "ml" },
-  { id: "outro", label: "Outro", unidade: "un" }
-];
-
-/** SVG rosto (vista frontal) — clique na imagem para marcar pontos */
-const FACE_SVG = `
-<svg viewBox="0 0 200 260" class="anamnese-mapa-svg" aria-label="Rosto: clique para marcar ponto de aplicação">
-  <ellipse cx="100" cy="100" rx="75" ry="95" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
-  <ellipse cx="70" cy="85" rx="12" ry="14" fill="none" stroke="#94a3b8" stroke-width="1"/>
-  <ellipse cx="130" cy="85" rx="12" ry="14" fill="none" stroke="#94a3b8" stroke-width="1"/>
-  <path d="M 65 130 Q 100 150 135 130" fill="none" stroke="#94a3b8" stroke-width="1"/>
-  <ellipse cx="100" cy="165" rx="15" ry="18" fill="none" stroke="#94a3b8" stroke-width="1"/>
-  <text x="100" y="235" text-anchor="middle" font-size="9" fill="#64748b">Clique no rosto para adicionar ponto</text>
-</svg>
-`;
-
-/** SVG barriga (contorno simplificado) */
-const BARRIGA_SVG = `
-<svg viewBox="0 0 180 220" class="anamnese-mapa-svg" aria-label="Barriga: clique para marcar ponto">
-  <ellipse cx="90" cy="70" rx="55" ry="25" fill="none" stroke="#cbd5e1" stroke-width="1.5"/>
-  <path d="M 35 70 Q 90 180 145 70" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
-  <text x="90" y="200" text-anchor="middle" font-size="9" fill="#64748b">Clique para adicionar ponto</text>
-</svg>
-`;
-
-/** SVG glúteos (dois contornos) */
-const GLUTEOS_SVG = `
-<svg viewBox="0 0 200 180" class="anamnese-mapa-svg" aria-label="Glúteos: clique para marcar ponto">
-  <ellipse cx="65" cy="75" rx="45" ry="55" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
-  <ellipse cx="135" cy="75" rx="45" ry="55" fill="#fefce8" stroke="#cbd5e1" stroke-width="1.5"/>
-  <text x="100" y="165" text-anchor="middle" font-size="9" fill="#64748b">Clique para adicionar ponto</text>
-</svg>
-`;
-
 /** Campos da ficha por área/queixa — questionários profissionalizados (corporal, facial, injetáveis) */
 const FICHA_CAMPOS = {
   capilar: [
@@ -118,7 +83,6 @@ const FICHA_CAMPOS = {
   rosto_pele: [
     { key: "sec_facial", label: "Questionário — Facial (pele)", type: "section" },
     { key: "atividade_profissional", label: "Atividade profissional", type: "text", placeholder: "Ex.: escritório, comércio…" },
-    { key: "cep", label: "CEP", type: "text", placeholder: "00000-000" },
     { key: "ambiente_trabalho", label: "Ambiente de trabalho", type: "select", options: [{ value: "interno", label: "Interno" }, { value: "externo", label: "Externo" }] },
     { key: "afecacao_interesse", label: "Qual afecção estética tem interesse de tratar?", type: "textarea", placeholder: "Ex.: melasma, acne, oleosidade…" },
     { key: "ja_tratamento_facial", label: "Já fez algum tratamento facial?", type: "sim_nao_complement", complementPlaceholder: "Qual?" },
@@ -157,7 +121,6 @@ const FICHA_CAMPOS = {
   corporal: [
     { key: "sec_corporal", label: "Questionário — Corporal", type: "section" },
     { key: "atividade_profissional", label: "Qual a sua atividade profissional?", type: "text", placeholder: "Ex.: escritório, comércio…" },
-    { key: "cep", label: "CEP", type: "text", placeholder: "00000-000" },
     { key: "ambiente_trabalho", label: "A atividade é executada no ambiente", type: "select", options: [{ value: "interno", label: "Interno" }, { value: "externo", label: "Externo" }] },
     { key: "afecacao_interesse", label: "Qual afecção estética tem interesse de tratar?", type: "textarea", placeholder: "Ex.: gordura localizada, flacidez, celulite…" },
     { key: "ja_tratamento_corporal", label: "Já fez algum tratamento corporal?", type: "sim_nao_complement", complementPlaceholder: "Qual?" },
@@ -176,8 +139,10 @@ export async function init() {
   const fichaCamposWrap = document.getElementById("anamneseFichaCamposWrap");
   const fichaCamposEl = document.getElementById("anamneseFichaCampos");
   const conteudoEl = document.getElementById("anamneseConteudo");
-  const fotosInput = document.getElementById("anamneseFotos");
-  const fotosPreviewEl = document.getElementById("anamneseFotosPreview");
+  const fotosInputAntes = document.getElementById("anamneseFotosAntes");
+  const fotosInputDepois = document.getElementById("anamneseFotosDepois");
+  const fotosPreviewAntes = document.getElementById("anamneseFotosPreviewAntes");
+  const fotosPreviewDepois = document.getElementById("anamneseFotosPreviewDepois");
   const condutaEl = document.getElementById("anamneseConduta");
   const btnSalvar = document.getElementById("btnAnamneseSalvar");
   const registrosEl = document.getElementById("anamneseRegistros");
@@ -202,6 +167,35 @@ export async function init() {
   }
 
   let currentClientId = sessionStorage.getItem(STORAGE_CLIENT) || "";
+  let lastRegistrosList = [];
+  const fotoPick = { antes: new Set(), depois: new Set() };
+
+  function setAnamneseTab(name) {
+    document.querySelectorAll(".anamnese-tab").forEach((btn) => {
+      const on = btn.dataset.anamneseTab === name;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-anamnese-pane]").forEach((pane) => {
+      const match = pane.dataset.anamnesePane === name;
+      if (pane.id === "anamneseFormWrap" && !currentClientId) {
+        pane.classList.add("hidden");
+        return;
+      }
+      pane.classList.toggle("hidden", !match);
+    });
+    if (name === "historico") loadRegistros();
+    if (name === "comparativo") {
+      loadRegistros().then(() => renderFotoPicker());
+    }
+  }
+
+  document.querySelectorAll(".anamnese-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      setAnamneseTab(btn.dataset.anamneseTab);
+    });
+  });
 
   function renderWithClient(id) {
     currentClientId = id || "";
@@ -210,18 +204,27 @@ export async function init() {
 
     if (!currentClientId) {
       semClienteEl?.classList.remove("hidden");
-      semClienteEl.innerHTML = "<p>Selecione um cliente no campo acima para acessar a ficha e o histórico.</p>";
+      semClienteEl.innerHTML = "<p>Selecione um cliente no campo acima para acessar a ficha.</p>";
       formWrap.classList.add("hidden");
       if (contextEl) contextEl.classList.add("hidden");
       registrosEl.innerHTML = "";
+      document.getElementById("btnAnamneseHistorico")?.setAttribute("disabled", "disabled");
+      document.getElementById("btnAnamneseComparativo")?.setAttribute("disabled", "disabled");
+      setAnamneseTab("ficha");
       return;
     }
 
+    document.getElementById("btnAnamneseHistorico")?.removeAttribute("disabled");
+    document.getElementById("btnAnamneseComparativo")?.removeAttribute("disabled");
+
     semClienteEl?.classList.add("hidden");
-    formWrap.classList.remove("hidden");
+    if (document.querySelector(".anamnese-tab.is-active")?.dataset.anamneseTab === "ficha" || !document.querySelector(".anamnese-tab.is-active")) {
+      formWrap.classList.remove("hidden");
+    }
     contextEl?.classList.remove("hidden");
     contextEl.innerHTML = `
     <p><strong>Cliente:</strong> <span id="anamneseClientName">—</span></p>
+    <p id="anamneseClientCep" class="anamnese-cadastro-cep"></p>
     ${procedimento ? `<p><strong>Atendimento:</strong> ${escapeHtml(procedimento)}</p>` : ""}
     ${agendaId ? "<p class=\"anamnese-context-from-agenda\">Contexto deste atendimento (agenda).</p>" : ""}
   `;
@@ -237,16 +240,21 @@ export async function init() {
 
   if (!currentClientId) {
     semClienteEl?.classList.remove("hidden");
-    semClienteEl.innerHTML = "<p>Selecione um cliente no campo acima para acessar a ficha e o histórico.</p>";
+    semClienteEl.innerHTML = "<p>Selecione um cliente no campo acima para acessar a ficha.</p>";
     formWrap.classList.add("hidden");
     if (contextEl) contextEl.classList.add("hidden");
     registrosEl.innerHTML = "";
+    document.getElementById("btnAnamneseHistorico")?.setAttribute("disabled", "disabled");
+    document.getElementById("btnAnamneseComparativo")?.setAttribute("disabled", "disabled");
   } else {
+    document.getElementById("btnAnamneseHistorico")?.removeAttribute("disabled");
+    document.getElementById("btnAnamneseComparativo")?.removeAttribute("disabled");
     semClienteEl?.classList.add("hidden");
     formWrap.classList.remove("hidden");
     if (contextEl) contextEl.classList.remove("hidden");
     contextEl.innerHTML = `
     <p><strong>Cliente:</strong> <span id="anamneseClientName">—</span></p>
+    <p id="anamneseClientCep" class="anamnese-cadastro-cep"></p>
     ${agendaId || sessionStorage.getItem(STORAGE_CLIENT) ? "<p class=\"anamnese-context-hint\">Cliente já selecionado. Escolha a <strong>área</strong> (Capilar, Pele, Injetáveis, Corporal) e preencha a ficha.</p>" : ""}
     ${procedimento ? `<p><strong>Atendimento:</strong> ${escapeHtml(procedimento)}</p>` : ""}
     ${agendaId ? "<p class=\"anamnese-context-from-agenda\">Contexto deste atendimento (agenda).</p>" : ""}
@@ -284,7 +292,7 @@ export async function init() {
     const funcaoId = funcaoSelect.value || "";
     let customCampos = [];
     try {
-      if (funcaoId) customCampos = await listCamposPersonalizados(funcaoId);
+      if (funcaoId) customCampos = (await listCamposPersonalizados(funcaoId)).filter((c) => String(c.key || "").toLowerCase() !== "cep");
     } catch (e) {
       console.warn("[ANAMNESE] listCamposPersonalizados", e);
     }
@@ -298,13 +306,9 @@ export async function init() {
       const faceWrap = document.createElement("div");
       faceWrap.id = "anamneseFaceMapWrap";
       faceWrap.className = "anamnese-face-map-wrap anamnese-face-map-wrap--large";
-      const mapas = [
-        { id: "rosto", label: "Rosto", svg: FACE_SVG },
-        { id: "barriga", label: "Barriga", svg: BARRIGA_SVG },
-        { id: "gluteos", label: "Glúteos", svg: GLUTEOS_SVG }
-      ];
+      const mapas = MAPAS_EDIT;
       faceWrap.innerHTML = `
-        <p class="anamnese-face-map-title">Clique para planejar (tracejado) ou marcar o que já aplicou. Em cada ponto escolha produto, quantidade e se é plano ou feito.</p>
+        <p class="anamnese-face-map-title">Áreas de aplicação: clique no desenho (rosto, corpo ou glúteo). Tracejado = planejado; preenchido = já aplicado.</p>
         <div class="anamnese-mapa-tabs">
           ${mapas.map((m) => `<button type="button" class="anamnese-mapa-tab" data-mapa="${escapeHtml(m.id)}">${escapeHtml(m.label)}</button>`).join("")}
         </div>
@@ -701,6 +705,12 @@ export async function init() {
 
   async function onFuncaoChange() {
     await renderFichaCampos(getSlugSelected());
+    fotoPick.antes.clear();
+    fotoPick.depois.clear();
+    await loadRegistros();
+    if (document.querySelector(".anamnese-tab.is-active")?.dataset.anamneseTab === "comparativo") {
+      renderFotoPicker();
+    }
   }
 
   if (tipoRegistroSelect) tipoRegistroSelect.addEventListener("change", toggleFichaVisivel);
@@ -716,88 +726,188 @@ export async function init() {
   }
 
   function renderFotosPreview() {
-    fotosPreviewEl.innerHTML = "";
-    pendingFotos.forEach((item) => {
-      const src = typeof item.file !== "undefined" && item.file ? URL.createObjectURL(item.file) : "";
-      const card = document.createElement("div");
-      card.className = "anamnese-foto-pendente";
-      card.dataset.id = item.id;
-      card.innerHTML = `
-        <img src="${src}" alt="" class="anamnese-foto-thumb">
-        <div class="anamnese-foto-meta">
-          <label class="anamnese-foto-meta-label">Data</label>
-          <input type="date" class="anamnese-foto-data" value="${escapeHtml(item.data || todayISO())}" aria-label="Data da foto">
-          <label class="anamnese-foto-meta-label">Observação</label>
-          <input type="text" class="anamnese-foto-obs" value="${escapeHtml(item.observacao || "")}" placeholder="Ex.: antes do procedimento" aria-label="Observação da foto">
-          <button type="button" class="anamnese-foto-remove" aria-label="Remover foto">Remover</button>
-        </div>
-      `;
-      const dataInput = card.querySelector(".anamnese-foto-data");
-      const obsInput = card.querySelector(".anamnese-foto-obs");
-      const btnRemove = card.querySelector(".anamnese-foto-remove");
-      dataInput.addEventListener("change", () => { item.data = dataInput.value || todayISO(); });
-      obsInput.addEventListener("input", () => { item.observacao = obsInput.value.trim(); });
-      btnRemove.addEventListener("click", () => {
-        pendingFotos = pendingFotos.filter((p) => p.id !== item.id);
-        if (src) URL.revokeObjectURL(src);
-        renderFotosPreview();
+    function fill(host, momento) {
+      if (!host) return;
+      host.innerHTML = "";
+      pendingFotos.filter((p) => p.momento === momento).forEach((item) => {
+        const src = item.file ? URL.createObjectURL(item.file) : "";
+        const card = document.createElement("div");
+        card.className = "anamnese-foto-pendente";
+        card.innerHTML = `
+          <img src="${src}" alt="" class="anamnese-foto-thumb">
+          <div class="anamnese-foto-meta">
+            <label class="anamnese-foto-meta-label">Data</label>
+            <input type="date" class="anamnese-foto-data" value="${escapeHtml(item.data || todayISO())}">
+            <label class="anamnese-foto-meta-label">Observação</label>
+            <input type="text" class="anamnese-foto-obs" value="${escapeHtml(item.observacao || "")}" placeholder="Ex.: lado direito">
+            <button type="button" class="anamnese-foto-remove">Remover</button>
+          </div>
+        `;
+        card.querySelector(".anamnese-foto-data").addEventListener("change", (e) => { item.data = e.target.value || todayISO(); });
+        card.querySelector(".anamnese-foto-obs").addEventListener("input", (e) => { item.observacao = e.target.value.trim(); });
+        card.querySelector(".anamnese-foto-remove").addEventListener("click", () => {
+          pendingFotos = pendingFotos.filter((p) => p.id !== item.id);
+          if (src) URL.revokeObjectURL(src);
+          renderFotosPreview();
+        });
+        host.appendChild(card);
       });
-      fotosPreviewEl.appendChild(card);
-    });
+    }
+    fill(fotosPreviewAntes, "antes");
+    fill(fotosPreviewDepois, "depois");
   }
 
-  fotosInput.addEventListener("change", () => {
-    const files = fotosInput.files;
-    if (!files?.length) return;
+  function addPendingFiles(fileList, momento) {
     const today = todayISO();
+    const files = fileList || [];
     for (let i = 0; i < files.length; i++) {
-      pendingFotos.push({ id: Date.now() + i, file: files[i], data: today, observacao: "" });
+      pendingFotos.push({ id: Date.now() + i, file: files[i], data: today, observacao: "", momento });
     }
-    fotosInput.value = "";
     renderFotosPreview();
+  }
+
+  fotosInputAntes?.addEventListener("change", () => {
+    addPendingFiles(fotosInputAntes.files, "antes");
+    fotosInputAntes.value = "";
+  });
+  fotosInputDepois?.addEventListener("change", () => {
+    addPendingFiles(fotosInputDepois.files, "depois");
+    fotosInputDepois.value = "";
   });
 
-  const btnTirarFoto = document.getElementById("btnAnamneseTirarFoto");
-  if (btnTirarFoto) {
-    btnTirarFoto.addEventListener("click", () => {
-      const cameraRef = { stop: () => {} };
-      openModal(
-        "Tirar foto",
-        `<div id="anamneseCameraPreview" class="anamnese-camera-preview"></div>
-         <p class="anamnese-camera-hint">Posicione e clique em Capturar. A foto será adicionada à lista com data de hoje.</p>`,
-        () => {},
-        () => {
-          cameraRef.stop();
-          closeModal();
-        }
-      );
-      const previewEl = document.getElementById("anamneseCameraPreview");
-      if (previewEl) {
-        cameraRef.stop = startCameraCapture(previewEl, (blob) => {
-          const file = new File([blob], `captura_${Date.now()}.jpg`, { type: "image/jpeg" });
-          pendingFotos.push({ id: Date.now(), file, data: todayISO(), observacao: "" });
-          cameraRef.stop();
-          closeModal();
-          renderFotosPreview();
-          toast("Foto adicionada. Ajuste data e observação se quiser e salve a ficha.");
-        }, toast);
-      }
+  document.querySelectorAll(".anamnese-fotos-col").forEach((col) => {
+    col.addEventListener("paste", (e) => {
+      const file = fileFromClipboardEvent(e);
+      if (!file) return;
+      e.preventDefault();
+      pendingFotos.push({ id: Date.now(), file, data: todayISO(), observacao: "", momento: col.dataset.momento });
+      renderFotosPreview();
+      toast(col.dataset.momento === "depois" ? "Foto colada em Depois." : "Foto colada em Antes.");
     });
+  });
+
+  function abrirCamera(momento) {
+    const cameraRef = { stop: () => {} };
+    openModal(
+      momento === "depois" ? "Foto depois do procedimento" : "Foto antes do procedimento",
+      `<div id="anamneseCameraPreview" class="anamnese-camera-preview"></div>
+       <p class="anamnese-camera-hint">Posicione e clique em Capturar.</p>`,
+      () => {},
+      () => {
+        cameraRef.stop();
+        closeModal();
+      }
+    );
+    const previewEl = document.getElementById("anamneseCameraPreview");
+    if (previewEl) {
+      cameraRef.stop = startCameraCapture(previewEl, (blob) => {
+        const file = new File([blob], `captura_${Date.now()}.jpg`, { type: "image/jpeg" });
+        pendingFotos.push({ id: Date.now(), file, data: todayISO(), observacao: "", momento });
+        cameraRef.stop();
+        closeModal();
+        renderFotosPreview();
+        toast("Foto adicionada. Salve a ficha para gravar.");
+      }, toast);
+    }
   }
+  document.querySelectorAll(".btn-anamnese-camera").forEach((btn) => {
+    btn.addEventListener("click", () => abrirCamera(btn.dataset.momento || "antes"));
+  });
 
   async function loadRegistros() {
     const funcaoId = funcaoSelect.value;
     if (!funcaoId || !currentClientId) return;
     try {
       const list = await listRegistrosByClientAndFuncao(currentClientId, funcaoId);
+      lastRegistrosList = list;
       registrosEl.innerHTML = list.length === 0
-        ? "<p class=\"anamnese-empty\">Nenhum registro ainda para esta área. O histórico é evolutivo.</p>"
+        ? "<p class=\"anamnese-empty\">Nenhum registro ainda para esta área.</p>"
         : list.map((r) => renderRegistroItem(r, list)).join("");
-      bindCompare(list);
+      registrosEl.querySelectorAll(".anamnese-foto-download").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          downloadImageUrl(btn.getAttribute("data-url"), btn.getAttribute("data-name") || "foto.jpg");
+        });
+      });
     } catch (e) {
       console.error("[ANAMNESE] listRegistros", e);
       registrosEl.innerHTML = "<p class=\"anamnese-empty\">Erro ao carregar histórico.</p>";
     }
+  }
+
+  function collectFotosFromRegistros(list) {
+    const out = [];
+    (list || []).forEach((r) => {
+      (r.fotos || []).forEach((f, i) => {
+        const obj = typeof f === "string" ? { url: f } : f;
+        if (!obj?.url) return;
+        out.push({
+          key: `${r.id}:${i}:${obj.url}`,
+          url: obj.url,
+          momento: fotoMomento(obj) || "",
+          data: obj.data || r.created_at,
+          registroId: r.id,
+        });
+      });
+    });
+    return out;
+  }
+
+  function renderFotoPicker() {
+    const host = document.getElementById("anamneseFotoPicker");
+    const compareWrap = document.getElementById("anamneseCompareWrap");
+    if (!host) return;
+    const fotos = collectFotosFromRegistros(lastRegistrosList);
+    if (!fotos.length) {
+      host.innerHTML = "<p class=\"anamnese-empty\">Ainda não há fotos nesta área. Grave na aba Ficha, em Antes e Depois.</p>";
+      compareWrap?.classList.add("hidden");
+      return;
+    }
+    host.innerHTML = `
+      <div class="anamnese-foto-picker-grid">
+        ${fotos.map((f) => {
+          const lado = fotoPick.antes.has(f.key) ? "antes" : fotoPick.depois.has(f.key) ? "depois" : "";
+          const d = f.data ? new Date(String(f.data).slice(0, 10) + "T12:00:00").toLocaleDateString("pt-BR") : "";
+          return `<label class="anamnese-foto-pick ${lado ? "is-" + lado : ""}">
+            <img src="${escapeHtml(f.url)}" alt="">
+            <span>${escapeHtml(d)} ${f.momento ? "· " + f.momento : ""}</span>
+            <select data-key="${escapeHtml(f.key)}" data-url="${escapeHtml(f.url)}">
+              <option value="" ${!lado ? "selected" : ""}>Não usar</option>
+              <option value="antes" ${lado === "antes" ? "selected" : ""}>Usar no Antes</option>
+              <option value="depois" ${lado === "depois" ? "selected" : ""}>Usar no Depois</option>
+            </select>
+          </label>`;
+        }).join("")}
+      </div>
+      <button type="button" class="btn-primary" id="btnAnamneseMontarComparativo">Montar comparativo</button>
+    `;
+    host.querySelectorAll("select").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const key = sel.dataset.key;
+        fotoPick.antes.delete(key);
+        fotoPick.depois.delete(key);
+        if (sel.value === "antes") fotoPick.antes.add(key);
+        if (sel.value === "depois") fotoPick.depois.add(key);
+        sel.closest(".anamnese-foto-pick")?.classList.toggle("is-antes", sel.value === "antes");
+        sel.closest(".anamnese-foto-pick")?.classList.toggle("is-depois", sel.value === "depois");
+      });
+    });
+    host.querySelector("#btnAnamneseMontarComparativo")?.addEventListener("click", () => {
+      const urlsAntes = fotos.filter((f) => fotoPick.antes.has(f.key)).map((f) => f.url);
+      const urlsDepois = fotos.filter((f) => fotoPick.depois.has(f.key)).map((f) => f.url);
+      if (!urlsAntes.length || !urlsDepois.length) {
+        toast("Escolha pelo menos uma foto para Antes e uma para Depois.");
+        return;
+      }
+      if (!compareWrap) return;
+      compareWrap.classList.remove("hidden");
+      compareWrap.innerHTML = `
+        <h4 class="anamnese-compare-title">Comparativo sinalizado</h4>
+        <div class="anamnese-compare-grid">
+          <div class="anamnese-compare-col"><h5>Antes</h5><div class="anamnese-compare-fotos">${urlsAntes.map((u) => `<img src="${escapeHtml(u)}" alt="Antes">`).join("")}</div></div>
+          <div class="anamnese-compare-col"><h5>Depois</h5><div class="anamnese-compare-fotos">${urlsDepois.map((u) => `<img src="${escapeHtml(u)}" alt="Depois">`).join("")}</div></div>
+        </div>
+      `;
+    });
   }
 
   function fichaEntryToHtml(k, v) {
@@ -808,7 +918,7 @@ export async function init() {
         if (!byMapa[m]) byMapa[m] = [];
         byMapa[m].push(p);
       });
-      const mapaLabel = { rosto: "Rosto", barriga: "Barriga", gluteos: "Glúteos" };
+      const mapaLabel = { rosto: "Rosto", barriga: "Corpo", gluteos: "Glúteos" };
       let html = "<p><strong>Pontos de aplicação:</strong></p><ul class=\"anamnese-registro-pontos\">";
       ["rosto", "barriga", "gluteos"].forEach((mapa) => {
         const list = byMapa[mapa];
@@ -849,6 +959,14 @@ export async function init() {
     return "<p><strong>" + escapeHtml(label) + ":</strong> " + escapeHtml(String(val)) + "</p>";
   }
 
+  function fotoMomento(f) {
+    if (f?.momento === "antes" || f?.momento === "depois") return f.momento;
+    const t = String(f?.observacao || "").toLowerCase();
+    if (/\bdepois\b/.test(t)) return "depois";
+    if (/\bantes\b/.test(t)) return "antes";
+    return "";
+  }
+
   function renderRegistroItem(r, list) {
     const data = r.created_at ? new Date(r.created_at).toLocaleString("pt-BR") : "";
     const versao = rotuloVersaoAnamnese(mapaVersaoAnamnese(list || [])[r.id]);
@@ -861,17 +979,25 @@ export async function init() {
     if (r.resultado_resumo && r.resultado_resumo.trim()) body += "<div class=\"anamnese-registro-resultado\"><strong>Resumo do resultado:</strong> " + escapeHtml(r.resultado_resumo) + "</div>";
     if (r.fotos && r.fotos.length > 0) {
       const fotosNorm = r.fotos.map((f) => typeof f === "string" ? { url: f, data: null, observacao: null } : f);
-      body += "<div class=\"anamnese-registro-fotos\">" + fotosNorm.map((f) => {
+      body += "<div class=\"anamnese-registro-fotos\">" + fotosNorm.map((f, i) => {
         const dataStr = f.data ? new Date(f.data + "T12:00:00").toLocaleDateString("pt-BR") : "";
         const obsStr = f.observacao ? escapeHtml(f.observacao) : "";
-        return `<div class="anamnese-registro-foto-item"><img src="${escapeHtml(f.url)}" alt="" class="anamnese-foto-thumb">${dataStr || obsStr ? `<div class="anamnese-registro-foto-meta">${dataStr ? `<span class="anamnese-registro-foto-data">${escapeHtml(dataStr)}</span>` : ""}${obsStr ? `<span class="anamnese-registro-foto-obs">${obsStr}</span>` : ""}</div>` : ""}</div>`;
+        const momento = fotoMomento(f);
+        const badge = momento ? `<span class="anamnese-foto-badge anamnese-foto-badge--${momento}">${momento === "depois" ? "Depois" : "Antes"}</span>` : "";
+        const fname = `anamnese-${momento || "foto"}-${(r.id || "x").slice(0, 8)}-${i + 1}.jpg`;
+        return `<div class="anamnese-registro-foto-item">
+          <img src="${escapeHtml(f.url)}" alt="" class="anamnese-foto-thumb">
+          ${badge}
+          ${dataStr || obsStr ? `<div class="anamnese-registro-foto-meta">${dataStr ? `<span class="anamnese-registro-foto-data">${escapeHtml(dataStr)}</span>` : ""}${obsStr ? `<span class="anamnese-registro-foto-obs">${obsStr}</span>` : ""}</div>` : ""}
+          <button type="button" class="anamnese-foto-download" data-url="${escapeHtml(f.url)}" data-name="${escapeHtml(fname)}">Baixar</button>
+        </div>`;
       }).join("") + "</div>";
     }
     if (!body) body = "<span class=\"anamnese-empty-line\">—</span>";
     const origemBadge = r.origem === "portal"
       ? `<span class="anamnese-origem-portal">Preenchida pelo cliente (à distância)</span>`
       : "";
-    return `<div class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span>${versao ? `<span class="anamnese-versao">${escapeHtml(versao)}</span>` : ""}${origemBadge}<label class="anamnese-compare-label"><input type="checkbox" class="anamnese-compare-checkbox" data-id="${escapeHtml(r.id)}"> Comparar</label></div>${body}</div>`;
+    return `<article class="anamnese-registro" data-id="${escapeHtml(r.id)}"><div class="anamnese-registro-header"><span class="anamnese-registro-data">${escapeHtml(data)}</span>${versao ? `<span class="anamnese-versao">${escapeHtml(versao)}</span>` : ""}${origemBadge}</div>${body}</article>`;
   }
 
   function bindCompare(list) {
@@ -1105,7 +1231,7 @@ export async function init() {
         batch.map(async (item) => {
           try {
             const url = await uploadFotoAnamnese(item.file, currentClientId, String(item.id));
-            return { url, data: item.data || todayISO(), observacao: item.observacao || null };
+            return { url, data: item.data || todayISO(), observacao: item.observacao || null, momento: item.momento || null };
           } catch (e) {
             console.warn("[ANAMNESE] upload foto", item.id, e);
             return null;
@@ -1168,12 +1294,19 @@ function escapeHtml(s) {
 async function loadClientName(clientId, el) {
   if (!el) return;
   try {
-    const { data } = await supabase.from("clients").select("name").eq("id", clientId).single();
-    if (data?.name) {
-      el.textContent = data.name;
-      return;
+    const client = await getClientById(clientId);
+    el.textContent = client?.name || "—";
+    const cepEl = document.getElementById("anamneseClientCep");
+    if (cepEl) {
+      const linha = [client?.cep, client?.endereco, client?.cidade, client?.estado].filter(Boolean).join(" · ");
+      cepEl.innerHTML = linha
+        ? `<strong>Cadastro:</strong> ${escapeHtml(linha)} · <button type="button" class="btn-link" id="anamneseAbrirCadastro">editar no cadastro</button>`
+        : `CEP e endereço ficam no <button type="button" class="btn-link" id="anamneseAbrirCadastro">cadastro da pessoa</button>, não nesta ficha.`;
+      document.getElementById("anamneseAbrirCadastro")?.addEventListener("click", () => {
+        sessionStorage.setItem("clientePerfilId", clientId);
+        navigate("cliente-perfil");
+      });
     }
-    el.textContent = "—";
   } catch (_) {
     el.textContent = "—";
   }

@@ -11,6 +11,11 @@ import { fileURLToPath } from "url";
 import { corsOriginFor, isBlockedStaticPath, applyBrowserSecurityHeaders } from "./lib/http-security.js";
 import { startApiObservation } from "./lib/observability.js";
 import { enforceHttpRateLimit } from "./lib/http-rate-limit.js";
+import { CRITICAL_API_ROUTES, healthPayload } from "./lib/api-health.js";
+import { ApiAuthError, sendAuthError } from "./lib/api-auth.js";
+
+export { CRITICAL_API_ROUTES, healthPayload };
+export const apiRouteLoadErrors = [];
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -33,8 +38,11 @@ app.use((req, res, next) => {
   next();
 });
 
-/* Saúde da API (para o front saber se o Node está respondendo na porta certa) */
-app.get("/api/health", (req, res) => res.json({ ok: true, service: "skinclinic-api" }));
+/* Saúde da API (rotas críticas quebradas → 503; Copilot/OCR não entram nesta lista) */
+app.get("/api/health", (req, res) => {
+  const { status, body } = healthPayload(apiRouteLoadErrors);
+  return res.status(status).json(body);
+});
 
 /* Envolve handler async para capturar erros */
 function wrap(handler) {
@@ -43,6 +51,10 @@ function wrap(handler) {
     const obs = startApiObservation(req, res);
     Promise.resolve(handler(req, res)).catch((err) => {
       obs.noteError(err);
+      if (err instanceof ApiAuthError || err?.status === 401 || err?.status === 403 || err?.status === 400) {
+        if (!res.headersSent) return sendAuthError(res, err);
+        return;
+      }
       console.error("[API]", err?.message || err);
       if (!res.headersSent) res.status(500).json({ error: "Erro interno" });
     });
@@ -59,9 +71,17 @@ async function useApi(method, pathName, load) {
     const mod = await load();
     const handler = mod.default;
     if (handler) app[method](pathName, wrap(handler));
-    else console.warn("[server] Rota sem export default:", pathName);
+    else {
+      console.warn("[server] Rota sem export default:", pathName);
+      if (CRITICAL_API_ROUTES.includes(pathName)) {
+        apiRouteLoadErrors.push(`${pathName} sem export default`);
+      }
+    }
   } catch (e) {
     console.warn("[server] Rota não carregada:", pathName, e.message);
+    if (CRITICAL_API_ROUTES.includes(pathName)) {
+      apiRouteLoadErrors.push(`${pathName}: ${e.message}`);
+    }
   }
 }
 

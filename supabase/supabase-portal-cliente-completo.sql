@@ -70,7 +70,7 @@ CREATE OR REPLACE FUNCTION public.create_client_portal_session(p_org_id uuid, p_
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $func$
 DECLARE
   v_token text;
@@ -99,7 +99,7 @@ BEGIN
   WHERE org_id = p_org_id AND client_id = p_client_id AND expires_at > now();
 
   -- Gera novo token
-  v_token := gen_random_uuid()::text || '-' || encode(gen_random_bytes(12), 'hex');
+  v_token := gen_random_uuid()::text || '-' || encode(extensions.gen_random_bytes(12), 'hex');
 
   -- Insere nova sessão (válida por 30 dias)
   INSERT INTO public.client_sessions (org_id, client_id, token, expires_at)

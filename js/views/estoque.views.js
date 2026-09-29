@@ -13,12 +13,20 @@ import { getActiveOrg } from "../core/org.js"
 import { toast } from "../ui/toast.js"
 import { openModal, closeModal } from "../ui/modal.js"
 import { createAvaliacao } from "../services/produto-avaliacoes.service.js"
-import { listProdutosCatalogo, upsertProdutoCatalogo } from "../services/estoque-produtos.service.js"
+import { listProdutosCatalogo, upsertProdutoCatalogo, uploadProdutoImagem } from "../services/estoque-produtos.service.js"
 import { alertaValidade, montarRevenda } from "../utils/estoque-revenda.js"
 import { alertaMinimo, capitalEstoque } from "../utils/estoque-lotes.js"
+import { getOrganizationProfile } from "../services/organization-profile.service.js"
+
+let canalVenda = { vende_para_cliente: true, vende_para_profissional: false }
 
 export async function init() {
   bindUI()
+  const profile = await getOrganizationProfile().catch(() => null)
+  canalVenda = {
+    vende_para_cliente: profile?.vende_para_cliente !== false,
+    vende_para_profissional: profile?.vende_para_profissional === true,
+  }
   await renderCatalogo()
   await renderRevenda()
   await renderList()
@@ -105,19 +113,30 @@ async function renderCatalogo() {
       const validade = p.validade_referencia
         ? new Date(p.validade_referencia + "T12:00:00").toLocaleDateString("pt-BR")
         : "—"
+      const precoPro = canalVenda.vende_para_profissional
+        ? `<span>Profissional: ${fmtBrl(p.preco_profissional)}</span>`
+        : ""
+      const precoCli = canalVenda.vende_para_cliente !== false
+        ? `<span>Cliente: ${fmtBrl(p.preco_cliente)}</span>`
+        : ""
       return `
         <div class="estoque-catalogo-card">
-          <div class="estoque-catalogo-head">
-            <strong>${escapeHtml(p.nome)}</strong>
-            ${badge}
+          <div class="estoque-catalogo-main">
+            ${produtoThumb(p.imagem_url, p.nome)}
+            <div class="estoque-catalogo-body">
+              <div class="estoque-catalogo-head">
+                <strong>${escapeHtml(p.nome)}</strong>
+                ${badge}
+              </div>
+              <div class="estoque-catalogo-precos">
+                <span>Pago: ${fmtBrl(p.custo_pago)}</span>
+                ${precoPro}
+                ${precoCli}
+                <span>Frete típico: ${fmtBrl(p.frete_padrao)}</span>
+              </div>
+              <p class="estoque-catalogo-meta">Validade ref.: ${validade}</p>
+            </div>
           </div>
-          <div class="estoque-catalogo-precos">
-            <span>Pago: ${fmtBrl(p.custo_pago)}</span>
-            <span>Profissional: ${fmtBrl(p.preco_profissional)}</span>
-            <span>Cliente: ${fmtBrl(p.preco_cliente)}</span>
-            <span>Frete típico: ${fmtBrl(p.frete_padrao)}</span>
-          </div>
-          <p class="estoque-catalogo-meta">Validade ref.: ${validade}</p>
           <button type="button" class="btn-secondary estoque-btn-editar-produto" data-id="${escapeAttr(p.id)}">Editar</button>
         </div>
       `
@@ -168,25 +187,20 @@ async function renderRevenda() {
           <tr>
             <th>Produto</th>
             <th>Saídas</th>
-            <th>Custo + frete</th>
-            <th>Preço profissional</th>
-            <th>Preço cliente</th>
-            <th>Lucro un. (cliente)</th>
             <th>Lucro nas saídas</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map((r) => `
+          ${rows.map((r) => {
+            const cat = catalogo.find((p) => String(p.nome || "").toLowerCase() === String(r.produto_nome).toLowerCase())
+            return `
             <tr>
-              <td>${escapeHtml(r.produto_nome)}</td>
+              <td class="estoque-td-produto">${produtoThumb(cat?.imagem_url, r.produto_nome)}<span>${escapeHtml(r.produto_nome)}</span></td>
               <td>${Number(r.saida).toFixed(2)}</td>
-              <td>${fmtBrl(r.custo_investido)}</td>
-              <td>${fmtBrl(r.preco_profissional)}</td>
-              <td>${fmtBrl(r.preco_cliente)}</td>
-              <td>${fmtBrl(r.lucro_cliente_un)}</td>
               <td>${fmtBrl(r.lucro_estimado_saida)}</td>
             </tr>
-          `).join("")}
+          `
+          }).join("")}
         </tbody>
       </table>
     `
@@ -210,6 +224,11 @@ async function renderRevenda() {
 function fmtBrl(v) {
   if (v == null || v === "" || Number.isNaN(Number(v))) return "—"
   return `R$ ${Number(v).toFixed(2).replace(".", ",")}`
+}
+
+function produtoThumb(url, nome) {
+  if (!url) return `<span class="estoque-produto-thumb estoque-produto-thumb--empty" aria-hidden="true"></span>`
+  return `<img class="estoque-produto-thumb" src="${escapeAttr(url)}" alt="${escapeAttr(nome || "")}">`
 }
 
 async function renderList() {
@@ -301,19 +320,21 @@ async function renderResumo() {
       wrap?.classList.add("hidden")
       return
     }
-  wrap?.classList.remove("hidden")
+    const catalogo = await listProdutosCatalogo().catch(() => [])
+    const byNome = Object.fromEntries((catalogo || []).map((p) => [String(p.nome || "").toLowerCase(), p]))
+    wrap?.classList.remove("hidden")
     el.innerHTML = resumo.map((r) => {
       const saldo = Number(r.saldo_estimado).toFixed(2)
-      const custo = r.custo_medio != null ? `R$ ${Number(r.custo_medio).toFixed(2)}` : "—"
       const prod = escapeHtml(r.produto_nome)
+      const cat = byNome[String(r.produto_nome || "").toLowerCase()]
       const semSaldo = Number(r.entrada_qty) === 0 ? `<span class="estoque-resumo-portfolio">Só no portfólio</span>` : ""
       const minAlert = alertaMinimo(r.saldo_estimado, r.minimo)
       const minTxt = minAlert ? `<span class="estoque-validade-badge estoque-validade-badge--${minAlert.nivel === "abaixo" ? "vencido" : "menos_1_ano"}">${escapeHtml(minAlert.label)}</span>` : (r.minimo != null && Number(r.minimo) > 0 ? `<span class="view-hint">Mínimo ${Number(r.minimo)}</span>` : "")
       return `
         <div class="estoque-resumo-card">
+          ${produtoThumb(cat?.imagem_url, r.produto_nome)}
           <span class="estoque-resumo-produto">${prod} ${minTxt}</span>
           <span class="estoque-resumo-saldo">Saldo: ${saldo}</span>
-          <span class="estoque-resumo-custo">Custo médio (com frete): ${custo}</span>
           ${semSaldo}
           <button type="button" class="btn-secondary estoque-btn-avaliar" data-produto="${escapeAttr(r.produto_nome)}" title="Avaliar este produto (nota e comentário)">Avaliar produto</button>
         </div>
@@ -792,16 +813,32 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
 
 function openCadastroProduto(existente = null) {
   const p = existente || {}
+  const thumb = p.imagem_url
+    ? `<img src="${escapeAttr(p.imagem_url)}" alt="" class="estoque-produto-thumb estoque-produto-thumb--lg">`
+    : `<span class="estoque-produto-thumb estoque-produto-thumb--empty estoque-produto-thumb--lg" aria-hidden="true"></span>`
+  const campoPro = canalVenda.vende_para_profissional
+    ? `<label>Valor para a profissional</label>
+    <input type="number" id="estoqueCatPro" step="0.01" min="0" value="${p.preco_profissional ?? ""}" placeholder="R$">`
+    : `<input type="hidden" id="estoqueCatPro" value="${p.preco_profissional ?? ""}">`
+  const campoCli = canalVenda.vende_para_cliente !== false
+    ? `<label>Valor para o cliente final</label>
+    <input type="number" id="estoqueCatCli" step="0.01" min="0" value="${p.preco_cliente ?? ""}" placeholder="R$">`
+    : `<input type="hidden" id="estoqueCatCli" value="${p.preco_cliente ?? ""}">`
   const fields = `
     <p class="estoque-ocr-hint">Só o nome é obrigatório. Quantidade entra depois, quando o produto chegar no estoque.</p>
+    <div class="estoque-cat-foto">
+      ${thumb}
+      <div>
+        <label for="estoqueCatFoto">Foto do produto (opcional)</label>
+        <input type="file" id="estoqueCatFoto" accept="image/jpeg,image/png,image/webp,image/gif">
+      </div>
+    </div>
     <label>Nome do produto</label>
     <input type="text" id="estoqueCatNome" value="${escapeHtml(p.nome || "")}" placeholder="Ex.: Ácido hialurônico 1ml" required>
     <label>Quanto você paga (unidade)</label>
     <input type="number" id="estoqueCatCusto" step="0.01" min="0" value="${p.custo_pago ?? ""}" placeholder="R$">
-    <label>Valor para a profissional</label>
-    <input type="number" id="estoqueCatPro" step="0.01" min="0" value="${p.preco_profissional ?? ""}" placeholder="R$">
-    <label>Valor para o cliente final</label>
-    <input type="number" id="estoqueCatCli" step="0.01" min="0" value="${p.preco_cliente ?? ""}" placeholder="R$">
+    ${campoPro}
+    ${campoCli}
     <label>Frete típico por unidade (investimento)</label>
     <input type="number" id="estoqueCatFrete" step="0.01" min="0" value="${p.frete_padrao ?? ""}" placeholder="R$">
     <label>Validade de referência (opcional)</label>
@@ -821,7 +858,7 @@ function openCadastroProduto(existente = null) {
         return
       }
       try {
-        await upsertProdutoCatalogo({
+        const saved = await upsertProdutoCatalogo({
           id: p.id || undefined,
           nome,
           custo_pago: document.getElementById("estoqueCatCusto")?.value,
@@ -832,6 +869,15 @@ function openCadastroProduto(existente = null) {
           unidade: document.getElementById("estoqueCatUnidade")?.value,
           quantidade_minima: document.getElementById("estoqueCatMinimo")?.value,
         })
+        const foto = document.getElementById("estoqueCatFoto")?.files?.[0]
+        if (foto && saved?.id) {
+          try {
+            const url = await uploadProdutoImagem(foto, saved.id)
+            if (url) await upsertProdutoCatalogo({ id: saved.id, nome, imagem_url: url })
+          } catch (imgErr) {
+            toast("Produto salvo, mas a foto não subiu. Confira o bucket org-logos.")
+          }
+        }
         closeModal()
         toast(existente ? "Produto atualizado." : "Produto cadastrado no portfólio. Use Entrada quando chegar estoque.")
         await renderCatalogo()

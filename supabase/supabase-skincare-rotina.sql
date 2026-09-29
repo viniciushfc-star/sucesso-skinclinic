@@ -58,7 +58,7 @@ DECLARE
   v_org_id uuid;
 BEGIN
   SELECT s.client_id, s.org_id INTO v_client_id, v_org_id
-  FROM get_client_session_by_token(p_token) AS s(client_id uuid, org_id uuid, expires_at timestamptz, registration_completed_at timestamptz)
+  FROM public.get_client_session_by_token(p_token) AS s
   LIMIT 1;
   IF v_client_id IS NULL THEN
     RAISE EXCEPTION 'Sessão inválida ou expirada';

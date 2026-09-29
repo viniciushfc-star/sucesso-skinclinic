@@ -178,7 +178,7 @@ function normalizeFotos(fotos) {
   if (!Array.isArray(fotos)) return [];
   return fotos.map((item) => {
     if (typeof item === "string") return { url: item, data: null, observacao: null };
-    if (item && typeof item.url === "string") return { url: item.url, data: item.data || null, observacao: item.observacao || null };
+    if (item && typeof item.url === "string") return { url: item.url, data: item.data || null, observacao: item.observacao || null, momento: item.momento || null };
     return null;
   }).filter(Boolean);
 }

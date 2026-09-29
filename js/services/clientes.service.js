@@ -5,6 +5,7 @@ import { apiFetch } from "../core/api-fetch.js";
 import { getCache, setCache } from "../utils/cache.js";
 import { getLimits } from "./limits.service.js";
 import { signedStorageUrl, withSignedField, withSignedFields } from "../core/storage-url.js";
+import { normalizeRelacaoComercial } from "../utils/cliente-relacao.js";
 
 /* =========================
    HELPERS
@@ -31,6 +32,10 @@ export const CLIENT_STATES = {
   arquivado: "Arquivado",
 };
 
+export function isCadastroTesteE2e(name) {
+  return /^E2E-GF-/i.test(String(name || "").trim());
+}
+
 /* =========================
    READ — fonte canônica: clients
 ========================= */
@@ -55,10 +60,12 @@ export async function listClientesForSelect() {
     error = retry.error;
   }
   if (error) throw error;
-  const list = (data || []).map((c) => ({
-    ...c,
-    nome: c.name || c.nome,
-  }));
+  const list = (data || [])
+    .filter((c) => !isCadastroTesteE2e(c.name || c.nome))
+    .map((c) => ({
+      ...c,
+      nome: c.name || c.nome,
+    }));
   return list.map((c) => ({
     id: c.id,
     name: c.name || c.nome,
@@ -81,11 +88,14 @@ export async function getClientes(filters = {}) {
 
   let query = supabase
     .from("clients")
-    .select("id, name, email, phone, cpf, state, status, avatar_url, created_at, birth_date, is_paciente_modelo, model_discount_pct")
+    .select("id, name, email, phone, cpf, state, status, avatar_url, created_at, birth_date, is_paciente_modelo, model_discount_pct, relacao_comercial")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
-  if (filters.state) {
+  if (!filters.state) {
+    query = query.neq("state", "arquivado");
+    query = query.not("name", "ilike", "E2E-GF-%");
+  } else if (filters.state) {
     query = query.eq("state", filters.state);
   }
   if (filters.responsible_user_id) {
@@ -93,6 +103,9 @@ export async function getClientes(filters = {}) {
   }
   if (filters.created_after) {
     query = query.gte("created_at", filters.created_after);
+  }
+  if (filters.relacao_comercial) {
+    query = query.eq("relacao_comercial", filters.relacao_comercial);
   }
 
   if (filters.search && filters.search.trim()) {
@@ -105,13 +118,34 @@ export async function getClientes(filters = {}) {
     query = query.limit(Math.min(limit, 500));
   }
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+
+  if (error && /relacao_comercial/i.test(String(error.message || ""))) {
+    const retry = await supabase
+      .from("clients")
+      .select("id, name, email, phone, cpf, state, status, avatar_url, created_at, birth_date, is_paciente_modelo, model_discount_pct")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 1000);
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) throw error;
 
   let list = data || [];
-  if (filters.state) {
+  if (!filters.state) {
+    list = list.filter(
+      (c) =>
+        (c.state || "em_acompanhamento") !== "arquivado" &&
+        c.status !== "archived" &&
+        !isCadastroTesteE2e(c.name)
+    );
+  } else if (filters.state) {
     list = list.filter((c) => (c.state || "em_acompanhamento") === filters.state);
+  }
+  if (filters.relacao_comercial) {
+    list = list.filter((c) => (c.relacao_comercial || "") === filters.relacao_comercial);
   }
 
   if (filters.search && filters.search.trim()) {
@@ -270,6 +304,12 @@ export async function createClient({
   responsible_user_id,
   state = "em_acompanhamento",
   avatar_url,
+  relacao_comercial,
+  cep,
+  endereco,
+  complemento,
+  cidade,
+  estado,
 }) {
   if (!name || !name.trim()) throw new Error("Nome é obrigatório");
   if (!email && !phone) throw new Error("Informe telefone ou e-mail");
@@ -319,18 +359,27 @@ export async function createClient({
     row.state = state || "em_acompanhamento";
     row.cpf = normalizedCpf || null;
     row.avatar_url = avatar_url || null;
+    const rel = normalizeRelacaoComercial(relacao_comercial);
+    if (rel) row.relacao_comercial = rel;
+    if (cep) row.cep = String(cep).trim();
+    if (endereco) row.endereco = String(endereco).trim();
+    if (complemento) row.complemento = String(complemento).trim();
+    if (cidade) row.cidade = String(cidade).trim();
+    if (estado) row.estado = String(estado).trim().toUpperCase();
   }
 
-  const { data, error } = await supabase
-    .from("clients")
-    .insert(row)
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  setCache(getCacheKey(orgId), null);
-  return data;
+  let attempt = { ...row };
+  for (let i = 0; i < 6; i++) {
+    const { data, error } = await supabase.from("clients").insert(attempt).select().single();
+    if (!error) {
+      setCache(getCacheKey(orgId), null);
+      return data;
+    }
+    const next = stripUnknownClientCols(attempt, error.message);
+    if (!next) throw error;
+    attempt = next;
+  }
+  throw new Error("Não foi possível salvar o cliente");
 }
 
 /**
@@ -356,24 +405,45 @@ export async function uploadClientPhoto(orgId, clientId, file) {
    UPDATE
 ========================= */
 
+function stripUnknownClientCols(row, message) {
+  const msg = String(message || "").toLowerCase();
+  const next = { ...row };
+  let changed = false;
+  if (msg.includes("relacao_comercial") && "relacao_comercial" in next) {
+    delete next.relacao_comercial;
+    changed = true;
+  }
+  for (const k of ["cep", "endereco", "cidade", "estado", "complemento"]) {
+    if (k in next && (msg.includes(k) || (msg.includes("column") && msg.includes("does not exist")))) {
+      delete next[k];
+      changed = true;
+    }
+  }
+  return changed ? next : null;
+}
+
 export async function updateClient(clientId, updates) {
   if (!clientId) throw new Error("Cliente inválido");
   const orgId = getOrgOrThrow();
 
-  const { data, error } = await supabase
-    .from("clients")
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", clientId)
-    .eq("org_id", orgId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  setCache(getCacheKey(orgId), null);
-  return data;
+  let attempt = { ...updates, updated_at: new Date().toISOString() };
+  for (let i = 0; i < 6; i++) {
+    const { data, error } = await supabase
+      .from("clients")
+      .update(attempt)
+      .eq("id", clientId)
+      .eq("org_id", orgId)
+      .select()
+      .single();
+    if (!error) {
+      setCache(getCacheKey(orgId), null);
+      return data;
+    }
+    const next = stripUnknownClientCols(attempt, error.message);
+    if (!next) throw error;
+    attempt = { ...next, updated_at: new Date().toISOString() };
+  }
+  throw new Error("Não foi possível atualizar o cliente");
 }
 
 /**
@@ -400,6 +470,16 @@ export async function updateClientState(clientId, newState) {
 
 export async function archiveClient(clientId) {
   return updateClientState(clientId, "arquivado");
+}
+
+export async function applyRelacaoComercial(clientId, atual, evento) {
+  const next = (await import("../utils/cliente-relacao.js")).nextRelacaoComercial(atual, evento);
+  if (!next || next === normalizeRelacaoComercial(atual)) return null;
+  try {
+    return await updateClient(clientId, { relacao_comercial: next });
+  } catch {
+    return null;
+  }
 }
 
 /* =========================

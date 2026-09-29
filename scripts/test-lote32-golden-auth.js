@@ -14,6 +14,7 @@ import {
   elosGoldenParaLeitura,
   interpretarLeituraElo,
   credenciaisGoldenAuth,
+  escolherOrgComPacientes,
 } from "../js/utils/golden-flow-auth.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,12 +61,9 @@ describe("ciclo ouro autenticado", () => {
     const uid = session.user?.id;
     assert.ok(uid);
 
-    const { data: memberships, error: memErr } = await supabase
-      .from("organization_users")
-      .select("org_id, role")
-      .eq("user_id", uid);
-    assert.equal(memErr, null, memErr?.message || "membership");
-    const orgId = memberships?.[0]?.org_id;
+    const pick = await escolherOrgComPacientes(supabase);
+    assert.equal(pick.ok, true, pick.detalhe || "sem org");
+    const orgId = pick.orgId;
     assert.ok(orgId, "usuário QA sem org");
 
     const falhas = [];

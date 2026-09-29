@@ -30,6 +30,12 @@ describe("ciclo ouro orçamento → pacote → baixa", () => {
     assert.equal(deveGerarPacotesNoAceite("enviado"), true);
     assert.equal(deveGerarPacotesNoAceite("aceito"), false);
     assert.equal(deveGerarPacotesNoAceite("recusado"), false);
+    const soProduto = pacotesDoAceite(
+      [{ kind: "produto", name: "Creme", qty: 1, unit_price: 90, product_id: "pr" }],
+      "c1",
+      "o1"
+    );
+    assert.equal(soProduto.length, 0);
   });
 
   it("baixa com pacote usa valor da sessão, não o preço de catálogo", () => {

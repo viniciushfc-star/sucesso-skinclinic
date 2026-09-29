@@ -15,15 +15,27 @@ import { checkPermission } from "../core/permissions.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
+import { listOrcamentosForSearch } from "../services/orcamentos.service.js";
+import { parseClientesBusca, relacaoComercialLabel } from "../utils/cliente-relacao.js";
+import { brl, statusOrcamentoLabel, totalOrcamento } from "../utils/orcamento.js";
+import {
+  htmlEnderecoCliente,
+  bindEnderecoCliente,
+  readEnderecoCliente,
+  htmlFotoCadastro,
+  captureIds,
+  wireFotoCadastro,
+  photoFileFromCadastro,
+} from "../utils/cliente-cadastro.js";
+
+let ultimaBuscaAbreOrcamento = false;
 
 let clientes = [];
 let canEdit = false;
 /** Stream da câmera (controlado pela view para fechar ao salvar/cancelar) */
-let cameraStream = null;
-/** Data URL da foto capturada pela câmera (garante uso no submit mesmo antes do toBlob) */
-let capturedPhotoDataUrl = null;
-/** Blob da foto capturada (preenchido assincronamente pelo toBlob) */
-let capturedPhotoBlob = null;
+let fotoCadastroState = { stream: null, blob: null, dataUrl: null };
+let fotoCadastroIds = captureIds("client");
+let fotoCadastroWire = null;
 
 export async function init() {
   canEdit = (await Promise.all([
@@ -62,16 +74,21 @@ function bindImportClientes() {
 ========================= */
 
 async function loadClientes() {
-  const search = document.getElementById("clientesSearch")?.value?.trim() || "";
+  const rawSearch = document.getElementById("clientesSearch")?.value?.trim() || "";
+  const parsed = parseClientesBusca(rawSearch);
   const state = document.getElementById("clientesFilterState")?.value || "";
+  const relacaoFiltro = document.getElementById("clientesFilterRelacao")?.value || (!parsed.abrirOrcamento ? parsed.relacao : "") || "";
+  ultimaBuscaAbreOrcamento = parsed.abrirOrcamento;
 
   try {
     clientes = await getClientes({
-      search: search || undefined,
+      search: parsed.texto || undefined,
       state: state || undefined,
+      relacao_comercial: relacaoFiltro || undefined,
       limit: 250,
     });
     renderClientes();
+    await renderBuscaOrcamentos(parsed);
   } catch (err) {
     console.error("[Clientes] loadClientes falhou:", err);
     clientes = [];
@@ -130,6 +147,7 @@ function renderClientes() {
           <strong>${escapeHtml(c.name || "")}</strong>
         </div>
       </td>
+      <td><span class="clientes-relacao clientes-relacao-${escapeHtml(c.relacao_comercial || "none")}">${escapeHtml(relacaoComercialLabel(c.relacao_comercial))}</span></td>
       <td><span class="clientes-state clientes-state-${(c.state || c.status || "").replace("_", "-")}">${stateLabel(c.state || c.status)}</span></td>
       <td>${escapeHtml(c.phone || c.email || "—")}</td>
       <td>${formatDate(c.created_at)}</td>
@@ -172,6 +190,9 @@ function bindUI() {
     searchEl.addEventListener("input", debounce(loadClientes, 300));
     searchEl.addEventListener("keydown", (e) => e.key === "Enter" && loadClientes());
   }
+
+  const filterRelacao = document.getElementById("clientesFilterRelacao");
+  if (filterRelacao) filterRelacao.addEventListener("change", loadClientes);
 
   const filterState = document.getElementById("clientesFilterState");
   if (filterState) filterState.addEventListener("change", loadClientes);
@@ -220,10 +241,70 @@ function bindEditEvents() {
   });
 }
 
-function openPerfil(clientId) {
+function openPerfil(clientId, tab) {
   if (!clientId) return;
   sessionStorage.setItem("clientePerfilId", clientId);
+  if (tab) sessionStorage.setItem("clientePerfilOpenTab", tab);
+  else if (ultimaBuscaAbreOrcamento) sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
   navigate("cliente-perfil");
+}
+
+async function renderBuscaOrcamentos(parsed) {
+  const box = document.getElementById("clientesBuscaOrcamentos");
+  if (!box) return;
+  if (!parsed?.abrirOrcamento) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  try {
+    let rows = await listOrcamentosForSearch({ search: parsed.texto, limit: 40 });
+    const byId = Object.fromEntries((clientes || []).map((c) => [c.id, c]));
+    const missing = [...new Set(rows.map((r) => r.client_id).filter((id) => id && !byId[id]))];
+    for (const id of missing.slice(0, 20)) {
+      try {
+        const c = await getClientById(id);
+        byId[c.id] = c;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (parsed.texto) {
+      const t = parsed.texto.toLowerCase();
+      rows = rows.filter((r) => {
+        const nome = String(byId[r.client_id]?.name || "").toLowerCase();
+        return nome.includes(t) || (Array.isArray(r.items) && r.items.some((it) => String(it?.name || "").toLowerCase().includes(t)));
+      });
+    }
+    if (!rows.length) {
+      box.classList.remove("hidden");
+      box.innerHTML = `<p class="clientes-busca-orcamentos-empty">Nenhum orçamento bate com essa busca. Cadastros abaixo seguem o filtro.</p>`;
+      return;
+    }
+    box.classList.remove("hidden");
+    box.innerHTML = `<p class="clientes-busca-orcamentos-title">Orçamentos — clique para abrir</p>
+      <ul class="clientes-busca-orcamentos-list">
+        ${rows.slice(0, 12).map((o) => {
+          const nome = escapeHtml(byId[o.client_id]?.name || "Cliente");
+          const itens = (Array.isArray(o.items) ? o.items : []).map((it) => it.name).filter(Boolean).slice(0, 2).join(", ");
+          return `<li>
+            <button type="button" class="clientes-busca-orcamento-btn" data-client="${escapeHtml(o.client_id)}" data-orcamento="${escapeHtml(o.id)}">
+              <strong>${nome}</strong>
+              <span>${escapeHtml(statusOrcamentoLabel(o.status))} · ${brl(totalOrcamento(o.items))}</span>
+              <span>${escapeHtml(itens || "—")}</span>
+            </button>
+          </li>`;
+        }).join("")}
+      </ul>`;
+    box.querySelectorAll(".clientes-busca-orcamento-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        sessionStorage.setItem("clientePerfilOrcamentoId", btn.dataset.orcamento || "");
+        openPerfil(btn.dataset.client, "orcamentos");
+      });
+    });
+  } catch {
+    box.classList.add("hidden");
+  }
 }
 
 function debounce(fn, ms) {
@@ -285,37 +366,18 @@ function maskPhone(input) {
 
 /** Encerra o hardware: para cada track do MediaStream (limpa trilhos). Fechar o vídeo não desliga o LED da câmera. */
 function fecharCamera() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach((track) => track.stop());
-    cameraStream = null;
-  }
-  const v = document.getElementById("cameraVideo");
-  if (v) v.srcObject = null;
-  const area = document.getElementById("clientesCameraArea");
-  if (area) area.classList.add("hidden");
+  fotoCadastroWire?.fechar?.();
+  fotoCadastroState.stream = null;
 }
 
 function openCreateModal() {
-  capturedPhotoDataUrl = null;
-  capturedPhotoBlob = null;
-  cameraStream = null;
+  fotoCadastroState = { stream: null, blob: null, dataUrl: null };
+  fotoCadastroIds = captureIds("client");
 
   openModal(
     "Adicionar cliente",
     `
-    <label>Foto (opcional)</label>
-    <div class="clientes-foto-wrap">
-      <input type="file" id="clientPhoto" accept="image/jpeg,image/png,image/webp,image/gif" class="clientes-foto-input">
-      <div class="clientes-foto-buttons">
-        <button type="button" class="clientes-foto-btn" id="btnEscolherFoto">Escolher arquivo</button>
-        <button type="button" class="clientes-foto-btn clientes-foto-btn-camera" id="btnTirarFoto">Tirar foto (câmera)</button>
-      </div>
-      <div class="clientes-camera-area hidden" id="clientesCameraArea">
-        <video id="cameraVideo" class="clientes-camera-video" autoplay playsinline muted></video>
-        <button type="button" class="clientes-foto-btn clientes-foto-btn-capture" id="btnCapturarFoto">Capturar foto</button>
-      </div>
-      <div class="clientes-foto-preview" id="clientPhotoPreview"></div>
-    </div>
+    ${htmlFotoCadastro(fotoCadastroIds)}
     <label>Nome completo <span class="required">*</span></label>
     <input id="name" required placeholder="Nome completo">
     <label>CPF (evita duplicado)</label>
@@ -326,6 +388,7 @@ function openCreateModal() {
     <label>E-mail</label>
     <input id="email" type="email" placeholder="email@exemplo.com">
     <p class="form-hint">Informe pelo menos telefone ou e-mail.</p>
+    ${htmlEnderecoCliente("client")}
     <label>Data de nascimento</label>
     <input id="birth_date" type="date">
     <label>Sexo</label>
@@ -337,11 +400,19 @@ function openCreateModal() {
     </select>
     <label>Observações iniciais</label>
     <textarea id="notes" rows="2" placeholder="Opcional"></textarea>
+    <label>Relação comercial</label>
+    <select id="relacaoComercial">
+      <option value="">Não definido</option>
+      <option value="orcamento">Só orçamento</option>
+      <option value="comprou">Comprou</option>
+      <option value="revenda">Revenda da clínica</option>
+    </select>
     <label>Estado inicial</label>
     <select id="state">
       <option value="em_acompanhamento">Em acompanhamento</option>
       <option value="pre_cadastro">Pré-cadastro</option>
     </select>
+    <label class="form-check"><input type="checkbox" id="agendarAposCadastro"> Após salvar, abrir a agenda com esta pessoa</label>
   `,
     createCliente,
     fecharCamera
@@ -375,114 +446,11 @@ function openCreateModal() {
   }
   const phoneInput = document.getElementById("phone");
   if (phoneInput) phoneInput.addEventListener("input", () => maskPhone(phoneInput));
-
-  const photoInput = document.getElementById("clientPhoto");
-  const btnFoto = document.getElementById("btnEscolherFoto");
-  const btnTirar = document.getElementById("btnTirarFoto");
-  const preview = document.getElementById("clientPhotoPreview");
-  const cameraArea = document.getElementById("clientesCameraArea");
-  const videoEl = document.getElementById("cameraVideo");
-  const btnCapturar = document.getElementById("btnCapturarFoto");
-
-  if (btnFoto && photoInput) {
-    btnFoto.addEventListener("click", () => photoInput.click());
-    photoInput.addEventListener("change", (e) => {
-      const file = e.target.files?.[0];
-      if (!preview) return;
-      capturedPhotoDataUrl = null;
-      capturedPhotoBlob = null;
-      fecharCamera();
-      if (!file) {
-        preview.innerHTML = "";
-        preview.classList.add("hidden");
-        btnFoto.textContent = "Escolher arquivo";
-        return;
-      }
-      const url = URL.createObjectURL(file);
-      preview.innerHTML = `<img src="${url}" alt="Preview" class="clientes-foto-preview-img">`;
-      preview.classList.remove("hidden");
-      btnFoto.textContent = "Trocar arquivo";
-    });
-  }
-
-  if (btnTirar) {
-    btnTirar.addEventListener("click", () => abrirCamera());
-  }
-  if (btnCapturar) {
-    btnCapturar.addEventListener("click", () => tirarFoto());
-  }
-
-  async function abrirCamera() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast("Câmera não disponível neste navegador.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-      cameraStream = stream;
-      if (!videoEl || !cameraArea) return;
-      videoEl.srcObject = stream;
-      await videoEl.play();
-      cameraArea.classList.remove("hidden");
-      const wrap = document.querySelector(".clientes-foto-wrap");
-      if (wrap) wrap.classList.remove("is-capturing");
-      if (preview) preview.innerHTML = "";
-      if (photoInput) photoInput.value = "";
-      if (btnFoto) btnFoto.textContent = "Escolher arquivo";
-      // Garante que o vídeo e o botão "Capturar foto" fiquem visíveis no modal
-      requestAnimationFrame(() => {
-        btnCapturar?.scrollIntoView({ behavior: "smooth", block: "center" });
-      });
-    } catch (err) {
-      console.warn("[Clientes] Câmera:", err);
-      toast("Não foi possível acessar a câmera. Verifique as permissões.");
-    }
-  }
-
-  function tirarFoto() {
-    const video = document.getElementById("cameraVideo");
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      toast("Aguarde a câmera carregar.");
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // 1. Congelar: Base64 no avatar de imediato (síncrono)
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    capturedPhotoDataUrl = dataUrl;
-    // Blob para upload já no momento da captura (síncrono) — garante uso no submit
-    const blobSync = dataUrlToBlobSync(dataUrl);
-    if (blobSync && blobSync.size > 0) {
-      capturedPhotoBlob = blobSync;
-    }
-    if (preview) {
-      preview.innerHTML = "";
-      const img = document.createElement("img");
-      img.alt = "Preview";
-      img.className = "clientes-foto-preview-img";
-      img.src = dataUrl;
-      preview.appendChild(img);
-      preview.classList.remove("hidden");
-    }
-    // 2. Esconder vídeo e mostrar foto (estado visual)
-    if (cameraArea) cameraArea.classList.add("hidden");
-    const wrap = document.querySelector(".clientes-foto-wrap");
-    if (wrap) wrap.classList.add("is-capturing");
-    // 3. Limpa trilhos: desliga o hardware imediatamente após capturar
-    fecharCamera();
-    if (btnFoto) btnFoto.textContent = "Trocar arquivo";
-  }
+  bindEnderecoCliente("client", toast);
+  fotoCadastroWire = wireFotoCadastro(fotoCadastroIds, fotoCadastroState, toast);
 }
 
 async function createCliente() {
-  fecharCamera();
-
   const name = document.getElementById("name")?.value?.trim();
   const cpf = document.getElementById("cpf")?.value?.trim() || null;
   const phone = document.getElementById("phone")?.value?.trim() || null;
@@ -491,34 +459,10 @@ async function createCliente() {
   const sex = document.getElementById("sex")?.value || null;
   const notes = document.getElementById("notes")?.value?.trim() || null;
   const state = document.getElementById("state")?.value || "em_acompanhamento";
-  let photoFile = document.getElementById("clientPhoto")?.files?.[0];
-  // Prioridade 1: blob da câmera (definido no momento da captura)
-  if (!photoFile && capturedPhotoBlob && capturedPhotoBlob.size > 0) {
-    photoFile = new File([capturedPhotoBlob], "avatar.jpg", { type: "image/jpeg" });
-  }
-  // Prioridade 2: data URL da câmera (fallback se blob não foi setado)
-  if (!photoFile && capturedPhotoDataUrl) {
-    const blob = dataUrlToBlobSync(capturedPhotoDataUrl);
-    if (blob && blob.size > 0) photoFile = new File([blob], "avatar.jpg", { type: "image/jpeg" });
-  }
-  // Prioridade 3: preview do DOM (img com data URL ou blob URL)
-  if (!photoFile) {
-    const previewEl = document.getElementById("clientPhotoPreview");
-    const previewImg = previewEl?.querySelector("img");
-    if (previewImg?.src) {
-      try {
-        const blob = previewImg.src.startsWith("data:")
-          ? dataUrlToBlobSync(previewImg.src)
-          : await fetch(previewImg.src).then((r) => r.blob());
-        if (blob && blob.size > 0) photoFile = new File([blob], "avatar.jpg", { type: blob.type || "image/jpeg" });
-      } catch (e) {
-        console.warn("[Clientes] Fallback preview→blob falhou:", e);
-      }
-    }
-  }
-  if (!photoFile && (capturedPhotoDataUrl || capturedPhotoBlob)) {
-    toast("Não foi possível preparar a foto. Tente capturar de novo.");
-  }
+  const relacao_comercial = document.getElementById("relacaoComercial")?.value || "";
+  const endereco = readEnderecoCliente("client");
+  const photoFile = await photoFileFromCadastro(fotoCadastroIds, fotoCadastroState);
+  fecharCamera();
 
   if (!name) {
     toast("Nome é obrigatório");
@@ -539,6 +483,8 @@ async function createCliente() {
       sex: sex || undefined,
       notes: notes || undefined,
       state,
+      relacao_comercial: relacao_comercial || undefined,
+      ...endereco,
     });
 
     let avatarUrlForList = null;
@@ -565,6 +511,7 @@ async function createCliente() {
       permissionUsed: "clientes:manage",
     });
 
+    const agendarApos = document.getElementById("agendarAposCadastro")?.checked;
     closeModal();
     await new Promise((r) => setTimeout(r, 400));
     await loadClientes();
@@ -581,6 +528,12 @@ async function createCliente() {
       } catch (e) {
         console.warn("[Clientes] Link portal:", e);
       }
+    }
+    if (client?.id && agendarApos) {
+      sessionStorage.setItem("agendaPrefillClientId", client.id);
+      navigate("agenda");
+      toast("Escolha o horário: a pessoa já vem selecionada.");
+      return;
     }
     if (client?.id) {
       const abrirAnamnese = confirm("Deseja abrir a anamnese deste cliente agora?");

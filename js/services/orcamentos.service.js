@@ -18,13 +18,23 @@ function orgIdOrThrow() {
 
 function normalizeItems(items) {
   return (items || [])
-    .map((it) => ({
-      procedure_id: it.procedure_id || null,
-      name: String(it.name || "").trim(),
-      qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
-      unit_price: Number(it.unit_price) >= 0 ? Number(it.unit_price) : 0,
-      sessions: Number(it.sessions) > 0 ? Number(it.sessions) : Number(it.qty) > 0 ? Number(it.qty) : 1,
-    }))
+    .map((it) => {
+      const kind = String(it.kind || (it.product_id ? "produto" : "servico")).toLowerCase() === "produto"
+        ? "produto"
+        : "servico";
+      const row = {
+        kind,
+        procedure_id: it.procedure_id || null,
+        product_id: it.product_id || null,
+        name: String(it.name || "").trim(),
+        qty: Number(it.qty) > 0 ? Number(it.qty) : 1,
+        unit_price: Number(it.unit_price) >= 0 ? Number(it.unit_price) : 0,
+        sessions: Number(it.sessions) > 0 ? Number(it.sessions) : Number(it.qty) > 0 ? Number(it.qty) : 1,
+      };
+      const cost = Number(it.unit_cost);
+      if (Number.isFinite(cost) && cost >= 0) row.unit_cost = cost;
+      return row;
+    })
     .filter((it) => it.name);
 }
 
@@ -42,6 +52,30 @@ export async function listOrcamentosByClient(clientId) {
     throw error;
   }
   return data || [];
+}
+
+/** Lista recente para a busca da tela Clientes (abre o orçamento no perfil). */
+export async function listOrcamentosForSearch({ search = "", limit = 40 } = {}) {
+  const orgId = orgIdOrThrow();
+  const { data, error } = await supabase
+    .from("orcamentos")
+    .select("id, client_id, status, items, created_at, valid_until")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(80, Math.max(10, Number(limit) || 40)));
+  if (error) {
+    if (missingTable(error)) return [];
+    throw error;
+  }
+  const term = String(search || "").trim().toLowerCase();
+  const rows = data || [];
+  if (!term) return rows;
+  return rows.filter((o) => {
+    const names = (Array.isArray(o.items) ? o.items : [])
+      .map((it) => String(it?.name || "").toLowerCase())
+      .join(" ");
+    return names.includes(term) || String(o.status || "").toLowerCase().includes(term);
+  });
 }
 
 export async function createOrcamento({ client_id, items, notes, valid_until, status = "rascunho" }) {

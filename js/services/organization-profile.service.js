@@ -5,6 +5,7 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
+import { mergeCanalVenda, writeCanalVendaLocal, normalizeCanalVenda } from "../utils/canal-venda.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -21,10 +22,11 @@ const PROFILE_TAXAS_BANDEIRAS = "taxas_bandeiras";
 const PROFILE_PARCELAMENTO = "parcelamento_margem_minima_pct, parcelamento_max_parcelas";
 const PROFILE_MARGEM_COMISSAO = "margem_alvo_padrao_pct, comissao_profissional_padrao_pct";
 const PROFILE_CRM = "google_review_url, fidelidade_visitas";
+const PROFILE_CANAL = "vende_para_cliente, vende_para_profissional";
 
 const PARCELADO_NULLS = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`taxa_parcelado_${i + 2}_pct`, null]));
 const TAXAS_EXTRA_NULLS = { taxa_transacao_pct: null, taxa_avista_debito_pct: null, taxa_avista_credito_pct: null };
-const ALL_DEFAULTS = { cidade: null, estado: null, logo_url: null, endereco: null, cnpj: null, telefone: null, cep: null, complemento: null, menu_anamnese_visible: false, brinde_aniversario_habilitado: false, nota_fiscal_emitir_url: null, google_review_url: null, fidelidade_visitas: 10, taxa_avista_pct: null, taxa_parcelado_2_6_pct: null, taxa_parcelado_7_12_pct: null, taxas_bandeiras: null, parcelamento_margem_minima_pct: 80, parcelamento_max_parcelas: null, margem_alvo_padrao_pct: 40, comissao_profissional_padrao_pct: null, ...TAXAS_EXTRA_NULLS, ...PARCELADO_NULLS };
+const ALL_DEFAULTS = { cidade: null, estado: null, logo_url: null, endereco: null, cnpj: null, telefone: null, cep: null, complemento: null, menu_anamnese_visible: false, brinde_aniversario_habilitado: false, nota_fiscal_emitir_url: null, google_review_url: null, fidelidade_visitas: 10, taxa_avista_pct: null, taxa_parcelado_2_6_pct: null, taxa_parcelado_7_12_pct: null, taxas_bandeiras: null, parcelamento_margem_minima_pct: 80, parcelamento_max_parcelas: null, margem_alvo_padrao_pct: 40, comissao_profissional_padrao_pct: null, vende_para_cliente: true, vende_para_profissional: false, ...TAXAS_EXTRA_NULLS, ...PARCELADO_NULLS };
 
 function crmLocalKey(orgId) {
   return `sc_crm_prefs:${orgId}`;
@@ -87,6 +89,12 @@ export async function getOrganizationProfile() {
     if (d8) result = { ...result, ...d8 };
     const d9 = await trySelect(PROFILE_CRM);
     if (d9) result = { ...result, ...d9 };
+    const dCanal = await trySelect(PROFILE_CANAL);
+    if (dCanal && (dCanal.vende_para_profissional != null || dCanal.vende_para_cliente != null)) {
+      result = { ...result, ...normalizeCanalVenda(dCanal) };
+    } else {
+      result = { ...result, ...mergeCanalVenda(result, orgId) };
+    }
 
     return mergeCrmLocal(orgId, result);
   } catch (_) {
@@ -99,7 +107,7 @@ export async function getOrganizationProfile() {
  */
 export async function updateOrganizationProfile(payload) {
   const orgId = getOrgOrThrow();
-  const { name, cidade, estado, logo_url, endereco, cep, complemento, cnpj, telefone, menu_anamnese_visible, taxa_transacao_pct, taxa_avista_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct, brinde_aniversario_habilitado, nota_fiscal_emitir_url, google_review_url, fidelidade_visitas, taxas_bandeiras, parcelamento_margem_minima_pct, parcelamento_max_parcelas, margem_alvo_padrao_pct, comissao_profissional_padrao_pct } = payload;
+  const { name, cidade, estado, logo_url, endereco, cep, complemento, cnpj, telefone, menu_anamnese_visible, taxa_transacao_pct, taxa_avista_pct, taxa_avista_debito_pct, taxa_avista_credito_pct, taxa_parcelado_2_6_pct, taxa_parcelado_7_12_pct, brinde_aniversario_habilitado, nota_fiscal_emitir_url, google_review_url, fidelidade_visitas, taxas_bandeiras, parcelamento_margem_minima_pct, parcelamento_max_parcelas, margem_alvo_padrao_pct, comissao_profissional_padrao_pct, vende_para_cliente, vende_para_profissional } = payload;
   const update = {};
   if (name !== undefined) update.name = (name || "").trim();
   if (cidade !== undefined) update.cidade = (cidade || "").trim() || null;
@@ -134,6 +142,14 @@ export async function updateOrganizationProfile(payload) {
     const n = parseInt(fidelidade_visitas, 10);
     update.fidelidade_visitas = Number.isFinite(n) ? Math.min(50, Math.max(3, n)) : 10;
   }
+  if (vende_para_cliente !== undefined) update.vende_para_cliente = !!vende_para_cliente;
+  if (vende_para_profissional !== undefined) update.vende_para_profissional = !!vende_para_profissional;
+  if (vende_para_cliente !== undefined || vende_para_profissional !== undefined) {
+    writeCanalVendaLocal(orgId, {
+      vende_para_cliente: vende_para_cliente !== undefined ? !!vende_para_cliente : true,
+      vende_para_profissional: !!vende_para_profissional,
+    });
+  }
   saveCrmLocal(orgId, { google_review_url: update.google_review_url, fidelidade_visitas: update.fidelidade_visitas });
 
   const { data, error } = await supabase
@@ -153,6 +169,14 @@ export async function updateOrganizationProfile(payload) {
     const { data: retCrm, error: errCrm } = await supabase.from("organizations").update(update).eq("id", orgId).select().single();
     if (errCrm) throw errCrm;
     return mergeCrmLocal(orgId, retCrm ?? {});
+  }
+  if ((msg.includes("vende_para_cliente") || msg.includes("vende_para_profissional")) && ("vende_para_cliente" in update || "vende_para_profissional" in update)) {
+    delete update.vende_para_cliente;
+    delete update.vende_para_profissional;
+    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? {};
+    const { data: retCanal, error: errCanal } = await supabase.from("organizations").update(update).eq("id", orgId).select().single();
+    if (errCanal) throw errCanal;
+    return retCanal;
   }
   const isMissingColumn =
     msg.includes("menu_anamnese_visible") || (msg.includes("column") && msg.toLowerCase().includes("does not exist"));

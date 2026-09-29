@@ -140,16 +140,22 @@ export async function markAgendaArrival(id, phase) {
 export async function listAppointmentsByDate(date, professionalId = null) {
   const orgId = getOrgOrThrow();
 
-  const q = supabase
-    .from("agenda")
-    .select("*, clients(name, phone, email)")
-    .eq("org_id", orgId)
-    .eq("data", date)
-    .order("hora");
-  const finalQ = professionalId ? q.eq("user_id", professionalId) : q;
-  const { data, error } = await finalQ;
+  const run = (sel) => {
+    const q = supabase
+      .from("agenda")
+      .select(sel)
+      .eq("org_id", orgId)
+      .eq("data", date)
+      .order("hora");
+    return professionalId ? q.eq("user_id", professionalId) : q;
+  };
 
-  if (error) throw error;
+  let { data, error } = await run("*, clients(name, phone, email)");
+  if (error) {
+    const retry = await run("*");
+    if (retry.error) throw retry.error;
+    data = retry.data;
+  }
   return (data ?? []).filter((a) => !a.cancelled_at);
 }
 
@@ -158,17 +164,23 @@ export async function listAppointmentsByDate(date, professionalId = null) {
  */
 export async function listAppointmentsByRange(startDate, endDate, professionalId = null) {
   const orgId = getOrgOrThrow();
-  const q = supabase
-    .from("agenda")
-    .select("*, clients(name, phone, email)")
-    .eq("org_id", orgId)
-    .gte("data", startDate)
-    .lte("data", endDate)
-    .order("data")
-    .order("hora");
-  const finalQ = professionalId ? q.eq("user_id", professionalId) : q;
-  const { data, error } = await finalQ;
-  if (error) throw error;
+  const run = (sel) => {
+    const q = supabase
+      .from("agenda")
+      .select(sel)
+      .eq("org_id", orgId)
+      .gte("data", startDate)
+      .lte("data", endDate)
+      .order("data")
+      .order("hora");
+    return professionalId ? q.eq("user_id", professionalId) : q;
+  };
+  let { data, error } = await run("*, clients(name, phone, email)");
+  if (error) {
+    const retry = await run("*");
+    if (retry.error) throw retry.error;
+    data = retry.data;
+  }
   return (data ?? []).filter((a) => !a.cancelled_at);
 }
 

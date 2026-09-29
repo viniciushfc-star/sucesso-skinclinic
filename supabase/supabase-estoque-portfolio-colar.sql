@@ -50,3 +50,7 @@ COMMENT ON COLUMN public.estoque_produtos.preco_profissional IS 'Valor de revend
 COMMENT ON COLUMN public.estoque_produtos.preco_cliente IS 'Valor para o cliente final.';
 COMMENT ON COLUMN public.estoque_produtos.frete_padrao IS 'Frete típico por unidade (investimento).';
 COMMENT ON COLUMN public.estoque_entradas.valor_frete IS 'Frete desta compra (total). Entra no custo investido.';
+
+ALTER TABLE public.estoque_produtos
+  ADD COLUMN IF NOT EXISTS imagem_url text;
+

@@ -11,6 +11,19 @@ import { randomUUID } from "crypto";
 import { isCronAuthorized, requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
 import { canonicalPhoneDigits } from "../lib/phone-match.js";
 import { persistApiEvent } from "../lib/observability.js";
+import { mapaSilencioPorCliente, estaEmSilencio, SILENCIO_EVENT_TYPE } from "../js/utils/whatsapp-regua.js";
+
+/**
+ * Decide se o cron pode disparar WhatsApp. Não envia.
+ * @returns {{ enviar: boolean, reason: string|null }}
+ */
+export function decisaoWhatsappLembrete({ events, hojeIso, clientId, temTelefone } = {}) {
+  if (!temTelefone) return { enviar: false, reason: "sem_telefone" };
+  if (estaEmSilencio(mapaSilencioPorCliente(events || [], hojeIso), clientId)) {
+    return { enviar: false, reason: "silencio_humano" };
+  }
+  return { enviar: true, reason: null };
+}
 
 function getAdmin() {
   const url = process.env.SUPABASE_URL;
@@ -188,8 +201,14 @@ export default async function lembretesAuto(req, res) {
         .order("created_at", { ascending: true })
         .limit(50);
       const hoje = now.toISOString().slice(0, 10);
-      if (estaEmSilencio(mapaSilencioPorCliente(evs || [], hoje), cli.id)) {
-        envios.push({ sent: false, reason: "silencio_humano" });
+      const wa = decisaoWhatsappLembrete({
+        events: evs || [],
+        hojeIso: hoje,
+        clientId: cli.id,
+        temTelefone: true,
+      });
+      if (!wa.enviar) {
+        envios.push({ sent: false, reason: wa.reason });
       } else {
         envios.push(await sendWhatsapp(tel, texto));
       }

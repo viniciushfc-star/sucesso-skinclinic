@@ -21,7 +21,7 @@ Nunca: `req.body.user_id`, `req.query.userId`, role enviada pelo cliente.
 
 O frontend pode enviar `org_id` / `orgId` / `org` (contexto: “quero esta clínica”).
 
-O backend chama `requireOrganizationMember(user.id, orgId)` em `organization_users` (via **SERVICE_KEY**, depois do JWT).
+O backend chama `requireOrganizationMember(user.id, orgId, jwt)` em `organization_users` **com o JWT do staff** (não com a service role).
 
 Sem linha user+org → **403** `{ "error": "Sem permissão" }`.
 

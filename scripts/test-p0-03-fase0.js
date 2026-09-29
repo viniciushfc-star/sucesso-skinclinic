@@ -108,12 +108,24 @@ describe("Fase 0 — código", () => {
     const route = src("routes/create-portal-session.js");
     assert.match(route, /token_hash/);
     assert.match(route, /isPortalSessionDevBypassEnabled/);
+    assert.match(route, /randomBytes/);
+    assert.equal(route.includes("gen_random_bytes"), false);
+  });
+
+  it("SQL de sessão do portal usa extensions.gen_random_bytes", () => {
+    const colar = src("supabase/supabase-criar-create-client-portal-session.sql");
+    const mig = src("supabase/migrations/20260929120000_p0_portal_session_pgcrypto.sql");
+    assert.match(colar, /extensions\.gen_random_bytes\(12\)/);
+    assert.match(mig, /extensions\.gen_random_bytes\(12\)/);
+    assert.match(colar, /SET search_path = public, extensions/);
   });
 
   it("SW não é mais cache-first", () => {
     const sw = src("sw.js");
-    assert.match(sw, /catch\(\(\) => caches\.match/);
+    assert.match(sw, /fetch\(event\.request\)/);
+    assert.match(sw, /caches\.match\(event\.request\)/);
     assert.doesNotMatch(sw, /return cached \|\| fetchPromise/);
+    assert.match(sw, /skipCache/);
   });
 
   it("agenda canônica: services não gravam mais em appointments", () => {
