@@ -29,6 +29,8 @@ describe("Lote 55 cenários de usuário", () => {
     assert.ok(ids.includes("setup_primeiro_dia"));
     assert.ok(ids.includes("radar_retorno"));
     assert.ok(ids.includes("espera_opcional"));
+    assert.ok(ids.includes("destaque_mercado"));
+    assert.ok(ids.includes("gemeos_limpos"));
     assert.equal(cenarioNovaSemSegundo().sinal, "nova_sem_2");
     assert.equal(cenarioPacoteJaAgendado().sinal, null);
     assert.equal(cenarioAtrasadaRitmo().sinal, "atrasada");

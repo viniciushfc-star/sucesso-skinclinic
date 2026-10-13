@@ -1,5 +1,6 @@
 import { perguntarCopiloto } from "../services/copiloto.service.js";
 import { toast } from "../ui/toast.js";
+import { userFacingError } from "../core/errors.js";
 
 function mostrarFonte(el, fonte) {
   if (!el) return;
@@ -35,9 +36,10 @@ export async function init() {
       mostrarFonte(fonteEl, res?.fonte);
     } catch (err) {
       console.error("[COPILOTO]", err);
-      resposta.textContent = "Erro ao consultar a Consultora.";
+      const msg = userFacingError(err, "Não foi possível consultar a Consultora agora.");
+      resposta.textContent = msg;
       mostrarFonte(fonteEl, "");
-      toast("Erro ao consultar IA");
+      toast(msg, "error");
     } finally {
       btn.disabled = false;
     }

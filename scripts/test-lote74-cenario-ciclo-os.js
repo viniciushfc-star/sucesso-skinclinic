@@ -31,6 +31,8 @@ describe("Lote 74 cenários Clinic OS", () => {
     assert.ok(ids.includes("h-cadastro-link"));
     assert.ok(ids.includes("h-agenda-vendeu"));
     assert.ok(ids.includes("h-portal-login"));
+    assert.ok(ids.includes("h-destaque-fonte"));
+    assert.ok(ids.includes("h-espera-encaixe"));
     const ana = cenarioAnaVendeBiancaAplica();
     assert.equal(ana.aplica, "bianca");
     assert.equal(ana.vendeu, "ana");
@@ -61,6 +63,8 @@ describe("Lote 74 cenários Clinic OS", () => {
     const ids = roteiroProgramadorCicloOs().map((p) => p.id);
     assert.ok(ids.includes("sql_quem_vendeu"));
     assert.ok(ids.includes("sql_portal_login"));
+    assert.ok(ids.includes("sql_skincare_mercado"));
+    assert.ok(ids.includes("gemeos_limpos"));
   });
 
   it("percorre os cenários ao vivo (JWT)", { skip: !creds.ok }, async () => {

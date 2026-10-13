@@ -310,6 +310,7 @@ export async function runCenariosPapeis() {
 
       await probePapel("recepcao", tokens.recepcao);
       await probePapel("profissional", tokens.profissional);
+      await probePapel("gestor", tokens.gestor);
 
       const { count, error: finErr } = await db
         .from("financeiro")

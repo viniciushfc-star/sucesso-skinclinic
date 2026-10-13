@@ -29,6 +29,8 @@ describe("Lote 56 papéis, portal e contador", () => {
     assert.equal(permissionAllowedByRoleForTest("recepcao", "whatsapp:send"), true);
     assert.equal(permissionAllowedByRoleForTest("profissional", "whatsapp:send"), false);
     assert.equal(permissionAllowedByRoleForTest("funcionario", "clientes:manage"), false);
+    assert.ok(telasDoPapel("master").includes("contador"));
+    assert.equal(telasDoPapel("viewer").includes("financeiro"), false);
     const spa = readFileSync(join(ROOT, "js/core/spa.js"), "utf8");
     assert.match(spa, /financeiro:view/);
     assert.match(spa, /clientes:manage/);

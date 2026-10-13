@@ -3,7 +3,7 @@
  * Em standby: a tela existe no app mas não aparece no menu nem em Configurações.
  */
 
-/** Pagamento pelo app (taxa melhor + ganho da operadora). Ative quando fechar negociação com a operadora. */
+/** Pagamento pelo app (maquininhas + ofertas). Só ligue com parceria e PAGAMENTO_PARCEIRO_KEY. */
 export const PAGAMENTO_APP_ENABLED = false;
 
 /**

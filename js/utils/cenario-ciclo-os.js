@@ -59,6 +59,18 @@ export function roteiroHumanoCicloOs() {
       titulo: "portal.html sem token: e-mail e senha. Não é o login da equipe",
       como: "Senha errada não entra. Link antigo continua.",
     },
+    {
+      id: "h-destaque-fonte",
+      ator: "clínica",
+      titulo: "Skincare: cadastrar destaque só com fonte (não diz o melhor do mercado)",
+      como: "Skincare → O que o mercado destaca. Sem fonte o card não entra.",
+    },
+    {
+      id: "h-espera-encaixe",
+      ator: "clínica",
+      titulo: "Relacionamento: colocar na espera; na agenda Encaixar não manda WhatsApp",
+      como: "CRM → Lista de espera. Cancelar horário sugere aviso só no clique.",
+    },
   ];
 }
 
@@ -69,6 +81,9 @@ export function roteiroProgramadorCicloOs() {
     { id: "sql_portal_login", titulo: "RPC login_client_portal recusa senha errada", muta: false },
     { id: "staff_nao_le_hash", titulo: "Staff não lê hash de senha da paciente", muta: false },
     { id: "ficha_ciclo_live", titulo: "Ler um paciente: aplicados não misturam com plano", muta: false },
+    { id: "sql_skincare_mercado", titulo: "Tabela skincare_mercado_refs (SQL colar)", muta: false },
+    { id: "sql_waitlist", titulo: "Tabela agenda_waitlist", muta: false },
+    { id: "gemeos_limpos", titulo: "clientes/appointments/convites/logs ausentes", muta: false },
   ];
 }
 

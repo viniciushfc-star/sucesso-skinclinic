@@ -57,6 +57,7 @@ import { listPlanosTerapeuticos } from "../services/planos-terapeuticos.service.
 import { buildPlanoAgendaSlots, expandPlanoSessoes } from "../utils/plano-agenda.js"
 
 import { navigate } from "../core/spa.js"
+import { PAGAMENTO_APP_ENABLED } from "../core/feature-flags.js"
 import { redirect } from "../core/base-path.js"
 
 import { getEntradasByAgendaId, createLancamento } from "../services/financeiro.service.js"
@@ -85,8 +86,8 @@ import { getOrganizationProfile } from "../services/organization-profile.service
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
 import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js"
 import { listAfazeresByPrazo } from "../services/afazeres.service.js"
-import { listWaitlist } from "../services/waitlist.service.js"
-import { matchWaitlistToSlot } from "../utils/espera-encaixe.js"
+import { listWaitlist, SQL_WAITLIST, updateWaitlistStatus } from "../services/waitlist.service.js"
+import { htmlHintWaitlistSql, matchWaitlistToSlot } from "../utils/espera-encaixe.js"
 import { proximaAcaoDoHorario } from "../utils/sala-espera.js"
 import { filaWhatsappTemplate } from "../utils/crm-fila.js"
 import { occupyProfessionalCalendar } from "../services/google-calendar.service.js"
@@ -991,8 +992,8 @@ async function preencherEsperaEncaixeNoModal() {
   let espera = []
   try {
     espera = await listWaitlist("aberta")
-  } catch (_) {
-    box.innerHTML = ""
+  } catch (err) {
+    box.innerHTML = err?.code === "SQL_AUSENTE" ? htmlHintWaitlistSql() : ""
     return
   }
   const matches = matchWaitlistToSlot(espera, { data, procedimento: proc })
@@ -1013,7 +1014,7 @@ async function preencherEsperaEncaixeNoModal() {
         clinic,
         extra,
       })
-      const encaixar = `<button type="button" class="btn-sm agenda-espera-encaixar" data-client-id="${escapeAttr(w.client_id || "")}" data-proc="${escapeAttr(w.procedure_name || "")}">Encaixar ${escapeHtml(w.nome || "")}</button>`
+      const encaixar = `<button type="button" class="btn-sm agenda-espera-encaixar" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-proc="${escapeAttr(w.procedure_name || "")}">Encaixar ${escapeHtml(w.nome || "")}</button>`
       const wa = tel.length >= 10
         ? `<button type="button" class="btn-secondary btn-sm agenda-espera-wa" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-phone="${escapeAttr(w.phone || "")}" data-msg="${escapeAttr(msg)}">Avisar</button>`
         : ""
@@ -1032,6 +1033,8 @@ async function preencherEsperaEncaixeNoModal() {
       }
       const procEl = document.getElementById("proc")
       if (btn.dataset.proc && procEl) procEl.value = btn.dataset.proc
+      const waitEl = document.getElementById("agendaWaitlistId")
+      if (waitEl) waitEl.value = btn.dataset.waitlistId || ""
       toast("Encaixe no formulário. Confira e salve. Nada foi enviado no WhatsApp.")
     })
   })
@@ -1052,6 +1055,8 @@ async function openCreateModal(opts = {}){
  if (sessionStorage.getItem("agendaPrefillClientId")) sessionStorage.removeItem("agendaPrefillClientId")
  const prefillPlano = opts.planoId || sessionStorage.getItem("agendaPrefillPlanoId") || ""
  if (sessionStorage.getItem("agendaPrefillPlanoId")) sessionStorage.removeItem("agendaPrefillPlanoId")
+ const prefillWaitlist = opts.waitlistId || sessionStorage.getItem("agendaPrefillWaitlistId") || ""
+ if (sessionStorage.getItem("agendaPrefillWaitlistId")) sessionStorage.removeItem("agendaPrefillWaitlistId")
 
  const members = await getOrgMembers()
  const uid = await agendaUserId()
@@ -1144,6 +1149,7 @@ async function openCreateModal(opts = {}){
 
    <label for="proc">Procedimento (nome ou texto livre)</label>
    <input id="proc" placeholder="Ex.: Limpeza de pele">
+   <input type="hidden" id="agendaWaitlistId" value="${escapeAttr(prefillWaitlist)}">
    <div id="agendaEsperaEncaixe" class="agenda-espera-encaixe" aria-live="polite"></div>
 
    <details class="agenda-modal-mais">
@@ -1522,7 +1528,8 @@ async function openSlotPanel(id){
         ${acao.primary === "chegou" ? `<button type="button" class="btn-primary" id="agendaPanelBtnChegou">Chegou</button>` : ""}
         ${acao.primary === "atendimento" ? `<button type="button" class="btn-primary" id="agendaPanelBtnAtendimento">Em atendimento</button>` : ""}
         ${acao.primary === "baixa" ? `<button type="button" class="btn-primary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão">Registrar o que foi aplicado</button>
-        <button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
+        <button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>
+        ${PAGAMENTO_APP_ENABLED ? `<button type="button" class="btn-secondary" id="agendaPanelBtnCobrancaApp">Cobrar pelo app</button>` : ""}` : ""}
       </div>`
     : ""
   const baixaRegistradaHtml = temBaixa
@@ -1585,6 +1592,7 @@ async function openSlotPanel(id){
       ${clientId ? `<button type="button" class="btn-secondary" id="agendaPanelBtnOrcamento">Orçamento</button>` : ""}
       ${acao.primary !== "baixa" ? `<button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão">Registrar o que foi aplicado</button>` : ""}
       ${!temBaixa && acao.primary !== "baixa" ? `<button type="button" class="btn-secondary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa">Dar baixa (registrar pagamento)</button>` : ""}
+      ${PAGAMENTO_APP_ENABLED && !temBaixa && acao.primary !== "baixa" ? `<button type="button" class="btn-secondary" id="agendaPanelBtnCobrancaApp">Cobrar pelo app</button>` : ""}
       ${!isEvent && !temBaixa && acao.primary !== "chegou" ? `<button type="button" class="btn-secondary" id="agendaPanelBtnChegou">Chegou</button>` : ""}
       ${!isEvent && !temBaixa && acao.primary !== "atendimento" ? `<button type="button" class="btn-secondary" id="agendaPanelBtnAtendimento">Em atendimento</button>` : ""}
       ${!isEvent ? `<button type="button" class="btn-secondary" id="agendaPanelBtnCancelar">Cancelar horário</button>` : ""}
@@ -1641,6 +1649,15 @@ async function openSlotPanel(id){
     closeSlotPanel()
     await openDarBaixaModal(item)
    }
+  }
+  const btnCobrancaApp = document.getElementById("agendaPanelBtnCobrancaApp")
+  if (btnCobrancaApp && PAGAMENTO_APP_ENABLED) {
+    btnCobrancaApp.onclick = () => {
+      sessionStorage.setItem("cobrancaAgendaId", item.id || "")
+      sessionStorage.setItem("cobrancaClientId", item.client_id || "")
+      closeSlotPanel()
+      navigate("pagamento")
+    }
   }
   const btnCancelar = document.getElementById("agendaPanelBtnCancelar")
   if (btnCancelar && !isEvent) {
@@ -1847,9 +1864,11 @@ async function cancelarHorarioComEspera(item) {
   if (!item?.id) return
   if (!confirm("Cancelar este horário? A vaga some da agenda. Se houver lista de espera, você escolhe se avisa no WhatsApp.")) return
   let espera = []
+  let waitlistSqlAusente = false
   try {
     espera = await listWaitlist("aberta")
-  } catch (_) {
+  } catch (err) {
+    waitlistSqlAusente = err?.code === "SQL_AUSENTE"
     espera = []
   }
   const matches = matchWaitlistToSlot(espera, {
@@ -1878,31 +1897,48 @@ async function cancelarHorarioComEspera(item) {
   closeSlotPanel()
   renderAgenda()
   if (!matches.length) {
-    toast("Horário cancelado. Ninguém compatível na lista de espera agora.")
+    toast(waitlistSqlAusente
+      ? `Horário cancelado. Cole ${SQL_WAITLIST} no Supabase para sugerir quem espera.`
+      : "Horário cancelado. Ninguém compatível na lista de espera agora.")
     return
   }
   const profile = await getOrganizationProfile().catch(() => ({}))
   const clinic = profile?.name || "nossa clínica"
+  const slotData = item.data || ""
+  const slotHora = String(item.hora || "").slice(0, 5)
   const linhas = matches.slice(0, 5).map((w) => {
     const tel = String(w.phone || "").replace(/\D/g, "")
     const msg = filaWhatsappTemplate({
       name: w.nome,
       sinal: "espera",
       clinic,
-      extra: `${item.data || ""} ${item.hora || ""}`.trim(),
+      extra: `${slotData} ${slotHora}`.trim(),
     })
+    const encaixar = `<button type="button" class="btn-sm agenda-espera-encaixar-vaga" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-proc="${escapeAttr(w.procedure_name || "")}" data-date="${escapeAttr(slotData)}" data-hora="${escapeAttr(slotHora)}">Encaixar ${escapeHtml(w.nome || "")}</button>`
     const wa = tel.length >= 10
-      ? `<button type="button" class="btn-secondary agenda-espera-wa" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-phone="${escapeAttr(w.phone || "")}" data-msg="${escapeAttr(msg)}">Avisar ${escapeHtml(w.nome || "")}</button>`
-      : `<span class="view-hint">${escapeHtml(w.nome || "")} sem telefone</span>`
-    return `<li>${wa}</li>`
+      ? `<button type="button" class="btn-secondary agenda-espera-wa" data-waitlist-id="${escapeAttr(w.id)}" data-client-id="${escapeAttr(w.client_id || "")}" data-phone="${escapeAttr(w.phone || "")}" data-msg="${escapeAttr(msg)}">Avisar</button>`
+      : `<span class="view-hint">sem telefone</span>`
+    return `<li>${encaixar} ${wa}</li>`
   }).join("")
   openModal(
     "Horário liberado — lista de espera",
-    `<p class="agenda-baixa-hint">Há quem espera um horário nesta faixa. O WhatsApp só sai se você clicar. Nada é enviado sozinho.</p><ul class="agenda-espera-match">${linhas}</ul>`,
+    `<p class="agenda-baixa-hint">Há quem espera um horário nesta faixa. Encaixar abre o formulário no horário livre. O WhatsApp só sai se você clicar. Nada é enviado sozinho.</p><ul class="agenda-espera-match">${linhas}</ul>`,
     () => closeModal(),
-    null
+    null,
+    { hideSubmit: true }
   )
   bindAgendaEsperaWa()
+  document.querySelectorAll(".agenda-espera-encaixar-vaga").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const waitlistId = btn.dataset.waitlistId || ""
+      const clientId = btn.dataset.clientId || ""
+      const procedimento = btn.dataset.proc || ""
+      const date = btn.dataset.date || ""
+      const hora = btn.dataset.hora || ""
+      closeModal()
+      openCreateModal({ date, hora, clientId, procedimento, waitlistId }).catch(() => {})
+    })
+  })
 }
 
 function escapeAttr(s) {
@@ -2831,13 +2867,20 @@ async function createAgenda(){
     }
   })
 
+  const waitlistId = (document.getElementById("agendaWaitlistId")?.value || "").trim()
+  if (waitlistId) {
+    await updateWaitlistStatus(waitlistId, "encaixada").catch(() => {})
+  }
+
   closeModal()
   renderAgenda()
   toast(pulados
     ? `${criados} sessão(ões) do plano na agenda; ${pulados} pulada(s) por conflito.`
     : criados > 1
       ? `${criados} sessões do plano na agenda.`
-      : "Agendamento criado!")
+      : waitlistId
+        ? "Horário criado e pessoa retirada da lista de espera."
+        : "Agendamento criado!")
 
  }catch(err){
 

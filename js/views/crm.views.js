@@ -12,7 +12,8 @@ import {
   filtrarFilaPorDesfecho,
 } from "../utils/crm-fila.js";
 import { navigate } from "../core/spa.js";
-import { addWaitlistEntry, listWaitlist, updateWaitlistStatus } from "../services/waitlist.service.js";
+import { addWaitlistEntry, listWaitlist, SQL_WAITLIST, updateWaitlistStatus } from "../services/waitlist.service.js";
+import { htmlHintWaitlistSql } from "../utils/espera-encaixe.js";
 import {
   labelOrigemLead,
   payloadLeadOrigem,
@@ -304,7 +305,7 @@ export async function init() {
       const rows = await listWaitlist("aberta");
       esperaRows = rows;
       if (!rows.length) {
-        listaEspera.innerHTML = "<p class=\"view-hint\">Lista vazia. Quando lotar, coloque a pessoa aqui e avise no WhatsApp quando abrir vaga.</p>";
+        listaEspera.innerHTML = "<p class=\"view-hint\">Lista vazia. Quando lotar, coloque a pessoa aqui. Ao abrir vaga a agenda sugere o encaixe; WhatsApp só no clique.</p>";
         renderFila();
         return;
       }
@@ -317,6 +318,7 @@ export async function init() {
           return `<div class="crm-row">
             <div><strong>${escapeHtml(r.nome)}</strong><br><span class="view-hint">${escapeHtml(r.procedure_name || "procedimento livre")} · ${r.preferred_date ? fmtDate(r.preferred_date) : "qualquer dia"}${escapeHtml(origemHint)}</span></div>
             <div class="crm-row-actions">
+              ${r.client_id ? `<button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${escapeHtml(r.client_id)}" data-waitlist-id="${escapeHtml(r.id)}">Agendar</button>` : ""}
               ${tel.length >= 10 ? `<button type="button" class="btn-secondary btn-sm crm-wa" data-origem="crm_espera" data-waitlist-id="${escapeHtml(r.id)}" data-client-id="${escapeHtml(r.client_id || "")}" data-phone="${escapeHtml(r.phone)}" data-msg="${escapeHtml(msg)}">Avisar</button>` : ""}
               <button type="button" class="btn-sm crm-wait-done" data-id="${r.id}">Encaixei</button>
             </div>
@@ -325,10 +327,12 @@ export async function init() {
         .join("");
       renderFila();
     } catch (err) {
+      esperaRows = [];
       const msg = String(err.message || err.details || "");
-      listaEspera.innerHTML = msg.toLowerCase().includes("agenda_waitlist") || msg.toLowerCase().includes("does not exist")
-        ? "<p class=\"view-hint\">Rode o SQL <code>supabase-crm-waitlist.sql</code> no Supabase para ativar a lista de espera.</p>"
+      listaEspera.innerHTML = err.code === "SQL_AUSENTE" || /SQL_AUSENTE|does not exist|agenda_waitlist/i.test(msg)
+        ? htmlHintWaitlistSql()
         : `<p class="view-hint">${escapeHtml(msg || "Erro na lista de espera.")}</p>`;
+      renderFila();
     }
   }
 
@@ -405,6 +409,7 @@ export async function init() {
     const agendar = e.target.closest?.(".crm-agendar");
     if (agendar?.dataset.id) {
       sessionStorage.setItem("agendaPrefillClientId", agendar.dataset.id);
+      if (agendar.dataset.waitlistId) sessionStorage.setItem("agendaPrefillWaitlistId", agendar.dataset.waitlistId);
       navigate("agenda");
       toast("Abra o horário: o cliente já vem selecionado. O sistema não envia mensagem sozinho.");
     }
@@ -475,7 +480,7 @@ export async function init() {
       toast(payload ? "Entrou na espera. Origem no prontuário." : "Entrou na lista de espera.");
       await Promise.all([loadEspera(), loadOrigens()]);
     } catch (err) {
-      toast(err.message || "Não salvou a espera. Confira se o SQL foi rodado.");
+      toast(err.message || `Não salvou a espera. Cole ${SQL_WAITLIST} no Supabase.`);
     }
   });
 

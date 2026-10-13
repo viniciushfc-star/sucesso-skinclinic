@@ -14,6 +14,9 @@ export const CENARIO_USUARIO_IDS = [
   "cliente_vazio",
   "orcamento_pacote",
   "espera_opcional",
+  "destaque_mercado",
+  "estoque_rotina",
+  "gemeos_limpos",
 ];
 
 /** Paciente nova, 20 dias, sem próximo horário → Sem 2º. */
@@ -50,6 +53,9 @@ export function roteiroUsuarioClinica() {
     { id: "cliente_vazio", titulo: "Cadastro: clínica sem cliente não quebra a lista", muta: false },
     { id: "orcamento_pacote", titulo: "Orçamento/pacote: ler rascunhos e saldo", muta: false },
     { id: "espera_opcional", titulo: "Lista de espera (SQL leftover não pode travar)", muta: false },
+    { id: "destaque_mercado", titulo: "Destaques de skincare só com fonte", muta: false },
+    { id: "estoque_rotina", titulo: "Portfólio da casa e rotina", muta: false },
+    { id: "gemeos_limpos", titulo: "Gêmeos legado não existem mais", muta: false },
   ];
 }
 

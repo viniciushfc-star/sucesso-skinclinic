@@ -1,4 +1,5 @@
 import { apiFetch } from "../core/api-fetch.js";
+import { userFacingError } from "../core/errors.js";
 
 /**
  * Pergunta ao Copilot (IA contextual da clínica).
@@ -18,7 +19,12 @@ export async function perguntarCopiloto(payload) {
     }
     const data = await r.json();
     if (!r.ok) {
-      return { resposta: data?.error || data?.message || "Erro ao consultar o Copilot. Tente novamente." };
+      return {
+        resposta: userFacingError({
+          status: r.status,
+          message: data?.error || data?.message || "",
+        }),
+      };
     }
     return data;
   } catch (err) {

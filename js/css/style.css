@@ -1657,6 +1657,17 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .pagamento-regras-list li{ margin-bottom:0.25rem; }
 .pagamento-actions{ margin-top:1rem; }
 .pagamento-actions-hint{ font-size:0.9rem; color:#64748b; margin:0 0 0.75rem; }
+.pagamento-elab{ max-width:640px; }
+.pagamento-jornada{ list-style:none; margin:0 0 1.5rem; padding:0; }
+.pagamento-jornada li{ display:flex; gap:12px; margin:0 0 12px; align-items:flex-start; }
+.pagamento-jornada-n{ flex:0 0 28px; height:28px; border-radius:50%; background:var(--sc-teal, #0f766e); color:#fff; font-size:0.85rem; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.pagamento-jornada p{ margin:4px 0 0; font-size:0.9rem; color:#475569; line-height:1.45; }
+.pagamento-adesao{ margin:0 0 1.5rem; padding:1rem; border:1px solid #d9efe8; background:#f4fbf8; border-radius:10px; }
+.pagamento-adesao-ok{ margin:0; color:#0f766e; font-weight:600; line-height:1.5; }
+.pagamento-form fieldset{ border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin:0 0 1rem; }
+.pagamento-form fieldset:disabled{ opacity:0.72; }
+.pagamento-form label{ display:block; margin:0 0 0.75rem; font-size:0.9rem; }
+.pagamento-form input, .pagamento-form select{ display:block; width:100%; margin-top:4px; padding:8px 10px; }
 
 .main-header h1{ font-size:1.5rem; margin-bottom:2px; }
 .main-header p{ font-size:.9rem; opacity:.9; margin-bottom:1rem; }

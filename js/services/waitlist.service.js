@@ -2,10 +2,18 @@ import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
-function missingWaitlistTable(error) {
+export const SQL_WAITLIST = "supabase-fase0-waitlist-colar.sql";
+
+export function missingWaitlistTable(error) {
   const msg = String(error?.message || "");
   const code = String(error?.code || "");
   return code === "42P01" || code === "PGRST205" || /agenda_waitlist|does not exist|schema cache/i.test(msg);
+}
+
+function sqlAusenteError() {
+  const e = new Error("SQL_AUSENTE");
+  e.code = "SQL_AUSENTE";
+  return e;
 }
 
 export async function listWaitlist(status = "aberta") {
@@ -18,7 +26,7 @@ export async function listWaitlist(status = "aberta") {
   if (status) q = q.eq("status", status);
   const { data, error } = await q;
   if (error) {
-    if (missingWaitlistTable(error)) return [];
+    if (missingWaitlistTable(error)) throw sqlAusenteError();
     throw error;
   }
   return data ?? [];
@@ -43,7 +51,12 @@ export async function addWaitlistEntry(p) {
     (row) => supabase.from("agenda_waitlist").insert(row).select().single(),
     { immutable: ["org_id", "nome"] }
   );
-  if (error) throw error;
+  if (error) {
+    if (missingWaitlistTable(error)) {
+      throw new Error("Cole no Supabase o SQL " + SQL_WAITLIST + " para ativar a lista de espera.");
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -51,5 +64,10 @@ export async function updateWaitlistStatus(id, status) {
   const { error } = await withOrg(
     supabase.from("agenda_waitlist").update({ status }).eq("id", id)
   );
-  if (error) throw error;
+  if (error) {
+    if (missingWaitlistTable(error)) {
+      throw new Error("Cole no Supabase o SQL " + SQL_WAITLIST + " para ativar a lista de espera.");
+    }
+    throw error;
+  }
 }

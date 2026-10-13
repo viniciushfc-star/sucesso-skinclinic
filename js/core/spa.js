@@ -121,7 +121,7 @@ const routes = {
   },
   pagamento: {
     view: "pagamento.views.js",
-    permission: "backup:view",
+    permission: "financeiro:manage",
   },
   copiloto: {
     view: "copiloto.views.js",
@@ -576,7 +576,7 @@ async function initMenuAnamneseVisibility() {
 let navGen = 0;
 
 async function importViewFile(file) {
-  const href = `../views/${file}?v=destaque-mercado-1`;
+  const href = `../views/${file}?v=cobranca-app-2`;
   try {
     return await import(href);
   } catch (err) {

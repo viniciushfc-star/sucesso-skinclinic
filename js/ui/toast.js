@@ -1,3 +1,5 @@
+import { userFacingError } from "../core/errors.js";
+
 let container;
 
 function createContainer(){
@@ -26,12 +28,15 @@ export function toast(
   info:"ℹ"
  };
 
+ const visivel = userFacingError(msg, String(msg ?? ""));
+
  t.innerHTML = `
   <span class="toast-icon">
    ${icons[type] || "ℹ"}
   </span>
-  <span>${msg}</span>
+  <span></span>
  `;
+ t.lastElementChild.textContent = visivel;
 
  container.append(t);
 

@@ -223,6 +223,49 @@ export async function runCenariosUsuario(env = process.env) {
     return `${(w.data || []).length} na espera`;
   });
 
+  await step("destaque_mercado", async () => {
+    const { data, error } = await user
+      .from("skincare_mercado_refs")
+      .select("id, marca_produto, fonte, porque, data_ref, metodologia, confianca, amostra")
+      .eq("org_id", orgId)
+      .limit(20);
+    if (error) {
+      const m = String(error.message || "");
+      if (/does not exist|schema cache|PGRST205/i.test(m)) {
+        throw new Error("Falta tabela — rode supabase-fase0-skincare-mercado-colar.sql");
+      }
+      throw error;
+    }
+    const comFonte = (data || []).filter((r) => String(r.fonte || "").trim()).length;
+    return `${(data || []).length} destaque(s) · ${comFonte} com fonte (sem ranking)`;
+  });
+
+  await step("estoque_rotina", async () => {
+    const prod = await user.from("estoque_produtos").select("id").eq("org_id", orgId).limit(20);
+    if (prod.error && !/does not exist|schema cache/i.test(String(prod.error.message || ""))) throw prod.error;
+    const rot = await user.from("skincare_rotinas").select("id").eq("org_id", orgId).limit(20);
+    if (rot.error && !/does not exist|schema cache/i.test(String(rot.error.message || ""))) throw rot.error;
+    const radar = await user.from("market_radar_refs").select("id").eq("org_id", orgId).limit(20);
+    const pN = prod.error ? "tabela?" : (prod.data || []).length;
+    const rN = rot.error ? "tabela?" : (rot.data || []).length;
+    const mN = radar.error ? "tabela?" : (radar.data || []).length;
+    return `produtos=${pN} rotinas=${rN} radar=${mN}`;
+  });
+
+  await step("gemeos_limpos", async () => {
+    const pares = ["clientes", "appointments", "convites", "logs"];
+    const vivos = [];
+    for (const t of pares) {
+      const { error } = await user.from(t).select("id").limit(1);
+      if (!error) vivos.push(t);
+      else if (!/does not exist|schema cache|PGRST205/i.test(String(error.message || ""))) {
+        throw error;
+      }
+    }
+    if (vivos.length) throw new Error(`TRAVOU: gêmeo ainda existe (${vivos.join(", ")})`);
+    return "gêmeos legado ausentes";
+  });
+
   const travou = out.some((p) => p.estado === "TRAVOU");
   const falhou = out.some((p) => p.estado === "FALHOU");
   return { ok: !travou && !falhou, pulou: false, orgId, passos: out };

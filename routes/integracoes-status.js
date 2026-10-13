@@ -3,6 +3,7 @@
  * GET /api/integracoes-status
  */
 import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
+import { parceriaPagamentoAtiva } from "../js/utils/pagamento-app.js";
 
 export default async function integracoesStatus(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "Método não permitido" });
@@ -20,5 +21,6 @@ export default async function integracoesStatus(req, res) {
     resend: Boolean(process.env.RESEND_API_KEY),
     supabase_admin: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
     base_url: Boolean(process.env.BASE_URL),
+    pagamento_app: parceriaPagamentoAtiva(process.env),
   });
 }

@@ -40,3 +40,7 @@ export function matchWaitlistToSlot(waitlist, slot = {}) {
     .sort((a, b) => b.score - a.score || String(a.created_at || "").localeCompare(String(b.created_at || "")));
   return scored;
 }
+
+export function htmlHintWaitlistSql() {
+  return `<p class="view-hint">Cole no Supabase o SQL <code>supabase-fase0-waitlist-colar.sql</code> para ativar a lista de espera. Sem isso a agenda não sugere encaixe.</p>`;
+}

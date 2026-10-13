@@ -747,7 +747,7 @@
       <section id="view-financeiro" class="view hidden">
         <div class="view-financeiro-header">
           <h2>Financeiro</h2>
-          <p class="view-lead view-financeiro-lead">Resumo, transações e custos da clínica. Use as abas <strong>Visão geral</strong> e <strong>Custo fixo</strong> para organizar entradas, saídas e gastos recorrentes.</p>
+          <p class="view-lead view-financeiro-lead">Resumo, transações e custos da clínica. Use as abas <strong>Visão geral</strong> e <strong>Custo fixo</strong> para organizar entradas, saídas e gastos recorrentes. Cobrança pelo app só com <a href="#pagamento" data-view="pagamento">parceria</a> — até lá, lance aqui.</p>
           <div class="financeiro-main-tabs" role="tablist" aria-label="Abas do Financeiro">
             <button type="button" class="financeiro-main-tab is-active" data-tab="visao-geral" role="tab">Visão geral</button>
             <button type="button" class="financeiro-main-tab" data-tab="fechamento" role="tab">Fechamento</button>
@@ -1362,7 +1362,7 @@
           </details>
           <div class="view-card">
             <h3 class="view-card-title">Lista de espera</h3>
-            <p class="view-hint">Quando a agenda lotar, a pessoa entra aqui. Ao abrir vaga, avise no WhatsApp. Precisa do SQL supabase-crm-waitlist.sql.</p>
+            <p class="view-hint">Quando a agenda lotar, a pessoa entra aqui. Ao abrir vaga a agenda sugere o encaixe; WhatsApp só no clique. Se a lista não gravar, cole supabase-fase0-waitlist-colar.sql no Supabase.</p>
             <form id="crmFormEspera" class="crm-form-espera">
               <label for="crmEsperaCliente">Cliente cadastrado</label>
               <select id="crmEsperaCliente"></select>
@@ -1936,7 +1936,7 @@
           <div class="master-settings-card" id="masterCardPagamento" data-view="pagamento">
             <span class="master-settings-icon">💳</span>
             <h3>Pagamento pelo app</h3>
-            <p>Taxa melhor negociada em volume e ganho vindo da operadora.</p>
+            <p>Parceria com maquininhas: ofertas no app. Mercado 1% por parcela; taxa de uso menor aqui. Ainda não cobra.</p>
             <button type="button" class="btn-secondary master-card-btn">Abrir</button>
           </div>
           <div class="master-settings-card master-settings-card--wide" id="masterCardEquipe">
@@ -1966,6 +1966,8 @@
           </div>
         </div>
       <section id="view-pagamento" class="view hidden">
+        <h2>Pagamento pelo app</h2>
+        <p class="view-lead">Parceria com maquininhas: ofertas promocionais para quem usa o app. Mercado 1% por parcela; a taxa de uso no SkinClinic é menor. O preço da clínica não muda sozinho.</p>
         <div id="pagamentoContent"></div>
       </section>
     </main>
@@ -2041,7 +2043,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=destaque-mercado-1"></script>
+<script type="module" src="./js/core/spa.js?v=cobranca-app-2"></script>
 
 </body>
 </html>

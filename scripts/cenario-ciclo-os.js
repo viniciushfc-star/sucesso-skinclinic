@@ -136,6 +136,50 @@ export async function runCenariosCicloOs(env = process.env) {
     return `${c.name || "paciente"} · aplicados=${(ap || []).length}`;
   });
 
+  await step("sql_skincare_mercado", async () => {
+    const { data, error } = await user
+      .from("skincare_mercado_refs")
+      .select("id, marca_produto, fonte")
+      .eq("org_id", orgId)
+      .limit(20);
+    if (error) {
+      const m = String(error.message || "");
+      if (/does not exist|schema cache|PGRST205/i.test(m)) {
+        throw new Error("Falta tabela — rode supabase-fase0-skincare-mercado-colar.sql");
+      }
+      throw error;
+    }
+    const comFonte = (data || []).filter((r) => String(r.fonte || "").trim()).length;
+    return `${(data || []).length} destaque(s) · ${comFonte} com fonte`;
+  });
+
+  await step("sql_waitlist", async () => {
+    const { data, error } = await user.from("agenda_waitlist").select("id, status").eq("org_id", orgId).limit(20);
+    if (error) {
+      const m = String(error.message || "");
+      if (/does not exist|schema cache|PGRST205/i.test(m)) {
+        throw new Error("Falta tabela — rode supabase-fase0-waitlist-colar.sql");
+      }
+      throw error;
+    }
+    const abertas = (data || []).filter((r) => !r.status || r.status === "aberta").length;
+    return `${(data || []).length} na espera · ${abertas} aberta(s)`;
+  });
+
+  await step("gemeos_limpos", async () => {
+    const pares = ["clientes", "appointments", "convites", "logs"];
+    const vivos = [];
+    for (const t of pares) {
+      const { error } = await user.from(t).select("id").limit(1);
+      if (!error) vivos.push(t);
+      else if (!/does not exist|schema cache|PGRST205/i.test(String(error.message || ""))) {
+        throw error;
+      }
+    }
+    if (vivos.length) throw new Error(`TRAVOU: gêmeo ainda existe (${vivos.join(", ")})`);
+    return "clientes, appointments, convites, logs ausentes";
+  });
+
   const travou = out.some((p) => p.estado === "TRAVOU");
   const falhou = out.some((p) => p.estado === "FALHOU");
   return { ok: !travou && !falhou, pulou: false, orgId, passos: out };

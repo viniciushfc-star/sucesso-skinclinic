@@ -45,8 +45,85 @@ export function expectativasPapel() {
       nao: ["financeiro", "contador", "crm", "copiloto"],
     },
     gestor: {
-      tem: ["financeiro", "contador", "crm", "copiloto"],
+      tem: ["dashboard", "agenda", "clientes", "crm", "financeiro", "contador", "copiloto"],
       nao: [],
     },
+    master: {
+      tem: ["dashboard", "agenda", "clientes", "crm", "financeiro", "contador", "copiloto", "team"],
+      nao: [],
+    },
+    viewer: {
+      tem: [],
+      nao: ["financeiro", "contador", "crm", "copiloto", "agenda"],
+    },
   };
+}
+
+/** Contador não é login: é aba do Financeiro (master/gestor). Cliente não é papel da equipe: é o portal. */
+export const PAPEIS_PILOTO = [
+  { id: "cliente", login: false, onde: "portal.html", titulo: "Paciente (portal)" },
+  { id: "master", login: true, env: "QA_EMAIL_MASTER", titulo: "Administrador / dona" },
+  { id: "gestor", login: true, env: "QA_EMAIL_GESTOR", titulo: "Gestor" },
+  { id: "recepcao", login: true, env: "QA_EMAIL_RECEPCAO", titulo: "Recepção" },
+  { id: "profissional", login: true, env: "QA_EMAIL_PROFISSIONAL", titulo: "Profissional" },
+  { id: "funcionario", login: true, env: "QA_EMAIL_FUNCIONARIO", titulo: "Acesso limitado" },
+  { id: "contador", login: false, onde: "#financeiro aba Contador", titulo: "Contador (aba, sem usuário próprio)" },
+];
+
+export function roteiroPilotoClinica() {
+  return [
+    {
+      papel: "cliente",
+      testes: [
+        "Abrir o link do portal (sem login da equipe).",
+        "Ver próximo horário e sessões. Não aparece rascunho de IA da pele.",
+        "Completar cadastro / senha se pedido. Senha errada não entra.",
+      ],
+    },
+    {
+      papel: "master",
+      testes: [
+        "Hoje, Agenda, Pacientes, Relacionamento, Financeiro (aba Contador), Equipe.",
+        "Criar horário: profissional ≠ quem vendeu.",
+        "Lista de espera: Encaixar não manda WhatsApp sozinho.",
+        "Skincare: destaque só com fonte.",
+        "Copiloto sugere; nada grava preço sozinho.",
+      ],
+    },
+    {
+      papel: "gestor",
+      testes: [
+        "Vê financeiro e contador. Pode CRM e Copiloto.",
+        "Não precisa ser a dona para fechar o mês.",
+      ],
+    },
+    {
+      papel: "recepcao",
+      testes: [
+        "Agenda, pacientes, CRM, WhatsApp no clique.",
+        "Não vê Financeiro, Copiloto, Procedimentos, Estoque.",
+      ],
+    },
+    {
+      papel: "profissional",
+      testes: [
+        "Agenda, ficha, planos, estoque, procedimentos, IA auxiliar.",
+        "Não vê Financeiro, CRM em massa, Copiloto, WhatsApp API.",
+      ],
+    },
+    {
+      papel: "funcionario",
+      testes: [
+        "Só Hoje, Agenda (ver) e Pacientes (ver).",
+        "Não cria portal, não manda WhatsApp, não abre financeiro.",
+      ],
+    },
+    {
+      papel: "contador",
+      testes: [
+        "Entrar como master ou gestor → Financeiro → Contador.",
+        "Relatório sem ia_preliminar. Não é um login separado.",
+      ],
+    },
+  ];
 }

@@ -14,7 +14,13 @@ export async function init() {
   }
 
   const cardPagamento = document.getElementById("masterCardPagamento")
-  if (cardPagamento) cardPagamento.style.display = PAGAMENTO_APP_ENABLED ? "" : "none"
+  if (cardPagamento) {
+    cardPagamento.style.display = ""
+    const p = cardPagamento.querySelector("p")
+    if (p && !PAGAMENTO_APP_ENABLED) {
+      p.textContent = "Maquininhas com ofertas no app. Mercado 1% por parcela; a nossa taxa de uso é menor. Ainda não cobra."
+    }
+  }
 
   bindCardLinks()
   bindEquipeGerenciar()
