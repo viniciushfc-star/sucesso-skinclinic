@@ -3,11 +3,14 @@
 ========================= */
 
 .onboarding {
-  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+  width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  background: linear-gradient(135deg, #5b5ce2, #7b7df0);
+  padding: 1.25rem 0.75rem 2rem;
+  background: transparent;
 }
 
 .onboarding-card {
@@ -52,7 +55,7 @@
   padding: 14px;
   border: none;
   border-radius: 10px;
-  background: #5b5ce2;
+  background: #0f5c62;
   color: #fff;
   font-size: 15px;
   font-weight: 600;

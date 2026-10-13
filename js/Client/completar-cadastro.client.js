@@ -2,8 +2,10 @@ import {
   getClientByToken,
   completeRegistration,
   reportClientEvent,
+  setClientPortalPassword,
 } from "./client-portal.service.js";
 import { toast } from "./ui/toast.client.js";
+import { senhaPortalOk } from "../utils/portal-login.js";
 
 const app = document.getElementById("app");
 
@@ -102,7 +104,12 @@ function renderForm(client) {
         <input type="tel" id="regPhone" value="${escapeHtml(client.phone || "")}" placeholder="(00) 00000-0000">
         <label>E-mail</label>
         <input type="email" id="regEmail" value="${escapeHtml(client.email || "")}" placeholder="email@exemplo.com">
-        <p class="client-hint">Informe pelo menos telefone ou e-mail.</p>
+        <p class="client-hint">Informe pelo menos telefone ou e-mail. Com e-mail você pode criar uma senha para voltar sem o link.</p>
+        <label for="regSenha">Senha do portal (opcional)</label>
+        <input type="password" id="regSenha" autocomplete="new-password" minlength="8" maxlength="72" placeholder="Mínimo 8 caracteres">
+        <label for="regSenha2">Repetir senha</label>
+        <input type="password" id="regSenha2" autocomplete="new-password" minlength="8" maxlength="72">
+        <p class="client-hint">Não é o login da clínica. Sem senha, use só o link.</p>
         <label>Data de nascimento</label>
         <input type="date" id="regBirthDate" value="${formatDateInput(client.birth_date)}">
         <label>Sexo</label>
@@ -165,10 +172,21 @@ function renderForm(client) {
       return;
     }
 
-    const btn = e.target.querySelector('button[type="submit"]');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Enviando...";
+    const senha = document.getElementById("regSenha")?.value || "";
+    const senha2 = document.getElementById("regSenha2")?.value || "";
+    if (senha || senha2) {
+      if (!email) {
+        toast("Para criar senha, informe o e-mail.");
+        return;
+      }
+      if (!senhaPortalOk(senha)) {
+        toast("Senha precisa ter 8 a 72 caracteres, sem espaço.");
+        return;
+      }
+      if (senha !== senha2) {
+        toast("As senhas não conferem.");
+        return;
+      }
     }
 
     const consentTerms = document.getElementById("regConsentTerms")?.checked ?? false;
@@ -178,9 +196,18 @@ function renderForm(client) {
       return;
     }
 
+    const btn = e.target.querySelector('button[type="submit"]');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Enviando...";
+    }
+
+    const tokenCadastro =
+      typeof sessionStorage !== "undefined" ? sessionStorage.getItem("client_portal_token") : null;
+
     try {
       await completeRegistration(
-        typeof sessionStorage !== "undefined" ? sessionStorage.getItem("client_portal_token") : null,
+        tokenCadastro,
         {
           name,
           phone,
@@ -193,6 +220,13 @@ function renderForm(client) {
           consent_terms_version: "v1"
         }
       );
+      if (senha && tokenCadastro) {
+        try {
+          await setClientPortalPassword(tokenCadastro, senha);
+        } catch (e) {
+          toast(e?.message || "Cadastro salvo. A senha não gravou — use o link da clínica.");
+        }
+      }
       if (notes) {
         try {
           await reportClientEvent("Cadastro", notes);

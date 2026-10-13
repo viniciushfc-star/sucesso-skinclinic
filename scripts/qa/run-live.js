@@ -166,7 +166,7 @@ async function main() {
   writeFileSync(out, JSON.stringify(report, null, 2), "utf8");
   console.log(JSON.stringify({ ...report, failures: report.failures.length }, null, 2));
   console.log("Relatório:", out);
-  if (fail > 0) process.exitCode = 1;
+  process.exit(fail > 0 ? 1 : 0);
 }
 
 main().catch((e) => {

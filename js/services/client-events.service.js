@@ -1,5 +1,6 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -46,9 +47,8 @@ export async function createClientEvent({
   const { data: userData } = await supabase.auth.getUser();
   const created_by_user_id = userData?.user?.id || null;
 
-  let { data, error } = await supabase
-    .from("client_events")
-    .insert({
+  const { data, error } = await retryUnknownColumns(
+    {
       org_id: orgId,
       client_id,
       event_type,
@@ -58,28 +58,10 @@ export async function createClientEvent({
       created_by_client: !!created_by_client,
       is_critical: !!is_critical,
       metadata: metadata || {},
-    })
-    .select()
-    .single();
-
-  if (error && /metadata|schema cache|column/i.test(String(error.message || ""))) {
-    const retry = await supabase
-      .from("client_events")
-      .insert({
-        org_id: orgId,
-        client_id,
-        event_type,
-        description: description || null,
-        event_date: event_date || new Date().toISOString().slice(0, 10),
-        created_by_user_id,
-        created_by_client: !!created_by_client,
-        is_critical: !!is_critical,
-      })
-      .select()
-      .single();
-    data = retry.data;
-    error = retry.error;
-  }
+    },
+    (row) => supabase.from("client_events").insert(row).select().single(),
+    { immutable: ["org_id", "client_id", "event_type"] }
+  );
 
   if (error) throw error;
   return data;

@@ -19,6 +19,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("economia da baixa com insumo real", () => {
   it("prefere estoque, não inventa custo e não grava desconto", () => {
+    assert.equal(escolherCustoMaterial({ real: 50, incompleto: false, estimado: 40, fonteReal: "sessao" }).fonte, "sessao");
     assert.equal(escolherCustoMaterial({ real: 50, incompleto: false, estimado: 40 }).fonte, "estoque");
     assert.equal(escolherCustoMaterial({ real: 50, incompleto: false, estimado: 40 }).valor, 50);
     assert.equal(escolherCustoMaterial({ real: 50, incompleto: true, estimado: 40 }).fonte, "estimado");
@@ -35,6 +36,7 @@ describe("economia da baixa com insumo real", () => {
     assert.equal(eco.taxa, 10);
     assert.equal(eco.lucro, 165);
     assert.match(textoEconomiaAtendimento(eco), /insumo real/);
+    assert.match(textoEconomiaAtendimento({ ...eco, fonteCusto: "sessao" }), /confirmado nesta sessão/);
     const sim = simularDescontoParcela({ receita: 1000, descontoPct: 10, taxaPct: 10 });
     assert.equal(sim.aposDesconto, 900);
     assert.equal(sim.liquido, 810);
@@ -44,6 +46,15 @@ describe("economia da baixa com insumo real", () => {
   it("baixa mostra fórmula e simulação sem clonar PDV", () => {
     const agenda = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
     assert.match(agenda, /getCustoRealProcedimento/);
+    assert.match(agenda, /getProcedureStockUsage/);
+    assert.match(agenda, /preencherReceitaNaLista/);
+    assert.match(agenda, /collectReceitaBaixaLinhas/);
+    assert.match(agenda, /registrarConsumoEstimado/);
+    assert.match(agenda, /custoRealFromBaixaLinhas/);
+    assert.match(agenda, /garantirAplicadoNoProntuario/);
+    assert.match(agenda, /baixaIntercorrencia/);
+    assert.match(agenda, /payloadSessaoProntuario/);
+    assert.match(agenda, /fonteReal: "sessao"/);
     assert.match(agenda, /simularDescontoParcela/);
     assert.match(agenda, /baixaSimDesconto/);
     assert.doesNotMatch(agenda, /PAGAMENTO_APP_ENABLED\s*=\s*true/);

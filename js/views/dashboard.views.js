@@ -22,9 +22,11 @@ import { getProtocolosAplicadosHoje } from "../services/protocolo-db.service.js"
 import { listAppointmentsByDate, markAgendaArrival } from "../services/appointments.service.js"
 import { salaEsperaStatus } from "../utils/sala-espera.js"
 import { listProcedures } from "../services/procedimentos.service.js"
+import { resumoAluguelNaAgenda, textoAluguelNaAgenda } from "../utils/aluguel-dia.js"
 import { getEntradasHojeComAgenda } from "../services/financeiro.service.js"
 import { getCockpitSnapshot, getCockpitMesSnapshot } from "../services/cockpit.service.js"
 import { getSetupProgress } from "../services/setup-progress.service.js"
+import { proximoPassoSetup } from "../utils/golden-flow.js"
 import { navigate } from "../core/spa.js"
 // Chart.js 3: aguardar window.Chart (script pode carregar após o módulo)
 async function waitForChart(retries = 25) {
@@ -404,20 +406,33 @@ async function renderAgendaHoje() {
           const { key, label } = statusFromRow(a)
           const espera = salaEsperaStatus(a)
           const esperaCls = espera && espera.minutes >= 20 ? " dashboard-sala-espera-item--longa" : ""
-          return `<div class="dashboard-agenda-hoje-item${esperaCls}">
+          const dataItem = String(a.data || hoje).slice(0, 10)
+          return `<button type="button" class="dashboard-agenda-hoje-item${esperaCls}" data-agenda-id="${escapeHtml(a.id)}" data-agenda-data="${escapeHtml(dataItem)}" title="Abrir na Agenda">
             <span class="dashboard-agenda-hoje-hora">${hora(a)}</span>
             <span class="dashboard-agenda-hoje-nome">${escapeHtml(nome)}</span>
             <span class="dashboard-agenda-hoje-proc">${escapeHtml(proc)}${retornoBadge}${modeloBadge}</span>
             <span class="cockpit-status cockpit-status--${key}">${escapeHtml(label)}</span>
-          </div>`
+          </button>`
         })
         .join("")
+      listEl.querySelectorAll("[data-agenda-id]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.agendaId
+          const data = btn.dataset.agendaData
+          if (data) sessionStorage.setItem("agendaDefaultDate", data)
+          if (id) sessionStorage.setItem("agendaOpenSlotId", id)
+          navigate("agenda")
+        })
+      })
     }
 
     if (previstoEl) {
-      previstoEl.innerHTML = previstoTotal > 0
+      const aluguelRows = resumoAluguelNaAgenda(appointments, procedures)
+      const aluguelTxt = textoAluguelNaAgenda(aluguelRows)
+      const previstoTxt = previstoTotal > 0
         ? `<p class="dashboard-agenda-hoje-previsto-texto">Faturamento previsto hoje: <strong>R$ ${previstoTotal.toFixed(2).replace(".", ",")}</strong> (${itens.length} atendimento(s) com valor)</p>`
         : `<p class="dashboard-agenda-hoje-previsto-texto">Nenhum valor cadastrado nos procedimentos de hoje, ou só eventos. Cadastre valor nos <a href="#" data-view="procedimento">Procedimentos</a> para ver o previsto.</p>`
+      previstoEl.innerHTML = previstoTxt + (aluguelTxt ? `<p class="dashboard-agenda-hoje-aluguel">${escapeHtml(aluguelTxt)}</p>` : "")
     }
 
     await renderSalaEsperaHoje(appointments)
@@ -566,6 +581,8 @@ async function renderCockpit() {
 
 function insightRow(card) {
   const view = escapeHtml(card.view || "dashboard")
+  const crmSection = card.theme === "radar" ? "radar" : card.theme === "espera" ? "espera" : ""
+  const crmAttr = crmSection ? ` data-crm-section="${crmSection}"` : ""
   const title = escapeHtml(card.title || "Atenção")
   const causa = escapeHtml(card.causa || "")
   const impacto = escapeHtml(card.impacto || "")
@@ -575,7 +592,7 @@ function insightRow(card) {
   const corpo = causa
     ? `${causa ? `<span class="cockpit-row-causa">Causa: ${causa}</span>` : ""}${impacto ? `<span class="cockpit-row-impacto">Impacto: ${impacto}</span>` : ""}${fonte ? `<span class="cockpit-row-fonte">Fonte: ${fonte}</span>` : ""}`
     : (reason ? `<span class="cockpit-row-reason">${reason}</span>` : "")
-  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"><span class="cockpit-row-text"><strong>${title}</strong>${corpo}${action ? `<span class="cockpit-row-action">${action}</span>` : ""}</span></button>`
+  return `<button type="button" class="cockpit-row cockpit-row--insight" data-view="${view}"${crmAttr}><span class="cockpit-row-text"><strong>${title}</strong>${corpo}${action ? `<span class="cockpit-row-action">${action}</span>` : ""}</span></button>`
 }
 
 async function renderCockpitMes() {
@@ -671,19 +688,28 @@ async function renderSetupProgress() {
     .map((s) => {
       const mark = s.ok ? "✓" : "○"
       const cls = s.ok ? "setup-progress-ok" : "setup-progress-pendente"
-      return `<li class="${cls}"><button type="button" class="setup-progress-link" data-view="${s.view}">${mark} ${escapeHtml(s.label)}</button></li>`
+      const openPlanos = s.openPlanos ? ` data-open-planos="1"` : ""
+      return `<li class="${cls}"><button type="button" class="setup-progress-link" data-view="${s.view}"${openPlanos}>${mark} ${escapeHtml(s.label)}</button></li>`
     })
     .join("")
   const minutosRestantes = p.steps.filter((s) => !s.ok).reduce((acc, s) => acc + (Number(s.minutes) || 0), 0)
+  const proximo = proximoPassoSetup(p.steps)
   const ahaHtml = faltaAha
     ? `<p class="setup-progress-aha">Falta o ciclo ouro: anamnese, plano, <strong>protocolo aplicado</strong> (estoque) e um lançamento no financeiro. Atalho na <a href="#" data-view="agenda">Agenda</a>.</p>`
-    : `<p class="setup-progress-import">Para entrar rápido: <a href="#" data-view="export">importar CSV com prévia</a>.</p>`
+    : `<p class="setup-progress-import">Vem de outro app, planilha ou caderno? <a href="#" data-view="export">Traga sua lista</a> — Excel .xlsx, CSV ou colar células; mapeia colunas, vê a prévia, só então grava. WhatsApp não sai daqui.</p>`
   const tempoHtml = minutosRestantes > 0
     ? `<p class="setup-progress-pct"><strong>Primeiro dia (~${minutosRestantes} min)</strong> · ${p.pct}% (${p.done}/${p.total})</p>`
     : `<p class="setup-progress-pct"><strong>${p.pct}% configurado</strong> (${p.done}/${p.total})</p>`
+  const ctaHtml = proximo
+    ? `<button type="button" class="btn-primary setup-progress-cta" data-view="${escapeHtml(proximo.view)}"${proximo.openPlanos ? " data-open-planos=\"1\"" : ""}>Fazer agora: ${escapeHtml(proximo.label)}</button>`
+    : ""
   el.innerHTML = `
     ${tempoHtml}
-    <ul class="setup-progress-list">${itens}</ul>
+    ${ctaHtml}
+    <details class="setup-progress-mais">
+      <summary>Checklist (${p.done}/${p.total})</summary>
+      <ul class="setup-progress-list">${itens}</ul>
+    </details>
     ${ahaHtml}
   `
 }

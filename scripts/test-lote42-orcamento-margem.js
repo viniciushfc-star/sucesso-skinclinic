@@ -11,7 +11,10 @@ import { normalizeCanalVenda } from "../js/utils/canal-venda.js";
 import {
   resumoMargemOrcamento,
   maxParcelasPreservandoLucro,
+  textoParcelasSemJuros,
+  custoUnitarioServico,
 } from "../js/utils/orcamento-margem.js";
+import { formatOrcamentoMensagem } from "../js/utils/orcamento.js";
 import { pacotesDoAceite } from "../js/utils/ciclo-ouro.js";
 
 function calcularLiquido(valorBruto, taxaPct) {
@@ -54,6 +57,32 @@ describe("canal de venda, imagem e orçamento com margem", () => {
     });
     assert.equal(out.lucroAlvo, 700);
     assert.equal(out.maxParcelas, 6);
+    assert.equal(out.parcelaCliente, 166.67);
+    const txt = textoParcelasSemJuros(out, { brl: (n) => `R$ ${Number(n).toFixed(2)}` });
+    assert.match(txt, /sem juros/i);
+    assert.match(txt, /6x/);
+    assert.match(txt, /Só a equipe vê/);
+  });
+
+  it("custo do serviço prefere a receita de insumos", () => {
+    const est = custoUnitarioServico({ valor_cobrado: 450, custo_material_estimado: 18, comissao_profissional_pct: 0 });
+    const real = custoUnitarioServico(
+      { valor_cobrado: 450, custo_material_estimado: 18, comissao_profissional_pct: 0 },
+      { custoMaterialReal: 9.86 }
+    );
+    assert.equal(est, 18);
+    assert.equal(real, 9.86);
+  });
+
+  it("WhatsApp do cliente não leva margem nem parcela interna", () => {
+    const msg = formatOrcamentoMensagem({
+      nomeCliente: "Ana",
+      items: [{ name: "HIFU facial", qty: 1, unit_price: 450, unit_cost: 18 }],
+    });
+    assert.match(msg, /HIFU facial/);
+    assert.doesNotMatch(msg, /margem/i);
+    assert.doesNotMatch(msg, /maquininha/i);
+    assert.doesNotMatch(msg, /insumo/i);
   });
 
   it("aceite de produto não vira pacote de sessões", () => {
@@ -79,5 +108,7 @@ describe("canal de venda, imagem e orçamento com margem", () => {
     const perfil = readFileSync(join(ROOT, "js/views/cliente-perfil.views.js"), "utf8");
     assert.match(perfil, /orcamentoAddLinha/);
     assert.match(perfil, /maxParcelasPreservandoLucro/);
+    assert.match(perfil, /textoParcelasSemJuros/);
+    assert.match(perfil, /Sem juros p\/ o cliente/);
   });
 });

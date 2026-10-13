@@ -7,7 +7,7 @@ export const GOLDEN_CYCLE = [
   { id: "paciente", view: "clientes.views.js", service: "clientes.service.js", table: "clients" },
   { id: "avaliacao", view: "analise-pele.views.js", service: "analise-pele.service.js", table: "analise_pele" },
   { id: "anamnese", view: "anamnese.views.js", service: "anamnesis.service.js", table: "anamnesis_registros" },
-  { id: "plano", view: "planos.views.js", service: "planos-terapeuticos.service.js", table: "planos_terapeuticos" },
+  { id: "plano", view: "procedimento.views.js", service: "planos-terapeuticos.service.js", table: "planos_terapeuticos" },
   { id: "protocolo", view: "protocolo.views.js", service: "protocolo-db.service.js", table: "protocolos" },
   { id: "aplicado", view: "agenda.views.js", service: "protocolo-db.service.js", table: "protocolos_aplicados" },
   { id: "estoque", view: "estoque.views.js", service: "estoque-entradas.service.js", table: "estoque_entradas" },
@@ -43,3 +43,8 @@ export const SETUP_STEP_MINUTES = {
   aplicado: 1,
   financeiro: 1,
 };
+
+/** Primeiro item ainda em aberto — um botão, não dez iguais. */
+export function proximoPassoSetup(steps = []) {
+  return (steps || []).find((s) => s && !s.ok) || null;
+}

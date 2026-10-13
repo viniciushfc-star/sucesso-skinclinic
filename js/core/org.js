@@ -81,13 +81,37 @@ export async function getOrgMembers() {
     console.warn("[ORG] Erro ao carregar membros", error);
     return membersCache.data && membersCache.orgId === orgId ? membersCache.data : [];
   }
-  membersCache = { orgId, at: now, data: data ?? [] };
+  const rows = data ?? [];
+  const ids = rows.map((r) => r.user_id).filter(Boolean);
+  const names = {};
+  if (ids.length) {
+    const { data: profiles } = await supabase.from("profiles").select("id, nome").in("id", ids);
+    for (const p of profiles || []) {
+      const n = String(p?.nome || "").trim();
+      if (p?.id && n) names[p.id] = n;
+    }
+  }
+  const enriched = rows.map((r) => ({
+    ...r,
+    display_name: names[r.user_id] || null,
+  }));
+  membersCache = { orgId, at: now, data: enriched };
   return membersCache.data;
 }
 
 /* =========================
    CREATE ORG FLOW
 ========================= */
+function isMissingCreateClinicRpc(error) {
+  const code = String(error?.code || "");
+  const msg = String(error?.message || "");
+  return (
+    code === "PGRST202" ||
+    /could not find the function/i.test(msg) ||
+    /schema cache/i.test(msg)
+  );
+}
+
 export async function createOrgAndSetActive(name) {
   const { data } = await supabase.auth.getUser();
   const user = data.user;
@@ -96,15 +120,35 @@ export async function createOrgAndSetActive(name) {
     throw new Error("Usuário não autenticado");
   }
 
-  // cria a clínica (owner_id para RLS)
-  const org = await createOrganization(name, user.id);
+  const trimmed = String(name || "").trim();
+  if (!trimmed) {
+    throw new Error("Informe o nome da clínica.");
+  }
 
-  // vincula como master
+  const { data: rpcOrg, error: rpcErr } = await supabase.rpc("create_clinic", {
+    p_name: trimmed,
+  });
+
+  if (!rpcErr) {
+    const org = Array.isArray(rpcOrg) ? rpcOrg[0] : rpcOrg;
+    if (org?.id) {
+      setActiveOrg(org.id);
+      return org;
+    }
+  }
+
+  if (rpcErr && !isMissingCreateClinicRpc(rpcErr)) {
+    console.error("[ORG] create_clinic", rpcErr);
+    throw new Error(rpcErr.message || "Não foi possível criar a clínica.");
+  }
+
+  if (rpcErr) {
+    console.warn("[ORG] create_clinic indisponível, insert direto", rpcErr);
+  }
+
+  const org = await createOrganization(trimmed, user.id);
   await linkUserAsMaster(org.id, user.id);
-
-  // define como org ativa
   setActiveOrg(org.id);
-
   return org;
 }
 

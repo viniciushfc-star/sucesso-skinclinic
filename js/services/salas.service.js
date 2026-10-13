@@ -4,6 +4,13 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
+import { isUnknownColumnError, retryUnknownColumns } from "../utils/supabase-unknown-col.js";
+
+function missingSalasTable(error) {
+  const msg = String(error?.message || "");
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205" || /salas|does not exist|schema cache/i.test(msg);
+}
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -19,8 +26,16 @@ export async function listSalas(includeInactive = false) {
     supabase.from("salas").select("*").order("nome")
   );
   if (!includeInactive) q = q.eq("ativa", true);
-  const { data, error } = await q;
-  if (error) throw error;
+  let { data, error } = await q;
+  if (error && isUnknownColumnError(error) && /ativa/i.test(String(error.message || ""))) {
+    const retry = await withOrg(supabase.from("salas").select("*").order("nome"));
+    data = retry.data;
+    error = retry.error;
+  }
+  if (error) {
+    if (missingSalasTable(error)) return [];
+    throw error;
+  }
   return data ?? [];
 }
 
@@ -48,7 +63,11 @@ export async function createSala({ nome, descricao, procedimento_tipos }) {
     ativa: true,
   };
   if (Array.isArray(procedimento_tipos)) payload.procedimento_tipos = procedimento_tipos;
-  const { data, error } = await supabase.from("salas").insert(payload).select().single();
+  const { data, error } = await retryUnknownColumns(
+    payload,
+    (row) => supabase.from("salas").insert(row).select().single(),
+    { immutable: ["org_id", "nome"] }
+  );
   if (error) throw error;
   return data;
 }
@@ -63,8 +82,10 @@ export async function updateSala(id, { nome, descricao, ativa, procedimento_tipo
   if (descricao !== undefined) payload.descricao = (descricao || "").trim() || null;
   if (ativa !== undefined) payload.ativa = ativa;
   if (procedimento_tipos !== undefined) payload.procedimento_tipos = Array.isArray(procedimento_tipos) ? procedimento_tipos : [];
-  const { data, error } = await withOrg(
-    supabase.from("salas").update(payload).eq("id", id).select().single()
+  const { data, error } = await retryUnknownColumns(
+    payload,
+    (row) => withOrg(supabase.from("salas").update(row).eq("id", id).select().single()),
+    { immutable: ["nome"] }
   );
   if (error) throw error;
   return data;

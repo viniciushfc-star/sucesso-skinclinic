@@ -58,29 +58,37 @@ export async function getMargemEmRisco(dias = 30) {
       .limit(50);
 
     if (error) return [];
-    const { getProcedimentosQueUsamProduto } = await import("./estoque-entradas.service.js");
-    const byProduct = new Map();
-    const rows = [];
-    for (const row of data || []) {
-      const produto_nome = row.metadata?.produto_nome || "—";
-      const key = String(produto_nome).toLowerCase();
-      if (!byProduct.has(key)) {
-        try {
-          byProduct.set(key, await getProcedimentosQueUsamProduto(produto_nome));
-        } catch (_) {
-          byProduct.set(key, []);
+    const rows = (data || []).map((row) => ({
+      id: row.id,
+      produto_nome: row.metadata?.produto_nome || "—",
+      variacao_percentual: row.metadata?.variacao_percentual ?? 0,
+      custo_novo: row.metadata?.custo_novo,
+      custo_medio_anterior: row.metadata?.custo_medio_anterior,
+      created_at: row.created_at,
+      metadata: row.metadata,
+      procedimentos: [],
+      impactos: [],
+    }));
+    try {
+      const { listAllProcedureStockUsage, listProcedures } = await import("./procedimentos.service.js");
+      const { getResumoPorProduto } = await import("./estoque-entradas.service.js");
+      const { enriquecerAlertasMargem } = await import("../utils/margem-risco.js");
+      const [usages, procedures, resumo] = await Promise.all([
+        listAllProcedureStockUsage(),
+        listProcedures(false),
+        getResumoPorProduto().catch(() => []),
+      ]);
+      const custoMedioByName = {};
+      for (const r of resumo || []) {
+        const n = String(r.produto_nome || "").trim().toLowerCase();
+        if (n && r.custo_medio != null && Number.isFinite(Number(r.custo_medio))) {
+          custoMedioByName[n] = Number(r.custo_medio);
         }
       }
-      rows.push({
-        id: row.id,
-        produto_nome,
-        variacao_percentual: row.metadata?.variacao_percentual ?? 0,
-        custo_novo: row.metadata?.custo_novo,
-        created_at: row.created_at,
-        procedimentos: byProduct.get(key) || [],
-      });
+      return enriquecerAlertasMargem(rows, { procedures, usages, custoMedioByName });
+    } catch (_) {
+      return rows;
     }
-    return rows;
   } catch (err) {
     console.warn("[AUDIT SERVICE] getMargemEmRisco", err);
     return [];

@@ -37,6 +37,11 @@
   --sc-sidebar: #141110;
   --sc-sidebar-text: #d9d0c7;
   --sc-focus: #0f5c62;
+  --sc-focus-ring: 0 0 0 3px rgba(15, 92, 98, 0.22);
+  --sc-blue: #0f5c62;
+  --sc-violet: #5c5270;
+  --sc-blue-soft: #7d9b9e;
+  --sc-muted: var(--sc-ink-muted);
 }
 
 body.dark {
@@ -131,6 +136,10 @@ textarea:focus-visible {
 
 .sidebar-submenu { max-height: 28rem; }
 .sidebar-submenu .sidebar-subitem { padding-left: 2.25rem; }
+.sidebar-submenu .sidebar-submenu {
+  margin-left: 0.35rem;
+  border-left: 1px solid rgba(255, 252, 248, 0.08);
+}
 
 .main-header {
   background: var(--sc-paper-2) !important;

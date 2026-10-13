@@ -2,46 +2,68 @@ import { getClientById, getOtherClientWithSameCpf, updateClient, updateClientSta
 import { getEventsByClient, createClientEvent } from "../services/client-events.service.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina, liberarSkincareRotina } from "../services/skincare-rotina.service.js";
 import { getProtocolos, getProtocolosAplicadosByClient, createProtocoloAplicado, getAlertaEstoqueProtocolo, getDescartaveisByProtocolo } from "../services/protocolo-db.service.js";
+import { gerarProtocolo } from "../services/protocolo.service.js";
+import {
+  textoRascunhoLocal,
+  produtosRascunhoLocal,
+  textoRascunhoDeIa,
+  payloadProtocoloIaFicha,
+  temFonteParaIa,
+  rotuloFonteIa,
+} from "../utils/protocolo-rascunho-ficha.js";
 import { getResumoPorProduto } from "../services/estoque-entradas.service.js";
 import { createEstudoCaso } from "../services/estudo-caso.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } from "../services/evolution-photos.service.js";
-import { listProcedures } from "../services/procedimentos.service.js";
-import { listPacotesByClient } from "../services/pacotes.service.js";
+import { listAllProcedureStockUsage, listProcedures } from "../services/procedimentos.service.js";
+import { custoRealFromUsage } from "../utils/estoque-custo.js";
+import { listPacotesByClient, createPacote } from "../services/pacotes.service.js";
 import { listOrcamentosByClient, createOrcamento, updateOrcamentoStatus, aceitarOrcamento } from "../services/orcamentos.service.js";
+import { createAgendaSlots, getClientAgendaResumo } from "../services/appointments.service.js";
+import { slotsAgendaDoAceite } from "../utils/ciclo-ouro.js";
 import { listProdutosCatalogo } from "../services/estoque-produtos.service.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { getTaxas, getTaxaForParcelas, calcularLiquido } from "../services/precificacao-taxas.service.js";
 import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado, payloadOrcamentoVisto, idsOrcamentosVistos, contarPacotesPorOrcamento } from "../utils/orcamento.js";
-import { resumoMargemOrcamento, maxParcelasPreservandoLucro, custoUnitarioServico } from "../utils/orcamento-margem.js";
+import { resumoMargemOrcamento, maxParcelasPreservandoLucro, custoUnitarioServico, textoParcelasSemJuros } from "../utils/orcamento-margem.js";
 import { custoCatalogoComFrete } from "../utils/estoque-revenda.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
+import { resumoCicloOuroFicha, proximaAcaoCicloFicha, aplicadoSemMaterial, sinaisInicioCiclo, linhaCicloOuroCabecalho } from "../utils/ciclo-ouro-ficha.js";
+import { listPlanosDoCliente, listPlanosTerapeuticos } from "../services/planos-terapeuticos.service.js";
+import { listAnalisesPeleByClient } from "../services/analise-pele.service.js";
+import { getEntradasByAgendaId } from "../services/financeiro.service.js";
+import { getTodayLocal } from "../services/metrics.service.js";
 import { montarLinhaDoTempo } from "../utils/linha-tempo.js";
 import { rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { compararEstoquePrevistoReal } from "../utils/estoque-previsto-real.js";
 import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js";
 import { payloadCombinadoConsulta } from "../utils/consulta-combinado.js";
+import { payloadPlanoFicha, mesclarPlanosFicha, jaCombinouPlano } from "../utils/plano-ficha.js";
+import { mostrarLinkPortalCadastro } from "../utils/portal-link-cadastro.js";
 import { payloadSilencio, mapaSilencioPorCliente, estaEmSilencio } from "../utils/whatsapp-regua.js";
 import { audit } from "../services/audit.service.js";
 import { exportTitularJson, eraseTitular } from "../services/lgpd.service.js";
 import { isLgpdClientId } from "../utils/lgpd-titular.js";
 import { checkPermission } from "../core/permissions.js";
-import { getActiveOrg } from "../core/org.js";
-import { openModal, closeModal } from "../ui/modal.js";
+import { getActiveOrg, getOrgMembers } from "../core/org.js";
+import { openModal, closeModal, openConfirmModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
 import { relacaoComercialLabel } from "../utils/cliente-relacao.js";
+import { bindCpfMask, bindPhoneMask } from "../utils/input-masks.js";
 import {
   htmlEnderecoCliente,
   bindEnderecoCliente,
   readEnderecoCliente,
   htmlFotoCadastro,
+  htmlClientAvatar,
   captureIds,
   wireFotoCadastro,
   photoFileFromCadastro,
 } from "../utils/cliente-cadastro.js";
 import { MAPAS, PRODUTOS_APLICACAO, pontoStatus } from "../utils/injetaveis-mapas.js";
+import { bindMapa3d, htmlToolbarMapa3d } from "../utils/mapa-3d.js";
 
 let orcamentoTaxasCtx = {};
 
@@ -61,6 +83,13 @@ let editPermissionUsed = "clientes:manage"; // qual permissão usar na auditoria
 let cachedProceduresList = [];
 let cachedEvolutionPhotos = [];
 let cachedProdutosEstoque = [];
+let cachedPlanosCliente = [];
+let cachedPlanosCatalogo = [];
+let cachedCanAgendar = false;
+let cachedCanCriarPlano = false;
+let cachedCanIaAssist = false;
+let cachedProtocolosFicha = [];
+let cachedCicloFicha = { pacotes: [], anamnese: [], analises: [], lancamentos: [], temAgendaFutura: false };
 
 export async function init() {
   const clientId = sessionStorage.getItem("clientePerfilId");
@@ -75,7 +104,7 @@ export async function init() {
 
   try {
     currentClient = await getClientById(clientId);
-    const [events, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther, pacotes, orcamentos] = await Promise.all([
+    const [events, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther, pacotes, orcamentos, taxasOrg, planosAgenda, planosCatalogo, analisesPele] = await Promise.all([
       getEventsByClient(clientId),
       getSkincareRotinaByClient(clientId).catch(() => null),
       getProtocolos().catch(() => []),
@@ -87,7 +116,27 @@ export async function init() {
       currentClient.cpf ? getOtherClientWithSameCpf(currentClient.cpf, clientId).catch(() => null) : Promise.resolve(null),
       listPacotesByClient(clientId).catch(() => []),
       listOrcamentosByClient(clientId).catch(() => []),
+      getTaxas().catch(() => ({})),
+      listPlanosDoCliente(clientId).catch(() => []),
+      listPlanosTerapeuticos().catch(() => []),
+      listAnalisesPeleByClient(clientId).catch(() => []),
     ]);
+    cachedPlanosCatalogo = planosCatalogo || [];
+    const planosCliente = mesclarPlanosFicha(planosAgenda, events, planosCatalogo);
+    cachedPlanosCliente = planosCliente || [];
+    const agendaIds = [...new Set((protocolosAplicados || []).map((a) => a.agenda_id).filter(Boolean))];
+    const [lancamentosNested, resumoAgenda] = await Promise.all([
+      Promise.all(agendaIds.map((id) => getEntradasByAgendaId(id).then((rows) => (rows || []).map((r) => ({ ...r, agenda_id: id }))))),
+      getClientAgendaResumo(clientId, agendaIds[0] || "").catch(() => ({ temFuturo: false })),
+    ]);
+    cachedCicloFicha = {
+      pacotes: pacotes || [],
+      anamnese: registrosAnamnese || [],
+      analises: analisesPele || [],
+      lancamentos: lancamentosNested.flat(),
+      temAgendaFutura: !!resumoAgenda?.temFuturo,
+      events: events || [],
+    };
     const produtosEstoque = (resumoEstoque || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
     const protoIds = [...new Set((protocolosAplicados || []).map((a) => a.protocolo_id).filter(Boolean))];
     const previstosEntries = await Promise.all(
@@ -102,7 +151,11 @@ export async function init() {
     canEditClient = canManage || canEditPerm;
     canLgpdClient = canManage;
     editPermissionUsed = canManage ? "clientes:manage" : "clientes:edit";
-    renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes, orcamentos);
+    cachedCanAgendar = await checkPermission("agenda:manage").catch(() => false);
+    cachedCanCriarPlano = await checkPermission("procedimentos:view").catch(() => false);
+    cachedCanIaAssist = await checkPermission("ia:assist").catch(() => false);
+    cachedProtocolosFicha = protocolos || [];
+    renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes, orcamentos, taxasOrg);
     if (sessionStorage.getItem("clientePerfilOpenEdit") === "1") {
       sessionStorage.removeItem("clientePerfilOpenEdit");
       if (canEditClient) setTimeout(() => openEditModal(currentClient), 100);
@@ -183,7 +236,7 @@ function renderLgpdBlock(client) {
   </div>`;
 }
 
-function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], produtosEstoque = [], cpfOther = null, pacotes = [], orcamentos = []) {
+function renderPerfil(client, events, canEdit = false, skincareRotina = null, protocolos = [], protocolosAplicados = [], registrosAnamnese = [], evolutionPhotos = [], proceduresList = [], produtosEstoque = [], cpfOther = null, pacotes = [], orcamentos = [], taxasOrg = {}) {
   const container = document.getElementById("clientePerfilContent");
   if (!container) return;
   cachedProceduresList = proceduresList || [];
@@ -193,23 +246,11 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
   const rotinaLiberada = !!skincareRotina?.liberado_em;
   const rotinaUpdated = skincareRotina?.updated_at;
 
-  const initials = (client.name || "")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => (w[0] || "").toUpperCase())
-    .join("");
-  const avatarHtml = client.avatar_url
-    ? `<img class="clientes-avatar" src="${escapeHtml(client.avatar_url)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling?.classList.remove('hidden')">`
-    : "";
   container.innerHTML = `
     <div class="cliente-perfil">
       <div class="cliente-perfil-header">
         <div class="cliente-perfil-header-left">
-          <span class="clientes-avatar-wrap clientes-avatar-wrap--perfil">
-            ${avatarHtml}
-            <span class="clientes-avatar-initials ${avatarHtml ? "hidden" : ""}">${escapeHtml(initials)}</span>
-          </span>
+          ${htmlClientAvatar(client.avatar_url, client.name, "clientes-avatar-wrap--perfil")}
           <div class="cliente-perfil-title">
             <button type="button" class="btn-back" id="btnVoltarClientes" title="Voltar">← Voltar</button>
             <h2>${escapeHtml(client.name)}</h2>
@@ -220,43 +261,52 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
               ${client.email ? ` · ${escapeHtml(client.email)}` : ""}
             </p>
             ${registrosAnamnese.length ? `<p class="cliente-perfil-anamnese-meta">Anamnese salva · Última: ${escapeHtml((registrosAnamnese[0].created_at ? new Date(registrosAnamnese[0].created_at).toLocaleDateString("pt-BR") : "—"))}</p>` : ""}
+            ${renderCicloLinhaCabecalho(cachedPlanosCliente, protocolos, protocolosAplicados, cachedCicloFicha)}
           </div>
         </div>
         <div class="cliente-perfil-actions">
-          <button type="button" class="btn-primary" id="btnAnamneseCliente" title="Ficha de anamnese e análise de caso">Anamnese</button>
-          <button type="button" class="btn-secondary" id="btnAgendarCliente" title="Abrir a agenda com esta pessoa">Agendar</button>
-          ${canEdit ? '<button type="button" class="btn-primary" id="btnEditarCliente">Editar cliente</button>' : ""}
-          <button type="button" class="btn-secondary" id="btnWhatsappSilencio">${estaEmSilencio(mapaSilencioPorCliente(events || [], new Date().toISOString().slice(0, 10)), client.id) ? "Liberar WhatsApp" : "Silêncio no WhatsApp"}</button>
-          ${canEdit && (client.state || client.status) === "pre_cadastro" && !client.registration_completed_at ? `
-            <button type="button" class="btn-secondary" id="btnEnviarLinkCadastro">Enviar link para completar cadastro</button>
+          <div class="cliente-perfil-actions-main">
+            <button type="button" class="btn-primary" id="btnAnamneseCliente" title="Ficha de anamnese e análise de caso">Anamnese</button>
+            <button type="button" class="btn-secondary" id="btnAgendarCliente" title="Abrir a agenda com esta pessoa">Agendar</button>
+            ${canEdit ? '<button type="button" class="btn-secondary" id="btnEditarCliente">Editar</button>' : ""}
+          </div>
+          <div class="cliente-perfil-actions-more">
+          <button type="button" class="btn-secondary btn-sm" id="btnWhatsappSilencio">${estaEmSilencio(mapaSilencioPorCliente(events || [], new Date().toISOString().slice(0, 10)), client.id) ? "Liberar WhatsApp" : "Silêncio no WhatsApp"}</button>
+          ${canEdit ? `
+            <button type="button" class="btn-secondary btn-sm" id="btnEnviarLinkCadastro">Link do portal</button>
           ` : ""}
           ${(client.state || client.status) === "arquivado" && canEdit ? `
-            <button type="button" class="btn-primary btn-state" data-state="em_acompanhamento">Retornar ao tratamento</button>
+            <button type="button" class="btn-secondary btn-sm btn-state" data-state="em_acompanhamento">Retornar ao tratamento</button>
           ` : ""}
           ${(client.state || client.status) === "pausado" && canEdit ? `
-            <button type="button" class="btn-primary btn-state" data-state="em_acompanhamento">Retornar ao acompanhamento</button>
+            <button type="button" class="btn-secondary btn-sm btn-state" data-state="em_acompanhamento">Retornar ao acompanhamento</button>
           ` : ""}
           ${canChangeState(client) ? `
-            <button type="button" class="btn-secondary btn-state" data-state="pausado" ${(client.state || client.status) === "pausado" ? "disabled" : ""}>Pausar</button>
-            <button type="button" class="btn-secondary btn-state" data-state="alta" ${(client.state || client.status) === "alta" ? "disabled" : ""}>Dar alta</button>
-            <button type="button" class="btn-secondary btn-state btn-archive" data-state="arquivado">Arquivar</button>
+            <button type="button" class="btn-secondary btn-sm btn-state" data-state="pausado" ${(client.state || client.status) === "pausado" ? "disabled" : ""}>Pausar</button>
+            <button type="button" class="btn-secondary btn-sm btn-state" data-state="alta" ${(client.state || client.status) === "alta" ? "disabled" : ""}>Dar alta</button>
+            <button type="button" class="btn-secondary btn-sm btn-state btn-archive" data-state="arquivado">Arquivar</button>
           ` : ""}
+          </div>
         </div>
       </div>
 
       <div class="cliente-perfil-tabs">
-        <button type="button" class="tab-btn active" data-tab="dados">Dados do cliente</button>
-        <button type="button" class="tab-btn" data-tab="historico">Histórico / Linha do tempo</button>
+        <button type="button" class="tab-btn active" data-tab="dados">Dados</button>
+        <button type="button" class="tab-btn" data-tab="historico">Histórico</button>
         <button type="button" class="tab-btn" data-tab="protocolo">Protocolo</button>
-        <button type="button" class="tab-btn" data-tab="evolucao">Evolução</button>
-        <button type="button" class="tab-btn" data-tab="rotina-skincare">Rotina skincare</button>
-        <button type="button" class="tab-btn" data-tab="pacotes">Pacotes</button>
-        <button type="button" class="tab-btn" data-tab="orcamentos">Orçamentos</button>
+        <details class="perfil-tabs-mais">
+          <summary>Mais</summary>
+          <button type="button" class="tab-btn" data-tab="evolucao">Evolução</button>
+          <button type="button" class="tab-btn" data-tab="rotina-skincare">Skincare</button>
+          <button type="button" class="tab-btn" data-tab="pacotes">Pacotes</button>
+          <button type="button" class="tab-btn" data-tab="orcamentos">Orçamentos</button>
+        </details>
       </div>
 
       <div id="tabDados" class="tab-pane active">
         <div class="cliente-dados">
-          <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button> · <button type="button" class="btn-link" id="btnAgendarClienteDados" title="Abrir a agenda com esta pessoa">Agendar horário</button></p>
+          <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button> · <button type="button" class="btn-link" id="btnAgendarClienteDados" title="Abrir a agenda com esta pessoa">Agendar horário</button> · <button type="button" class="btn-link" id="btnPerfilIrOrcamento">Orçamento</button></p>
+          ${renderCicloOuroFichaDados(cachedPlanosCliente, protocolos, protocolosAplicados, cachedCicloFicha)}
           ${cpfOther ? `<div class="form-warning cliente-cpf-duplicado-aviso" role="alert"><strong>Atenção:</strong> Outro cliente nesta organização possui o mesmo CPF: ${escapeHtml(cpfOther.name || "cliente cadastrado")}. Revise os cadastros para evitar duplicidade.</div>` : ""}
           <p><strong>Nome:</strong> ${escapeHtml(client.name)} ${client.is_paciente_modelo ? '<span class="cliente-badge-modelo">Paciente modelo</span>' : ""}</p>
           ${client.is_paciente_modelo && client.model_discount_pct != null ? `<p><strong>Desconto modelo:</strong> ${Number(client.model_discount_pct)}%</p>` : ""}
@@ -353,13 +403,30 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
       <div id="tabProtocolo" class="tab-pane hidden">
         <div class="cliente-protocolo">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir ficha de anamnese e evolução">Abrir anamnese</button></p>
-          <p class="client-hint">Registre o que foi feito no atendimento: descrição, produtos usados (do estoque) e, se quiser, um protocolo cadastrado. O registro fica ligado ao prontuário e à data. Plano/pacote é o combinado; protocolo aplicado é o feito. O sistema não troca um pelo outro.</p>
-          ${renderDivergenciaPlanoAplicado(pacotes, protocolosAplicados)}
+          <p class="client-hint">Registre o que foi feito no atendimento: descrição, produtos usados (do estoque) e, se quiser, um protocolo cadastrado. O registro fica ligado ao prontuário e à data. Plano é o combinado; protocolo é a receita; aplicado é o feito. O sistema não troca um pelo outro.</p>
+          ${renderCicloOuroFicha(cachedPlanosCliente, protocolos, protocolosAplicados, cachedCicloFicha)}
+          ${renderDivergenciaPlanoAplicado(pacotes, protocolosAplicados, cachedPlanosCliente)}
           <div class="protocolo-registro-form">
             <label for="protocoloData">Data do atendimento</label>
             <input type="date" id="protocoloData" value="${(function(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})()}">
             <label for="protocoloDescricao">O que foi feito</label>
             <textarea id="protocoloDescricao" rows="3" placeholder="Ex.: Limpeza de pele, aplicação de toxina na região frontal, peelings..."></textarea>
+            <div class="protocolo-feito-ia">
+            <div class="protocolo-rascunho-acoes">
+              <button type="button" class="btn-secondary btn-sm" id="btnProtocoloRascunho">Sugerir rascunho</button>
+              ${cachedCanIaAssist ? `<button type="button" class="btn-secondary btn-sm" id="btnProtocoloRascunhoIa">Sugerir com IA</button>` : ""}
+              <p class="client-hint">A IA sugere aqui. Só entra no campo se você clicar em Usar. Registrar continua com você. Não grava sozinho, não muda preço, não baixa estoque.</p>
+            </div>
+            <div id="protocoloIaPreview" class="protocolo-ia-preview hidden" hidden>
+              <p class="protocolo-ia-preview__label">Sugestão da IA — não gravada</p>
+              <p class="protocolo-ia-preview__fonte" id="protocoloIaFonte"></p>
+              <pre id="protocoloIaTexto" class="protocolo-ia-preview__texto"></pre>
+              <div class="protocolo-ia-preview__acoes">
+                <button type="button" class="btn-primary btn-sm" id="btnProtocoloIaUsar">Usar no campo</button>
+                <button type="button" class="btn-secondary btn-sm" id="btnProtocoloIaDescartar">Descartar</button>
+              </div>
+            </div>
+            </div>
             <div class="protocolo-produtos-wrap">
               <label>Produtos utilizados (estoque)</label>
               <p class="client-hint protocolo-produtos-hint">O que você listar é o consumo real. Se escolher um protocolo e não listar o item, o estoque assume o descartável cadastrado. O atendimento não trava.</p>
@@ -519,7 +586,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
           <p class="client-hint">Monte a proposta, envie no WhatsApp (um paciente por vez) e, se fechar, grave no cadastro. Não altera o preço do catálogo.</p>
           ${canEdit ? `<button type="button" class="btn-primary" id="btnNovoOrcamento">+ Novo orçamento</button>` : ""}
           <ul id="clienteOrcamentosList" class="cliente-orcamentos-list">
-            ${renderOrcamentosList(orcamentos, canEdit, { events, pacotes })}
+            ${renderOrcamentosList(orcamentos, canEdit, { events, pacotes, taxas: taxasOrg })}
           </ul>
         </div>
       </div>
@@ -577,8 +644,9 @@ function renderProntuarioPorData(registrosAnamnese, protocolosAplicados, evoluti
     }).join("");
     const protocoloItems = (d.protocolos || []).slice(0, 5).map((a) => {
       const nome = a.protocolos?.nome || (a.descricao || "").trim().slice(0, 40) || "Registro";
-      const desc = (a.descricao || "").trim().slice(0, 60);
-      return `<span class="prontuario-data-badge prontuario-data-badge--protocolo">${escapeHtml(nome)}${desc ? " — " + escapeHtml(desc) + (a.descricao?.length > 60 ? "…" : "") : ""}</span>`;
+      const prods = Array.isArray(a.produtos_usados) ? a.produtos_usados.map((p) => p.produto_nome).filter(Boolean).slice(0, 3).join(", ") : "";
+      const extra = prods || (a.descricao || "").trim().slice(0, 50);
+      return `<span class="prontuario-data-badge prontuario-data-badge--protocolo">${escapeHtml(nome)}${extra ? " — " + escapeHtml(extra) + (extra.length >= 50 ? "…" : "") : ""}</span>`;
     }).join("");
     const fotoItems = (d.fotos || []).slice(0, 4).map((ph) => {
       const tipo = ph.type === "depois" ? "Depois" : "Antes";
@@ -594,8 +662,107 @@ function renderProntuarioPorData(registrosAnamnese, protocolosAplicados, evoluti
   }).join("");
 }
 
-function renderDivergenciaPlanoAplicado(pacotes, aplicados) {
-  const cmp = compararPlanoVsAplicado({ pacotes, aplicados });
+function htmlCicloOuroCols(resumo) {
+  return (resumo.colunas || [])
+    .map((c) => {
+      const corpo = c.itens.length
+        ? `<ul>${c.itens.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>`
+        : `<p class="ciclo-ouro-ficha__empty">${escapeHtml(c.vazio)}</p>`;
+      return `<div class="ciclo-ouro-ficha__col" data-ciclo="${escapeHtml(c.id)}"><p class="ciclo-ouro-ficha__label">${escapeHtml(c.titulo)}</p>${corpo}</div>`;
+    })
+    .join("");
+}
+
+function htmlCicloOuroSinais(extra = {}) {
+  const sinais = sinaisInicioCiclo({ anamnese: extra.anamnese, analises: extra.analises });
+  return `<p class="ciclo-ouro-ficha__sinais" aria-label="Início do ciclo">
+    <span class="${sinais.anamneseOk ? "ciclo-ouro-ficha__chip" : "ciclo-ouro-ficha__chip ciclo-ouro-ficha__chip--pendente"}">${escapeHtml(sinais.anamnese)}</span>
+    <span class="${sinais.peleOk ? "ciclo-ouro-ficha__chip" : "ciclo-ouro-ficha__chip ciclo-ouro-ficha__chip--pendente"}">${escapeHtml(sinais.pele)}</span>
+  </p>`;
+}
+
+function renderCicloLinhaCabecalho(planosCliente, protocolos, aplicados, extra = {}) {
+  const linha = linhaCicloOuroCabecalho(
+    resumoCicloOuroFicha({ planosCliente, protocolos, aplicados, pacotes: extra.pacotes || [] })
+  );
+  return `<p class="cliente-perfil-ciclo-linha">Combinado: ${escapeHtml(linha.combinado)} · Receita: ${escapeHtml(linha.receita)} · Feito: ${escapeHtml(linha.feito)}</p>`;
+}
+
+function renderCicloOuroFichaDados(planosCliente, protocolos, aplicados, extra = {}) {
+  const resumo = resumoCicloOuroFicha({
+    planosCliente,
+    protocolos,
+    aplicados,
+    pacotes: extra.pacotes || [],
+  });
+  return `<section class="ciclo-ouro-ficha-wrap ciclo-ouro-ficha-wrap--dados" aria-label="Plano, protocolo e o que foi aplicado">
+    <div class="ciclo-ouro-ficha-head">
+      <h3 class="ciclo-ouro-ficha-title">Neste paciente</h3>
+      <button type="button" class="btn-link" id="btnCicloVerProtocolo">Registrar feito</button>
+    </div>
+    ${htmlCicloOuroSinais(extra)}
+    <div class="ciclo-ouro-ficha" role="region">${htmlCicloOuroCols(resumo)}</div>
+    <p class="client-hint">Plano é o combinado; protocolo é a receita; aplicado é o feito. O sistema não troca um pelo outro.</p>
+  </section>`;
+}
+
+function renderCicloOuroFicha(planosCliente, protocolos, aplicados, extra = {}) {
+  const pacotes = extra.pacotes || [];
+  const resumo = resumoCicloOuroFicha({ planosCliente, protocolos, aplicados, pacotes });
+  const avisoMaterial = aplicadoSemMaterial(aplicados)
+    ? `<p class="ciclo-ouro-ficha__aviso" role="status">Há registro feito sem produto de estoque. O atendimento não trava; confira se a baixa de material ficou de fora.</p>`
+    : "";
+  const prox = proximaAcaoCicloFicha({
+    planosCliente,
+    pacotes,
+    aplicados,
+    lancamentos: extra.lancamentos || [],
+    temAgendaFutura: !!extra.temAgendaFutura,
+    today: getTodayLocal(),
+  });
+  const cols = htmlCicloOuroCols(resumo);
+  const catalogo = cachedPlanosCatalogo || [];
+  const preferido = (planosCliente || []).find((p) => p.id)?.id || catalogo[0]?.id || "";
+  let acao = "";
+  if (prox.tipo === "registrar" && cachedCanAgendar && prox.agendaId) {
+    const quando = [prox.data, String(prox.hora || "").slice(0, 5)].filter(Boolean).join(" ");
+    acao = `<div class="ciclo-ouro-ficha__acao">
+      <button type="button" class="btn-primary btn-sm" id="btnCicloRegistrarAplicado" data-agenda-id="${escapeHtml(prox.agendaId)}">Registrar o que foi aplicado${quando ? ` (${escapeHtml(quando)})` : ""}</button>
+    </div>`;
+  } else if (prox.tipo === "baixa" && cachedCanAgendar && prox.agendaId) {
+    acao = `<div class="ciclo-ouro-ficha__acao">
+      <button type="button" class="btn-primary btn-sm" id="btnCicloDarBaixa" data-agenda-id="${escapeHtml(prox.agendaId)}">Conferir baixa no horário</button>
+      <p class="ciclo-ouro-ficha__empty">Não lança pagamento sozinho. Abre o horário para você conferir o recebido.</p>
+    </div>`;
+  } else if (prox.tipo === "proxima" && cachedCanAgendar) {
+    acao = `<div class="ciclo-ouro-ficha__acao">
+      <p class="ciclo-ouro-ficha__empty">${escapeHtml(prox.titulo || "Ainda há sessão do pacote.")} WhatsApp não sai daqui.</p>
+      <button type="button" class="btn-primary btn-sm" id="btnCicloProximaSessao" data-date="${escapeHtml(prox.dataSugerida || "")}">Agendar próxima sessão</button>
+    </div>`;
+  } else if (cachedCanAgendar && catalogo.length) {
+    const opts = catalogo
+      .map((p) => `<option value="${escapeHtml(p.id)}"${p.id === preferido ? " selected" : ""}>${escapeHtml(p.nome || "Plano")}</option>`)
+      .join("");
+    acao = `<div class="ciclo-ouro-ficha__acao">
+      <label for="cicloAgendarPlanoSelect">Plano combinado</label>
+      <select id="cicloAgendarPlanoSelect">${opts}</select>
+      <button type="button" class="btn-secondary btn-sm" id="btnCicloCombinarPlano">Combinar na ficha</button>
+      <button type="button" class="btn-primary btn-sm" id="btnCicloAgendarPlano">Agendar com plano</button>
+      <p class="ciclo-ouro-ficha__empty">Combinar não marca horário. Agendar já leva o plano para a grade.</p>
+    </div>`;
+  } else if (cachedCanCriarPlano && !catalogo.length) {
+    acao = `<div class="ciclo-ouro-ficha__acao">
+      <p class="ciclo-ouro-ficha__empty">Ainda não há plano no catálogo. Crie um em Procedimentos e volte para agendar.</p>
+      <button type="button" class="btn-secondary btn-sm" id="btnCicloCriarPlano">Criar plano terapêutico</button>
+    </div>`;
+  } else if (cachedCanAgendar && !catalogo.length) {
+    acao = `<p class="ciclo-ouro-ficha__empty">Peça à gestão um plano em Procedimentos. Depois agende por aqui.</p>`;
+  }
+  return `${htmlCicloOuroSinais(extra)}<div class="ciclo-ouro-ficha" role="region" aria-label="Plano, protocolo e o que foi aplicado">${cols}</div>${avisoMaterial}${acao}`;
+}
+
+function renderDivergenciaPlanoAplicado(pacotes, aplicados, planos = []) {
+  const cmp = compararPlanoVsAplicado({ pacotes, planos, aplicados });
   if (!cmp.temDivergencia) return "";
   const itens = cmp.linhas
     .map((l) => {
@@ -757,7 +924,7 @@ function renderMapaInjetaveisSection(registrosAnamnese) {
   return `
     <div class="cliente-mapa-injetaveis-wrap" id="clienteMapaInjetaveisWrap">
       <h4 class="cliente-evolucao-title">Mapa de injetáveis</h4>
-      <p class="client-hint">Registros de anamnese (Rosto — Injetáveis) com pontos de aplicação. Clique em <strong>Ver mapa</strong> para ver onde foi aplicado, quantidades (ml/UI) e observações (ex.: entrada da cânula).</p>
+      <p class="client-hint">Registros de anamnese (Rosto — Injetáveis) com pontos de aplicação. <strong>Ver mapa</strong> abre em 3D (girar e ampliar o local). Imprimir vira folha 2D com ml/UI.</p>
       <div class="cliente-injetaveis-list">
         ${cards.join("")}
       </div>
@@ -794,14 +961,22 @@ function openMapaInjetaveisModal(registroId) {
     const dotsHtml = list.map((p) => {
       const x = (p.x_pct != null ? p.x_pct : 50);
       const y = (p.y_pct != null ? p.y_pct : 50);
-      return `<div class="injetaveis-mapa-dot${pontoStatus(p) === "planejado" ? " injetaveis-mapa-dot--planejado" : ""}" style="left:${x}%;top:${y}%;" title="${escapeHtml(pontoLine(p))}"></div>`;
+      const qty = p.quantidade != null ? `<span class="mapa-dot-qty">${escapeHtml(String(p.quantidade))} ${escapeHtml(p.unidade || "")}</span>` : "";
+      return `<div class="injetaveis-mapa-dot${pontoStatus(p) === "planejado" ? " injetaveis-mapa-dot--planejado" : ""}" style="left:${x}%;top:${y}%;" data-x="${x}" data-y="${y}" title="${escapeHtml(pontoLine(p))}">${qty}</div>`;
     }).join("");
     const listItems = list.map((p) => `<li class="injetaveis-mapa-lista-item">${escapeHtml(pontoLine(p))}</li>`).join("");
     return `
       <div class="injetaveis-mapa-panel" data-mapa="${m.id}" id="modalMapaPanel_${m.id}">
-        <div class="injetaveis-mapa-svg-wrap">
-          ${m.svg}
-          <div class="injetaveis-mapa-dots">${dotsHtml}</div>
+        <div class="mapa-3d">
+          ${htmlToolbarMapa3d()}
+          <div class="mapa-3d-viewport">
+            <div class="mapa-3d-scene">
+              <div class="injetaveis-mapa-svg-wrap">
+                ${m.svg}
+                <div class="injetaveis-mapa-dots">${dotsHtml}</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="injetaveis-mapa-lista">
           <p class="injetaveis-mapa-lista-title">${escapeHtml(m.label)} — planejado e aplicado</p>
@@ -823,7 +998,7 @@ function openMapaInjetaveisModal(registroId) {
       </div>
     </div>
   `;
-  openModal("Mapa de aplicação — onde foi feito (ml/UI, entrada da cânula)", modalHtml, () => closeModal(), null);
+  openModal("Mapa de aplicação — 3D na tela, 2D na impressão", modalHtml, () => closeModal(), null, { hideSubmit: true, cardClass: "modal-card--mapa-3d" });
 
   const container = document.getElementById("modalFields");
   if (!container) return;
@@ -841,6 +1016,20 @@ function openMapaInjetaveisModal(registroId) {
     p.classList.toggle("hidden", i !== 0);
   });
   document.getElementById("btnFecharMapaInjetaveis")?.addEventListener("click", () => closeModal());
+  container.querySelectorAll(".mapa-3d").forEach((el) => {
+    const panel = el.closest(".injetaveis-mapa-panel");
+    const api = bindMapa3d(el, {
+      titulo: "Mapa de aplicação — " + (panel?.dataset.mapa || "") + (dataStr ? " · " + dataStr : ""),
+      getPrintRoot: () => panel,
+    });
+    panel?.querySelectorAll(".injetaveis-mapa-dot").forEach((dot) => {
+      dot.style.pointerEvents = "auto";
+      dot.style.cursor = "zoom-in";
+      dot.addEventListener("click", () => {
+        api?.zoomTo(Number(dot.dataset.x), Number(dot.dataset.y));
+      });
+    });
+  });
 }
 
 /** Converte data URL (base64) em Blob — versão síncrona para usar no momento da captura. */
@@ -862,30 +1051,6 @@ function dataUrlToBlobSync(dataUrl) {
 /** Converte data URL (base64) em Blob — versão assíncrona (Promise). */
 function dataUrlToBlob(dataUrl) {
   return Promise.resolve(dataUrlToBlobSync(dataUrl));
-}
-
-function maskCpfInput(input) {
-  let v = input.value.replace(/\D/g, "");
-  if (v.length > 11) v = v.slice(0, 11);
-  v = v.replace(/(\d{3})(\d)/, "$1.$2");
-  v = v.replace(/(\d{3})(\d)/, "$1.$2");
-  v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-  input.value = v;
-}
-
-/** Máscara (00) 00000-0000 celular ou (00) 0000-0000 fixo */
-function maskPhoneInput(input) {
-  let v = input.value.replace(/\D/g, "");
-  if (v.length > 11) v = v.slice(0, 11);
-  if (v.length > 6) {
-    if (v[2] === "9") v = v.replace(/(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3");
-    else v = v.replace(/(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3");
-  } else if (v.length > 2) {
-    v = v.replace(/(\d{2})(\d{0,4})/, "($1) $2");
-  } else if (v.length) {
-    v = "(" + v;
-  }
-  input.value = v;
 }
 
 function bindEvolutionPhotoDeletes(clientId) {
@@ -927,7 +1092,7 @@ function openCompararFotosModal(clientId) {
   openModal(
     "Comparar fotos",
     `
-    <p class="client-hint">Escolha duas fotos para ver lado a lado.</p>
+    <p class="client-hint">Duas fotos compactas, para mostrar no aparelho durante a consulta.</p>
     <div class="comparar-fotos-selects">
       <label>Primeira foto</label>
       <select id="comparePhoto1">${options}</select>
@@ -936,7 +1101,9 @@ function openCompararFotosModal(clientId) {
     </div>
     <div id="comparePhotosPreview" class="comparar-fotos-preview" aria-live="polite"></div>
     `,
-    () => closeModal()
+    () => closeModal(),
+    null,
+    { cardClass: "modal-card--compare" }
   );
   const sel1 = document.getElementById("comparePhoto1");
   const sel2 = document.getElementById("comparePhoto2");
@@ -1038,7 +1205,7 @@ function renderOrcamentosList(orcamentos, canEdit, extra = {}) {
       <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(efetivo))}</span>
       <span class="cliente-orcamento-total">${brl(total)}</span>
       <span class="cliente-orcamento-itens">${linhas || "—"}</span>
-      ${o.valid_until ? `<span class="cliente-orcamento-valid">Até ${formatDate(o.valid_until)}</span>` : ""}
+      ${hintParcelasInterno(o.items, extra)}${o.valid_until ? `<span class="cliente-orcamento-valid">Até ${formatDate(o.valid_until)}</span>` : ""}
       <span class="cliente-orcamento-acoes">${acoes}</span>
     </li>`;
   }).join("");
@@ -1047,6 +1214,24 @@ function renderOrcamentosList(orcamentos, canEdit, extra = {}) {
 async function reloadPerfilOrcamentos() {
   sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
   await init();
+}
+
+function hintParcelasInterno(items, extra = {}) {
+  const taxas = extra.taxas;
+  if (!taxas || !items?.length) return "";
+  const resumo = resumoMargemOrcamento(items);
+  if (!(resumo.receita > 0)) return "";
+  const margemAlvo = taxas.margem_alvo_padrao_pct != null ? Number(taxas.margem_alvo_padrao_pct) : 40;
+  const maxFixo = taxas.parcelamento_max_parcelas != null ? Number(taxas.parcelamento_max_parcelas) : 12;
+  const parc = maxParcelasPreservandoLucro({
+    valor: resumo.receita,
+    custo: resumo.custoTotal || 0,
+    margemAlvoPct: margemAlvo,
+    maxFixo,
+    getLiquido: (n) => calcularLiquido(resumo.receita, getTaxaForParcelas(taxas, n, "credito")),
+  });
+  const parcelaTxt = parc.parcelaCliente != null ? ` de ${brl(parc.parcelaCliente)}` : "";
+  return `<span class="cliente-orcamento-parcelas">Sem juros p/ o cliente: até ${parc.maxParcelas}x${parcelaTxt} (interno · insumos + maquininha)</span>`;
 }
 
 function sqlOrcamentoHint(err) {
@@ -1063,15 +1248,35 @@ function openOrcamentoModal(client, proceduresList) {
     listProdutosCatalogo().catch(() => []),
     getTaxas().catch(() => ({})),
     getOrganizationProfile().catch(() => null),
-  ]).then(([catalogo, taxas, profile]) => {
-    bindOrcamentoModal(client, procs, catalogo || [], taxas || {}, profile);
+    listAllProcedureStockUsage().catch(() => []),
+    getResumoPorProduto().catch(() => []),
+  ]).then(([catalogo, taxas, profile, usages, resumo]) => {
+    const map = {};
+    for (const r of resumo || []) {
+      const n = String(r.produto_nome || "").trim().toLowerCase();
+      if (n && r.custo_medio != null && Number.isFinite(Number(r.custo_medio))) map[n] = Number(r.custo_medio);
+    }
+    const custoReceitaById = {};
+    const byProc = {};
+    for (const u of usages || []) {
+      if (!u.procedure_id) continue;
+      (byProc[u.procedure_id] ||= []).push(u);
+    }
+    for (const [id, rows] of Object.entries(byProc)) {
+      const out = custoRealFromUsage(rows, map);
+      if (out.custoReal != null) custoReceitaById[id] = out.custoReal;
+    }
+    bindOrcamentoModal(client, procs, catalogo || [], taxas || {}, profile, custoReceitaById);
   });
 }
 
-function bindOrcamentoModal(client, procs, catalogo, taxas, profile) {
+async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custoReceitaById = {}) {
   const opts = procs.map((p) => {
     const price = p.valor_cobrado != null ? Number(p.valor_cobrado) : 0;
-    const cost = custoUnitarioServico(p, { comissaoPadraoPct: profile?.comissao_profissional_padrao_pct });
+    const cost = custoUnitarioServico(p, {
+      comissaoPadraoPct: profile?.comissao_profissional_padrao_pct,
+      custoMaterialReal: custoReceitaById[p.id],
+    });
     return `<option value="${escapeHtml(p.id)}" data-kind="servico" data-name="${escapeHtml(p.name)}" data-price="${price}" data-cost="${cost ?? ""}">${escapeHtml(p.name)}${price ? " — " + brl(price) : ""}</option>`;
   }).join("");
   const vendePro = profile?.vende_para_profissional === true;
@@ -1087,10 +1292,15 @@ function bindOrcamentoModal(client, procs, catalogo, taxas, profile) {
   const validStr = validade.toISOString().slice(0, 10);
   const margemAlvo = profile?.margem_alvo_padrao_pct != null ? Number(profile.margem_alvo_padrao_pct) : 40;
   const maxFixo = profile?.parcelamento_max_parcelas != null ? Number(profile.parcelamento_max_parcelas) : 12;
+  const members = await getOrgMembers().catch(() => []);
+  const soldOpts = (members || []).map((m) => {
+    const label = String(m.display_name || m.email || "Profissional").replace(/</g, "&lt;");
+    return `<option value="${m.user_id}">${label}</option>`;
+  }).join("");
   openModal(
     "Novo orçamento",
     `
-    <p class="client-hint">Monte serviço e produto no mesmo orçamento. Os valores do catálogo são ponto de partida — você altera. O sistema não muda preço sozinho.</p>
+    <p class="client-hint">Monte serviço e produto no mesmo orçamento. Embaixo do total aparece até quantas vezes <strong>sem juros para o cliente</strong> ainda é saudável (insumos + comissão + taxa da maquininha). Só a equipe vê. O sistema não muda o preço.</p>
     <fieldset class="orcamento-kind">
       <legend>Tipo da linha</legend>
       <label><input type="radio" name="orcamentoKind" value="servico" checked> Serviço</label>
@@ -1115,6 +1325,12 @@ function bindOrcamentoModal(client, procs, catalogo, taxas, profile) {
     <div id="orcamentoTotal" class="cliente-orcamento-total-preview">Total: ${brl(0)}</div>
     <label for="orcamentoValid">Válido até</label>
     <input type="date" id="orcamentoValid" value="${validStr}">
+    <label for="orcamentoSoldBy">Quem vendeu (opcional)</label>
+    <select id="orcamentoSoldBy">
+      <option value="">Não informar</option>
+      ${soldOpts}
+    </select>
+    <p class="form-hint">Quem fechou a proposta. Quem aplica você escolhe depois na Agenda. Não muda preço.</p>
     <label for="orcamentoNotes">Observação (opcional)</label>
     <textarea id="orcamentoNotes" rows="2" placeholder="Ex.: incluir avaliação, forma de pagamento"></textarea>
     `,
@@ -1127,7 +1343,14 @@ function bindOrcamentoModal(client, procs, catalogo, taxas, profile) {
       const notes = document.getElementById("orcamentoNotes")?.value?.trim() || null;
       const valid_until = document.getElementById("orcamentoValid")?.value || null;
       try {
-        await createOrcamento({ client_id: client.id, items, notes, valid_until, status: "rascunho" });
+        await createOrcamento({
+          client_id: client.id,
+          items,
+          notes,
+          valid_until,
+          status: "rascunho",
+          sold_by_user_id: document.getElementById("orcamentoSoldBy")?.value?.trim() || null,
+        });
         await applyRelacaoComercial(client.id, client.relacao_comercial, "orcamento_criado");
         closeModal();
         toast("Orçamento salvo no paciente.");
@@ -1247,10 +1470,70 @@ function refreshOrcamentoTotal() {
   el.innerHTML = `<strong>Total: ${brl(resumo.receita)}</strong>
     ${linhaS ? `<p>${linhaS}</p>` : ""}
     ${linhaP ? `<p>${linhaP}</p>` : ""}
-    <p>Para manter a margem alvo de ${margemAlvo}% depois da taxa da maquininha: <strong>até ${parc.maxParcelas}x</strong>. Você decide o parcelamento.</p>`;
+    ${resumo.custoTotal == null ? `<p>Sem custo de insumo nas linhas, a conta de parcela fica incompleta — preencha receita/custo no procedimento ou no produto.</p>` : ""}
+    <p class="orcamento-parcelas-saudavel">${escapeHtml(textoParcelasSemJuros(parc, { brl }))}</p>`;
 }
 
-function bindOrcamentoCardActions(client, orcamentos) {
+function hojeIsoLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function oferecerAgendaAposAceite(client, packages, proceduresList) {
+  const pkgs = (packages || []).filter((p) => p && p.client_id);
+  if (!pkgs.length) return;
+  const totalSessoes = pkgs.reduce((s, p) => s + Math.max(1, Number(p.total_sessoes) || 1), 0);
+  const nomes = pkgs.map((p) => p.nome_pacote).filter(Boolean).join(", ");
+  openModal(
+    "Marcar na agenda?",
+    `
+    <p class="client-hint">O pacote já está no cadastro. Marque o horário agora — WhatsApp não sai sozinho e o preço não muda.</p>
+    <p>${escapeHtml(nomes || "Pacote")} · ${totalSessoes} sessão(ões).</p>
+    <label for="aceiteAgendaData">Primeira sessão</label>
+    <input type="date" id="aceiteAgendaData" value="${hojeIsoLocal()}" required>
+    <label for="aceiteAgendaHora">Horário</label>
+    <input type="time" id="aceiteAgendaHora" value="09:00" required>
+    <label class="checkbox-row"><input type="checkbox" id="aceiteAgendaTodas"> Agendar as demais também (a cada 7 dias, mesmo horário)</label>
+    `,
+    async () => {
+      const startDate = document.getElementById("aceiteAgendaData")?.value;
+      const startTime = document.getElementById("aceiteAgendaHora")?.value;
+      if (!startDate || !startTime) {
+        toast("Informe data e hora da primeira sessão.");
+        return false;
+      }
+      const onlyFirst = !document.getElementById("aceiteAgendaTodas")?.checked;
+      const slots = slotsAgendaDoAceite({
+        packages: pkgs,
+        procedures: proceduresList || [],
+        startDate,
+        startTime,
+        intervalDays: 7,
+        onlyFirst,
+      });
+      if (!slots.length) {
+        toast("Não foi possível montar os horários.");
+        return false;
+      }
+      try {
+        const criados = await createAgendaSlots(slots, { clientId: client.id });
+        closeModal();
+        toast(
+          criados.length === 1
+            ? "1 horário na Agenda. Abra a Agenda para conferir sala e profissional."
+            : `${criados.length} horários na Agenda. Conflitos de sala/profissional você ajusta lá.`
+        );
+        sessionStorage.setItem("agendaDefaultDate", slots[0].data);
+        navigate("agenda");
+      } catch (err) {
+        toast(err.message || "Não foi possível agendar.");
+        return false;
+      }
+    }
+  );
+}
+
+function bindOrcamentoCardActions(client, orcamentos, proceduresList = []) {
   document.querySelectorAll(".orcamento-visto").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
@@ -1300,33 +1583,45 @@ function bindOrcamentoCardActions(client, orcamentos) {
         toast("Este orçamento venceu. Monte outro; o catálogo não muda sozinho.");
         return;
       }
-      if (!confirm("Fechou o orçamento? Ele fica no cadastro e vira pacote de sessões (se houver quantidade).")) return;
-      try {
-        const aceite = await aceitarOrcamento(row.id);
-        await applyRelacaoComercial(client.id, client.relacao_comercial, "orcamento_aceito");
-        if (!aceite.created) {
-          toast("Este orçamento já estava no cadastro. Pacote não foi duplicado.");
-        } else {
-          const items = Array.isArray(row.items) ? row.items : [];
-          await createClientEvent({
-            client_id: client.id,
-            event_type: "Orçamento aceito",
-            description: formatOrcamentoMensagem({ nomeCliente: client.name, items, notes: row.notes }),
-          });
-          await audit({
-            action: "orcamento.aceito",
-            tableName: "orcamentos",
-            recordId: row.id,
-            permissionUsed: "clientes:manage",
-            metadata: { client_id: client.id, total: totalOrcamento(items) },
-          }).catch(() => {});
-          toast("Orçamento no paciente. Pacotes na aba Pacotes.");
+      openConfirmModal(
+        "Fechou o orçamento?",
+        "Ele fica no cadastro e vira pacote de sessões (se houver quantidade). O preço do catálogo não muda.",
+        () => {
+          void (async () => {
+            try {
+              const aceite = await aceitarOrcamento(row.id);
+              await applyRelacaoComercial(client.id, client.relacao_comercial, "orcamento_aceito");
+              const pkgs = aceite.packages || [];
+              if (!aceite.created) {
+                toast("Este orçamento já estava no cadastro. Pacote não foi duplicado.");
+              } else {
+                const items = Array.isArray(row.items) ? row.items : [];
+                await createClientEvent({
+                  client_id: client.id,
+                  event_type: "Orçamento aceito",
+                  description: formatOrcamentoMensagem({ nomeCliente: client.name, items, notes: row.notes }),
+                });
+                await audit({
+                  action: "orcamento.aceito",
+                  tableName: "orcamentos",
+                  recordId: row.id,
+                  permissionUsed: "clientes:manage",
+                  metadata: { client_id: client.id, total: totalOrcamento(items) },
+                }).catch(() => {});
+                toast("Orçamento no paciente. Pacotes na aba Pacotes.");
+              }
+              if (pkgs.length) {
+                oferecerAgendaAposAceite(client, pkgs, proceduresList);
+                return;
+              }
+              sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
+              await init();
+            } catch (err) {
+              toast(sqlOrcamentoHint(err), "error");
+            }
+          })();
         }
-        sessionStorage.setItem("clientePerfilOpenTab", "orcamentos");
-        await init();
-      } catch (err) {
-        toast(sqlOrcamentoHint(err), "error");
-      }
+      );
     });
   });
   document.querySelectorAll(".orcamento-recusar").forEach((btn) => {
@@ -1340,6 +1635,53 @@ function bindOrcamentoCardActions(client, orcamentos) {
       }
     });
   });
+}
+
+function openVenderPacoteModal(client, proceduresList = []) {
+  const opts = (proceduresList || [])
+    .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || "")}</option>`)
+    .join("");
+  openModal(
+    "Registrar pacote fechado",
+    `
+    <p class="client-hint">Use quando a pessoa fechou o pacote na hora, sem passar por orçamento. Isso grava as sessões no cadastro.</p>
+    <label for="pacoteVendaNome">Nome do pacote</label>
+    <input type="text" id="pacoteVendaNome" placeholder="Ex.: Pacote peeling 4 sessões" required>
+    <label for="pacoteVendaProc">Procedimento (opcional)</label>
+    <select id="pacoteVendaProc"><option value="">— Nenhum —</option>${opts}</select>
+    <label for="pacoteVendaSessoes">Sessões</label>
+    <input type="number" id="pacoteVendaSessoes" min="1" step="1" value="4">
+    <label for="pacoteVendaValor">Valor pago (R$)</label>
+    <input type="number" id="pacoteVendaValor" min="0" step="0.01" placeholder="0,00">
+    <label for="pacoteVendaValido">Válido até (opcional)</label>
+    <input type="date" id="pacoteVendaValido">
+    `,
+    async () => {
+      const nome = document.getElementById("pacoteVendaNome")?.value?.trim();
+      const sessoes = parseInt(document.getElementById("pacoteVendaSessoes")?.value, 10);
+      if (!nome || !sessoes) {
+        toast("Informe o nome e o número de sessões.");
+        return;
+      }
+      try {
+        await createPacote({
+          client_id: client.id,
+          nome_pacote: nome,
+          procedure_id: document.getElementById("pacoteVendaProc")?.value || null,
+          total_sessoes: sessoes,
+          valor_pago: document.getElementById("pacoteVendaValor")?.value || null,
+          valido_ate: document.getElementById("pacoteVendaValido")?.value || null,
+        });
+        closeModal();
+        toast("Pacote registrado.");
+        sessionStorage.setItem("clientePerfilId", client.id);
+        sessionStorage.setItem("clientePerfilOpenTab", "pacotes");
+        await init();
+      } catch (err) {
+        toast(err?.message || "Não foi possível registrar o pacote.");
+      }
+    }
+  );
 }
 
 function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = []) {
@@ -1364,6 +1706,61 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   };
   document.getElementById("btnAgendarCliente")?.addEventListener("click", goToAgenda);
   document.getElementById("btnAgendarClienteDados")?.addEventListener("click", goToAgenda);
+  document.getElementById("btnCicloAgendarPlano")?.addEventListener("click", () => {
+    const planoId = (document.getElementById("cicloAgendarPlanoSelect")?.value || "").trim();
+    sessionStorage.setItem("agendaPrefillClientId", client.id);
+    if (planoId) sessionStorage.setItem("agendaPrefillPlanoId", planoId);
+    navigate("agenda");
+    toast("Horário com a pessoa e o plano já escolhidos. Confira e salve.");
+  });
+  document.getElementById("btnCicloCombinarPlano")?.addEventListener("click", async () => {
+    const planoId = (document.getElementById("cicloAgendarPlanoSelect")?.value || "").trim();
+    const plano = (cachedPlanosCatalogo || []).find((p) => p.id === planoId);
+    if (!planoId || !plano) {
+      toast("Escolha um plano do catálogo.");
+      return;
+    }
+    if (jaCombinouPlano(cachedCicloFicha?.events, planoId) || (cachedPlanosCliente || []).some((p) => p.id === planoId)) {
+      toast("Este plano já está na ficha. Agende o horário quando quiser.");
+      return;
+    }
+    const payload = payloadPlanoFicha({ clientId: client.id, planoId, nome: plano.nome });
+    if (!payload) {
+      toast("Não foi possível combinar este plano.");
+      return;
+    }
+    try {
+      await createClientEvent(payload);
+      toast("Plano na coluna combinado. Horário continua opcional.");
+      await init();
+    } catch (err) {
+      toast(err?.message || "Não foi possível gravar o plano na ficha.");
+    }
+  });
+  document.getElementById("btnCicloCriarPlano")?.addEventListener("click", () => {
+    sessionStorage.setItem("sc_open_planos", "1");
+    navigate("procedimento");
+  });
+  document.getElementById("btnCicloRegistrarAplicado")?.addEventListener("click", (e) => {
+    const agendaId = e.currentTarget?.dataset?.agendaId || "";
+    if (agendaId) sessionStorage.setItem("agendaOpenSlotId", agendaId);
+    if (agendaId) sessionStorage.setItem("agendaOpenAplicado", "1");
+    navigate("agenda");
+    toast("No horário: registre o que foi aplicado. Isso preenche o feito na ficha e o estoque, se houver material.");
+  });
+  document.getElementById("btnCicloDarBaixa")?.addEventListener("click", (e) => {
+    const agendaId = e.currentTarget?.dataset?.agendaId || "";
+    if (agendaId) sessionStorage.setItem("agendaOpenSlotId", agendaId);
+    navigate("agenda");
+    toast("Confira o recebido neste horário. Nada é lançado sozinho.");
+  });
+  document.getElementById("btnCicloProximaSessao")?.addEventListener("click", (e) => {
+    const data = e.currentTarget?.dataset?.date || "";
+    sessionStorage.setItem("agendaPrefillClientId", client.id);
+    if (data) sessionStorage.setItem("agendaDefaultDate", data);
+    navigate("agenda");
+    toast("Pessoa já vem selecionada. Confira a data sugerida e salve. WhatsApp não sai daqui.");
+  });
 
   document.getElementById("btnLgpdExport")?.addEventListener("click", async () => {
     try {
@@ -1480,13 +1877,7 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   document.getElementById("btnEnviarLinkCadastro")?.addEventListener("click", async () => {
     try {
       const { url } = await createClientPortalSession(client.id);
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        toast("Link copiado! Envie para o cliente acessar o portal e completar o cadastro.");
-      } else {
-        prompt("Copie o link e envie para o cliente:", url);
-        toast("Envie o link para o cliente acessar o portal.");
-      }
+      mostrarLinkPortalCadastro({ url, nome: client.name }, { toast, openModal });
     } catch (err) {
       console.error(err);
       const msg = err?.message || "Erro ao gerar link";
@@ -1499,11 +1890,17 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
     btn.addEventListener("click", () => {
       const tab = btn.dataset.tab;
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".tab-pane").forEach((p) => p.classList.add("hidden"));
+      document.querySelectorAll(".tab-pane").forEach((p) => {
+        p.classList.add("hidden");
+        p.classList.remove("active");
+      });
       btn.classList.add("active");
       const paneId = tab === "dados" ? "tabDados" : tab === "historico" ? "tabHistorico" : tab === "protocolo" ? "tabProtocolo" : tab === "evolucao" ? "tabEvolucao" : tab === "pacotes" ? "tabPacotes" : tab === "orcamentos" ? "tabOrcamentos" : "tabRotinaSkincare";
       const pane = document.getElementById(paneId);
-      if (pane) pane.classList.remove("hidden");
+      if (pane) {
+        pane.classList.remove("hidden");
+        pane.classList.add("active");
+      }
     });
   });
 
@@ -1518,27 +1915,142 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   });
 
   document.getElementById("btnNovoOrcamento")?.addEventListener("click", () => openOrcamentoModal(client, proceduresList));
-  bindOrcamentoCardActions(client, orcamentos);
+  document.getElementById("btnPerfilIrOrcamento")?.addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-tab="orcamentos"]')?.click();
+  });
+  document.getElementById("btnCicloVerProtocolo")?.addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-tab="protocolo"]')?.click();
+    document.getElementById("protocoloDescricao")?.focus();
+  });
+  document.getElementById("btnVenderPacote")?.addEventListener("click", () => openVenderPacoteModal(client, proceduresList));
+  bindOrcamentoCardActions(client, orcamentos, proceduresList);
+
+  function addProdutoLinhaFicha(nome, qty) {
+    const n = String(nome || "").trim();
+    if (!n) return;
+    const listEl = document.getElementById("protocoloProdutosList");
+    const ja = [...(listEl?.querySelectorAll(".protocolo-produto-line") || [])].some(
+      (li) => String(li.dataset.produto || "").trim().toLowerCase() === n.toLowerCase()
+    );
+    if (ja) return;
+    const q = Math.max(0.01, Number(qty) || 1);
+    const li = document.createElement("li");
+    li.className = "protocolo-produto-line";
+    li.dataset.produto = n;
+    li.dataset.quantidade = String(q);
+    li.innerHTML = `<span>${escapeHtml(n)} × ${q}</span> <button type="button" class="btn-sm btn-remove-produto" title="Remover">×</button>`;
+    li.querySelector(".btn-remove-produto")?.addEventListener("click", () => li.remove());
+    listEl?.appendChild(li);
+  }
 
   document.getElementById("btnProtocoloAddProduto")?.addEventListener("click", () => {
     const sel = document.getElementById("protocoloProdutoSelect");
     const qtyEl = document.getElementById("protocoloProdutoQty");
-    const listEl = document.getElementById("protocoloProdutosList");
     const nome = (sel?.value || "").trim();
     if (!nome) {
       toast("Selecione um produto");
       return;
     }
-    const qty = Math.max(0.01, parseFloat(qtyEl?.value) || 1);
-    const li = document.createElement("li");
-    li.className = "protocolo-produto-line";
-    li.dataset.produto = nome;
-    li.dataset.quantidade = String(qty);
-    li.innerHTML = `<span>${escapeHtml(nome)} × ${qty}</span> <button type="button" class="btn-sm btn-remove-produto" title="Remover">×</button>`;
-    li.querySelector(".btn-remove-produto")?.addEventListener("click", () => li.remove());
-    listEl?.appendChild(li);
+    addProdutoLinhaFicha(nome, qtyEl?.value);
     sel.value = "";
-    qtyEl.value = "1";
+    if (qtyEl) qtyEl.value = "1";
+  });
+
+  document.getElementById("btnProtocoloRascunho")?.addEventListener("click", async () => {
+    const ta = document.getElementById("protocoloDescricao");
+    if (ta?.value?.trim()) {
+      toast("O campo já tem texto. Apague se quiser o rascunho.");
+      return;
+    }
+    const protoId = document.getElementById("protocoloSelect")?.value?.trim() || "";
+    const protocolo = (cachedProtocolosFicha || []).find((p) => p.id === protoId) || null;
+    const sessoes = (cachedPlanosCliente || []).flatMap((p) => p.sessoes || []);
+    const texto = textoRascunhoLocal({ protocolo, sessoes });
+    if (texto && ta) ta.value = texto;
+    if (protoId) {
+      const desc = await getDescartaveisByProtocolo(protoId).catch(() => []);
+      for (const p of produtosRascunhoLocal(desc)) addProdutoLinhaFicha(p.produto_nome, p.quantidade);
+    }
+    if (!texto && !protoId) {
+      toast("Escolha um protocolo cadastrado ou tenha receita no plano. Depois confira e registre.");
+      return;
+    }
+    toast("Rascunho no campo. Confira e registre. Nada foi gravado.");
+  });
+
+  function esconderPreviewIa() {
+    const box = document.getElementById("protocoloIaPreview");
+    const pre = document.getElementById("protocoloIaTexto");
+    if (pre) pre.textContent = "";
+    if (box) {
+      box.hidden = true;
+      box.classList.add("hidden");
+    }
+  }
+
+  function mostrarPreviewIa(texto, fonte) {
+    const box = document.getElementById("protocoloIaPreview");
+    const pre = document.getElementById("protocoloIaTexto");
+    const fonteEl = document.getElementById("protocoloIaFonte");
+    if (pre) pre.textContent = texto;
+    if (fonteEl) fonteEl.textContent = fonte;
+    if (box) {
+      box.hidden = false;
+      box.classList.remove("hidden");
+    }
+  }
+
+  document.getElementById("btnProtocoloRascunhoIa")?.addEventListener("click", async () => {
+    if (!cachedCanIaAssist) {
+      toast("Sem permissão para IA auxiliar.");
+      return;
+    }
+    const payload = payloadProtocoloIaFicha({
+      anamnese: cachedCicloFicha.anamnese,
+      analises: cachedCicloFicha.analises,
+      planos: cachedPlanosCliente,
+    });
+    if (!temFonteParaIa(payload)) {
+      toast("IA só sugere com anamnese ou avaliação validada nesta ficha. Não usa rascunho preliminar.");
+      return;
+    }
+    const btn = document.getElementById("btnProtocoloRascunhoIa");
+    if (btn) btn.disabled = true;
+    try {
+      const res = await gerarProtocolo(payload);
+      const texto = textoRascunhoDeIa(res?.content ?? res);
+      if (!texto) {
+        toast("A IA não devolveu um rascunho útil. Nada foi gravado.");
+        return;
+      }
+      mostrarPreviewIa(texto, rotuloFonteIa(payload));
+      toast("Sugestão da IA abaixo do campo. Use ou descarte. Nada foi gravado.");
+    } catch (err) {
+      toast(err?.message || "Não foi possível sugerir com IA.");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  document.getElementById("btnProtocoloIaUsar")?.addEventListener("click", () => {
+    const texto = (document.getElementById("protocoloIaTexto")?.textContent || "").trim();
+    const ta = document.getElementById("protocoloDescricao");
+    if (!texto) {
+      toast("Não há sugestão para usar.");
+      return;
+    }
+    if (ta?.value?.trim()) {
+      toast("O campo já tem texto. Apague se quiser a sugestão da IA.");
+      return;
+    }
+    if (ta) ta.value = texto;
+    esconderPreviewIa();
+    toast("Texto no campo. Confira e clique em Registrar. Preço e estoque não mudam sozinhos.");
+  });
+
+  document.getElementById("btnProtocoloIaDescartar")?.addEventListener("click", () => {
+    esconderPreviewIa();
+    toast("Sugestão descartada. Nada foi gravado.");
   });
 
   document.getElementById("btnRegistrarProtocolo")?.addEventListener("click", async () => {
@@ -1566,7 +2078,7 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
           toast(`Atenção: estoque baixo ou zerado — ${msg}`, "warning");
         }
       }
-      await createProtocoloAplicado({
+      const salvo = await createProtocoloAplicado({
         clientId: client.id,
         protocoloId: protocoloId || undefined,
         agendaId: agendaId || undefined,
@@ -1576,7 +2088,16 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
         produtos_usados,
       });
       if (agendaId) sessionStorage.removeItem("clientePerfilAgendaId");
-      toast("Registro salvo no prontuário do paciente.");
+      if (salvo?.consumo_erros?.length) {
+        toast("Prontuário salvo. O estoque não baixou: " + salvo.consumo_erros.join("; "), "warning");
+      } else if (!produtos_usados.length) {
+        toast("Registro salvo. Nenhum produto de estoque nesta sessão — confira se a baixa de material ficou de fora.");
+      } else {
+        toast("Registro salvo no prontuário do paciente.");
+      }
+      if (agendaId) {
+        toast("Pagamento não é lançado sozinho. Na agenda desta sessão, use Dar baixa.", "info");
+      }
       const [events, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
         getEventsByClient(client.id),
         getSkincareRotinaByClient(client.id).catch(() => null),
@@ -1829,10 +2350,10 @@ function openEditModal(client) {
     ${htmlFotoCadastro(fotoCadastroIds, { existingUrl: client.avatar_url || "" })}
     <label>Nome completo <span class="required">*</span></label>
     <input id="editName" required value="${escapeHtml(client.name || "")}" placeholder="Nome completo">
-    <label>CPF</label>
-    <input id="editCpf" type="text" value="${escapeHtml(cpfFormatted)}" placeholder="000.000.000-00" maxlength="14">
-    <label>Telefone</label>
-    <input id="editPhone" type="tel" value="${escapeHtml(client.phone || "")}" placeholder="(00) 00000-0000" maxlength="15">
+    <label class="field-label" for="editCpf">CPF</label>
+    <input id="editCpf" type="text" value="${escapeHtml(cpfFormatted)}" placeholder="000.000.000-00" maxlength="14" inputmode="numeric" autocomplete="off">
+    <label class="field-label" for="editPhone">Telefone</label>
+    <input id="editPhone" type="tel" value="${escapeHtml(client.phone || "")}" placeholder="(00) 00000-0000" maxlength="15" inputmode="tel">
     <label>E-mail</label>
     <input id="editEmail" type="email" value="${escapeHtml(client.email || "")}" placeholder="email@exemplo.com">
     ${htmlEnderecoCliente("editClient", client)}
@@ -1910,12 +2431,14 @@ function openEditModal(client) {
 
         await updateClient(client.id, updates);
 
+        let photoSigned = null;
         if (photoFile) {
           const orgId = getActiveOrg();
           if (orgId) {
             try {
               const uploaded = await uploadClientPhoto(orgId, client.id, photoFile);
               if (uploaded?.path) await updateClient(client.id, { avatar_url: uploaded.path });
+              photoSigned = uploaded?.url || null;
             } catch (e) {
               console.warn("[Cliente perfil] Upload da foto falhou:", e);
               toast("Cliente atualizado, mas a foto não foi enviada. Verifique o bucket 'client-photos' e RLS no Supabase.");
@@ -1934,6 +2457,9 @@ function openEditModal(client) {
         closeModal();
         toast("Cliente atualizado");
         currentClient = await getClientById(client.id);
+        if (photoSigned && (!currentClient.avatar_url || !/^https?:\/\//i.test(String(currentClient.avatar_url)))) {
+          currentClient = { ...currentClient, avatar_url: photoSigned };
+        }
         const [events, skincareRotina, protocolos, aplicados, registrosAnamnese, evolutionPhotos, proceduresList, resumoEstoque, cpfOther] = await Promise.all([
           getEventsByClient(client.id),
           getSkincareRotinaByClient(client.id).catch(() => null),
@@ -1955,13 +2481,8 @@ function openEditModal(client) {
     fecharCameraEdit
   );
 
-  const cpfInput = document.getElementById("editCpf");
-  if (cpfInput) cpfInput.addEventListener("input", () => maskCpfInput(cpfInput));
-  const phoneInput = document.getElementById("editPhone");
-  if (phoneInput) {
-    phoneInput.addEventListener("input", () => maskPhoneInput(phoneInput));
-    maskPhoneInput(phoneInput); // formata valor inicial ao abrir o modal
-  }
+  bindCpfMask(document.getElementById("editCpf"));
+  bindPhoneMask(document.getElementById("editPhone"));
 
   bindEnderecoCliente("editClient", toast);
   fotoCadastroWire = wireFotoCadastro(fotoCadastroIds, fotoCadastroState, toast);

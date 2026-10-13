@@ -40,8 +40,14 @@ describe("estoque previsto vs real no protocolo", () => {
     const svc = readFileSync(join(ROOT, "js/services/protocolo-db.service.js"), "utf8");
     assert.match(svc, /itensParaConsumoEstoque/);
     assert.match(svc, /registrarConsumoEstimado/);
+    assert.match(svc, /consumo_erros/);
+    const sql = readFileSync(join(ROOT, "supabase/migrations/20261009120000_fase0_protocolo_consumo.sql"), "utf8");
+    assert.match(sql, /estoque_consumo_ao_aplicar_protocolo/);
+    assert.match(sql, /NOT EXISTS/);
+    assert.doesNotMatch(sql, /TO service_role/);
     const view = readFileSync(join(ROOT, "js/views/cliente-perfil.views.js"), "utf8");
     assert.match(view, /compararEstoquePrevistoReal/);
     assert.match(view, /atendimento não trava/);
+    assert.match(view, /estoque não baixou/);
   });
 });

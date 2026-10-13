@@ -26,15 +26,16 @@ export function textoAplicado(a) {
 }
 
 export function nomePlanejado(p) {
-  return String(p?.procedure_name || p?.nome_pacote || "").trim();
+  return String(p?.procedure_name || p?.nome_pacote || p?.nome || "").trim();
 }
 
 /**
  * @returns {{ temDivergencia: boolean, linhas: Array }}
  */
-export function compararPlanoVsAplicado({ pacotes = [], aplicados = [] } = {}) {
+export function compararPlanoVsAplicado({ pacotes = [], planos = [], aplicados = [] } = {}) {
   const linhas = [];
-  for (const p of pacotes || []) {
+  const planejados = [...(pacotes || []), ...(planos || [])];
+  for (const p of planejados) {
     const nome = nomePlanejado(p);
     const used = Number(p.sessoes_utilizadas) || 0;
     if (used <= 0 || !nome) continue;
@@ -48,12 +49,12 @@ export function compararPlanoVsAplicado({ pacotes = [], aplicados = [] } = {}) {
       });
     }
   }
-  const comPlano = (pacotes || []).some((p) => nomePlanejado(p));
+  const comPlano = planejados.some((p) => nomePlanejado(p));
   if (comPlano) {
     for (const a of aplicados || []) {
       const t = textoAplicado(a);
       if (!t) continue;
-      const hit = (pacotes || []).some((p) => nomesCompativeis(nomePlanejado(p), t));
+      const hit = planejados.some((p) => nomesCompativeis(nomePlanejado(p), t));
       if (!hit) {
         const obs = String(a.observacao || "").trim();
         linhas.push({

@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { escolherOrgComPacientes } from "../../js/utils/golden-flow-auth.js";
 
 function plusAlias(email, tag) {
   const e = String(email || "").trim();
@@ -158,6 +159,10 @@ async function main() {
     .eq("user_id", session.user.id);
   if (memErr) throw memErr;
   let orgId = memberships?.[0]?.org_id;
+  try {
+    const picked = await escolherOrgComPacientes(anon);
+    if (picked?.ok && picked.orgId) orgId = picked.orgId;
+  } catch (_) {}
 
   if (!orgId) {
     const { data: org, error: orgErr } = await anon
@@ -178,6 +183,8 @@ async function main() {
 
   const funcEmail = plusAlias(masterEmail, "funcionario");
   const gestCandidates = [plusAlias(masterEmail, "gestor"), plusAlias(masterEmail, "gestorqa")];
+  const recEmail = plusAlias(masterEmail, "recepcao");
+  const profEmail = plusAlias(masterEmail, "profissional");
 
   if (!admin) {
     console.log("Sem SUPABASE_SERVICE_KEY: tentando cadastro público (pode estar desligado).");
@@ -186,9 +193,13 @@ async function main() {
   if (admin) {
     const funcId = await ensureUser(admin, anon, funcEmail, password);
     const gestId = await ensureUser(admin, anon, gestCandidates[0], password);
+    const recId = await ensureUser(admin, anon, recEmail, password);
+    const profId = await ensureUser(admin, anon, profEmail, password);
     const rows = [
       { org_id: orgId, user_id: funcId, role: "staff" },
       { org_id: orgId, user_id: gestId, role: "gestor" },
+      { org_id: orgId, user_id: recId, role: "recepcao" },
+      { org_id: orgId, user_id: profId, role: "profissional" },
     ];
     for (const row of rows) {
       const { error } = await admin.from("organization_users").upsert(row, {
@@ -235,6 +246,10 @@ async function main() {
       );
     }
     gestCandidates[0] = gestEmailUsed;
+    await reloginMaster();
+    await inviteAndJoin(anon, orgId, recEmail, password, "recepcao");
+    await reloginMaster();
+    await inviteAndJoin(anon, orgId, profEmail, password, "profissional");
   }
   const gestEmail = gestCandidates[0];
   upsertEnv(envPath, {
@@ -243,12 +258,18 @@ async function main() {
     QA_PASS_FUNCIONARIO: password,
     QA_EMAIL_GESTOR: gestEmail,
     QA_PASS_GESTOR: password,
+    QA_EMAIL_RECEPCAO: recEmail,
+    QA_PASS_RECEPCAO: password,
+    QA_EMAIL_PROFISSIONAL: profEmail,
+    QA_PASS_PROFISSIONAL: password,
     QA_ORG_ID: orgId,
   });
 
   console.log("OK org", orgId);
   console.log("funcionario", funcEmail);
   console.log("gestor", gestEmail);
+  console.log("recepcao", recEmail);
+  console.log("profissional", profEmail);
   console.log("Senha: a mesma do master (QA_PASS_MASTER).");
 }
 

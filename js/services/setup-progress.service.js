@@ -107,7 +107,8 @@ export async function getSetupProgress() {
     {
       id: "plano",
       ok: nPlanos > 0,
-      view: "planos",
+      view: "procedimento",
+      openPlanos: true,
       minutes: SETUP_STEP_MINUTES.plano,
       label: "1 plano terapêutico (~2 min)",
     },

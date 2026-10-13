@@ -4,6 +4,13 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
+
+function missingAgendaConfig(error) {
+  const msg = String(error?.message || "");
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205" || /agenda_config|does not exist|schema cache/i.test(msg);
+}
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -29,8 +36,7 @@ export async function getAgendaConfig() {
   const { data, error } = await withOrg(
     supabase.from("agenda_config").select("*").single()
   );
-  // Se não existir, retorna defaults
-  if (error && error.code === "PGRST116") {
+  if (error && (error.code === "PGRST116" || missingAgendaConfig(error))) {
     return { ...DEFAULT_CONFIG, org_id: orgId };
   }
   if (error) throw error;
@@ -53,11 +59,16 @@ export async function saveAgendaConfig({
   if (salaObrigatoria !== undefined) payload.sala_obrigatoria = salaObrigatoria;
   if (profissionalObrigatorio !== undefined) payload.profissional_obrigatorio = profissionalObrigatorio;
 
-  const { data, error } = await supabase
-    .from("agenda_config")
-    .upsert(payload, { onConflict: "org_id" })
-    .select()
-    .single();
-  if (error) throw error;
+  const { data, error } = await retryUnknownColumns(
+    payload,
+    (row) => supabase.from("agenda_config").upsert(row, { onConflict: "org_id" }).select().single(),
+    { immutable: ["org_id"] }
+  );
+  if (error) {
+    if (missingAgendaConfig(error)) {
+      throw new Error("Rode o SQL supabase-fase0-empresa-agenda-colar.sql para gravar o respiro da agenda.");
+    }
+    throw error;
+  }
   return data;
 }

@@ -4,6 +4,7 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -31,7 +32,7 @@ export async function listAfazeres(filters = {}) {
   if (filters.responsavelUserId) q = q.eq("responsavel_user_id", filters.responsavelUserId);
   if (filters.tipo) q = q.eq("tipo", filters.tipo);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) return [];
   return data ?? [];
 }
 
@@ -54,9 +55,8 @@ export async function listAfazeresByPrazo(prazoDate, options = {}) {
 
 export async function createAfazer({ responsavelUserId, titulo, descricao, prazo, tipo }) {
   const orgId = getOrgOrThrow();
-  const { data, error } = await supabase
-    .from("afazeres")
-    .insert({
+  const { data, error } = await retryUnknownColumns(
+    {
       org_id: orgId,
       responsavel_user_id: responsavelUserId || null,
       titulo: (titulo || "").trim(),
@@ -64,9 +64,10 @@ export async function createAfazer({ responsavelUserId, titulo, descricao, prazo
       prazo: prazo || null,
       tipo: tipo || "geral",
       status: "pendente",
-    })
-    .select()
-    .single();
+    },
+    (row) => supabase.from("afazeres").insert(row).select().single(),
+    { immutable: ["org_id", "titulo"] }
+  );
   if (error) throw error;
   return data;
 }

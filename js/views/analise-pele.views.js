@@ -10,8 +10,9 @@ import {
   incorporarAnalisePeleNaAnamnese,
 } from "../services/analise-pele.service.js";
 import { toast } from "../ui/toast.js";
+import { navigate } from "../core/spa.js";
 import { apiFetch } from "../core/api-fetch.js";
-import { extractAnalisePeleObjectPath } from "../../lib/analise-pele-storage.js";
+import { extractAnalisePeleObjectPath } from "../utils/analise-pele-storage.js";
 
 const listaEl = document.getElementById("analisePeleLista");
 const detalheEl = document.getElementById("analisePeleDetalhe");
@@ -134,6 +135,11 @@ async function openDetalhe(id) {
             ? "<p class=\"analise-pele-incorporated\">Já incorporada à Anamnese (Pele).</p>"
             : `<button type="button" id="btnIncorporar" class="btn-secondary">${a.status === "validated" ? "Incorporar à Anamnese (Pele)" : "Validar e incorporar à Anamnese (Pele)"}</button>`
         }
+        ${
+          a.client_id
+            ? `<button type="button" id="btnRotinaMarcasCasa" class="btn-secondary">Montar rotina com marcas da casa</button>`
+            : ""
+        }
       </div>
     `;
 
@@ -152,6 +158,13 @@ async function openDetalhe(id) {
       } catch (e) {
         toast(e.message || "Erro ao validar.");
       }
+    });
+
+    document.getElementById("btnRotinaMarcasCasa")?.addEventListener("click", () => {
+      if (!a.client_id) return;
+      sessionStorage.setItem("skincare_client_id", a.client_id);
+      sessionStorage.setItem("skincare_from_profile", "1");
+      navigate("skincare");
     });
 
     const btnIncorporar = document.getElementById("btnIncorporar");

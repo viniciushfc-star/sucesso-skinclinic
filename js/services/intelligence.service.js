@@ -103,6 +103,7 @@ export function buildAttentionInsights({
   analisesPendentes = 0,
   inativos = 0,
   produtosRisco = 0,
+  margemLinha = "",
 } = {}) {
   const out = [];
   if (atrasos > 0) {
@@ -168,7 +169,9 @@ export function buildAttentionInsights({
             ? "1 produto com custo em alta"
             : `${produtosRisco} produtos com custo em alta`,
         causa: "Auditoria registrou aumento de custo de insumo nos últimos 30 dias.",
-        impacto: "Margem do procedimento aperta. O sistema não altera preço.",
+        impacto: margemLinha
+          ? `${margemLinha} O sistema não altera preço.`
+          : "Margem do procedimento aperta. O sistema não altera preço.",
         acao: "Revisar o procedimento",
         fonte: "auditoria estoque.custo_aumentou",
         view: "procedimento",

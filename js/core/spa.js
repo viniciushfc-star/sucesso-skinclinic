@@ -11,8 +11,8 @@ const VIEW_TITLES = {
   dashboard: "Hoje",
   agenda: "Agenda",
   procedimento: "Procedimentos",
-  clientes: "Clientes",
-  "cliente-perfil": "Perfil do cliente",
+  clientes: "Pacientes",
+  "cliente-perfil": "Paciente",
   "profissional-perfil": "Perfil do profissional",
   "market-radar": "Radar de mercado",
   "precificacao-taxas": "Taxas da maquininha",
@@ -26,7 +26,7 @@ const VIEW_TITLES = {
   master: "Configurações",
   copiloto: "Copiloto",
   marketing: "Marketing",
-  crm: "CRM",
+  crm: "Relacionamento",
   "calendario-conteudo": "Calendário de conteúdo",
   estoque: "Estoque",
   ocr: "Notas fiscais",
@@ -113,7 +113,7 @@ const routes = {
   },
   export: {
     view: "export.views.js",
-    permission: "relatorios:view",
+    permission: "clientes:edit",
   },
   master: {
     view: "master.views.js",
@@ -275,11 +275,7 @@ async function init() {
       .then((m) => m.initCopilotPanel?.())
       .catch((e) => console.warn("[SPA] Copilot init:", e));
   }
-  await applyMenuPermissions();
-  await initCadastrarMenu();
-  await initMarketingMenu();
-  await initFinanceiroMenu();
-  await initMenuAnamneseVisibility();
+  await refreshSidebarMenus();
 
   let route = hash || "dashboard";
   if (route === "logs") {
@@ -299,9 +295,10 @@ async function init() {
       }
       await navigate(target);
     } catch (err) {
-      console.warn("[SPA] Bootstrap falhou, tentando rota direta", err);
-      await navigate(route);
+      console.warn("[SPA] Bootstrap falhou, indo para criar clínica", err);
+      redirect("/onboarding.html");
     }
+    await refreshSidebarMenus();
   } else {
     if (route === "onboarding") {
       redirect("/onboarding.html");
@@ -314,6 +311,7 @@ async function init() {
     } else {
       await navigate(route);
     }
+    await refreshSidebarMenus();
   }
 
   // Health check ao carregar: se perfil da org falhar, banner já fica visível (também chamado em carregarView)
@@ -332,6 +330,16 @@ async function init() {
    MENU PERMISSIONS
 ========================= */
 
+async function refreshSidebarMenus() {
+  await applyMenuPermissions();
+  await initCadastrarMenu();
+  await initMarketingMenu();
+  await initFinanceiroMenu();
+  initSidebarGroup("gestaoWrap", "btnGestao", "gestaoSubmenu");
+  initSidebarGroup("inteligenciaWrap", "btnInteligencia", "inteligenciaSubmenu");
+  await initMenuAnamneseVisibility();
+}
+
 async function applyMenuPermissions() {
   const items = document.querySelectorAll("[data-view]");
   const orgId = getActiveOrg();
@@ -339,10 +347,6 @@ async function applyMenuPermissions() {
   for (const item of items) {
     /* Subitens do Cadastrar: tratados em initCadastrarMenu */
     if (item.closest("#cadastrarSubmenu")) continue;
-    /* Subitens do Marketing: tratados em initMarketingMenu */
-    if (item.closest("#marketingSubmenu")) continue;
-    /* Subitens do Financeiro: tratados em initFinanceiroMenu */
-    if (item.closest("#financeiroSubmenu")) continue;
 
     /* Itens dentro do sidebar: não remover, só esconder a linha se sem permissão (mantém layout) */
     const isSidebarItem = item.closest(".sidebar") !== null;
@@ -360,16 +364,11 @@ async function applyMenuPermissions() {
       continue;
     }
 
-    /* Sem org ativa: mantém itens do sidebar visíveis para não deixar menu vazio (ex.: após deploy ou sessão atrasada) */
     let allowed = false;
-    if (isSidebarItem && !orgId) {
-      allowed = true;
-    } else {
-      try {
-        allowed = await checkPermission(route.permission);
-      } catch (_) {
-        allowed = false;
-      }
+    try {
+      allowed = orgId ? await checkPermission(route.permission) : false;
+    } catch (_) {
+      allowed = false;
     }
 
     if (!allowed) {
@@ -384,6 +383,44 @@ async function applyMenuPermissions() {
       if (row) row.classList.remove("menu-item-hidden");
     }
   }
+
+  const finWrap = document.getElementById("financeiroWrap");
+  if (finWrap) {
+    let canFin = false;
+    try {
+      canFin = orgId ? await checkPermission("financeiro:view") : false;
+    } catch (_) {}
+    finWrap.classList.toggle("menu-item-hidden", !canFin);
+  }
+  const mktWrap = document.getElementById("marketingWrap");
+  if (mktWrap) {
+    let canMkt = false;
+    try {
+      canMkt = orgId ? await checkPermission("ia:copilot") : false;
+    } catch (_) {}
+    mktWrap.classList.toggle("menu-item-hidden", !canMkt);
+  }
+}
+
+/**
+ * Grupo colapsável (Gestão, Inteligência). Some se nenhum filho visível.
+ */
+function initSidebarGroup(wrapId, btnId, submenuId) {
+  const wrap = document.getElementById(wrapId);
+  const btn = document.getElementById(btnId);
+  const submenu = document.getElementById(submenuId);
+  if (!wrap || !btn || !submenu) return;
+  const visible = [...submenu.querySelectorAll(":scope > li")].filter((li) => !li.classList.contains("menu-item-hidden"));
+  if (!visible.length) {
+    wrap.classList.add("menu-item-hidden");
+    return;
+  }
+  wrap.classList.remove("menu-item-hidden");
+  submenu.classList.add("sidebar-submenu--collapsed");
+  btn.onclick = () => {
+    submenu.classList.toggle("sidebar-submenu--collapsed");
+    btn.setAttribute("aria-expanded", submenu.classList.contains("sidebar-submenu--collapsed") ? "false" : "true");
+  };
 }
 
 /**
@@ -536,6 +573,18 @@ async function initMenuAnamneseVisibility() {
    NAVEGAÇÃO
 ========================= */
 
+let navGen = 0;
+
+async function importViewFile(file) {
+  const href = `../views/${file}?v=destaque-mercado-1`;
+  try {
+    return await import(href);
+  } catch (err) {
+    if (!/Failed to fetch/i.test(String(err?.message || err))) throw err;
+    return import(`${href}&r=${Date.now()}`);
+  }
+}
+
 export async function navigate(route) {
 
 if (!route || typeof route !== "string") {
@@ -553,6 +602,11 @@ if (!route || typeof route !== "string") {
     return navigate(next);
   }
 
+  if (route === "onboarding") {
+    redirect("/onboarding.html");
+    return;
+  }
+
   const config = routes[route];
 
   if (!config) {
@@ -566,8 +620,10 @@ if (!route || typeof route !== "string") {
   }
 
   // rota pública (onboarding, accept-invite, select-org)
+  const gen = ++navGen;
+
   if (config.permission === null) {
-    await renderRoute(route);
+    await renderRoute(route, gen);
     return;
   }
 
@@ -583,11 +639,13 @@ if (!route || typeof route !== "string") {
   }
 
   if (!allowed) {
+    if (gen !== navGen) return;
     alert("Acesso negado");
     return;
   }
 
-  await renderRoute(route);
+  if (gen !== navGen) return;
+  await renderRoute(route, gen);
 }
 
 /* =========================
@@ -595,13 +653,15 @@ if (!route || typeof route !== "string") {
 ========================= */
 
 
-async function renderRoute(route) {
+async function renderRoute(route, gen = navGen) {
+  if (gen !== navGen) return;
   const overlay = document.getElementById("viewLoadingOverlay");
   if (overlay) {
     overlay.classList.remove("hidden");
     overlay.setAttribute("aria-busy", "true");
   }
   hideAllViews();
+  if (gen !== navGen) return;
   showView(route);
   /* Financeiro: definir aba antes de setActive para o menu lateral marcar o subitem certo */
   if (route === "financeiro") {
@@ -614,36 +674,38 @@ async function renderRoute(route) {
   }
   setActive(route);
   try {
-    await carregarView(route);
+    await carregarView(route, gen);
   } finally {
-    if (overlay) {
+    if (gen === navGen && overlay) {
       overlay.classList.add("hidden");
       overlay.setAttribute("aria-busy", "false");
     }
-    const main = document.getElementById("mainContent");
-    if (main && typeof main.focus === "function") {
-      try { main.focus({ preventScroll: true }); } catch (_) { main.focus(); }
+    if (gen === navGen) {
+      const main = document.getElementById("mainContent");
+      if (main && typeof main.focus === "function") {
+        try { main.focus({ preventScroll: true }); } catch (_) { main.focus(); }
+      }
     }
   }
-  history.pushState({}, "", `#${route}`);
+  if (gen === navGen) history.pushState({}, "", `#${route}`);
 }
 
 /* =========================
    CARREGAR VIEW
 ========================= */
 
-async function carregarView(viewName) {
+async function carregarView(viewName, gen = navGen) {
   const config = routes[viewName];
   if (!config?.view) return;
 
   try {
-    const module = await import(
-      `../views/${config.view}`
-    );
+    const module = await importViewFile(config.view);
+    if (gen !== navGen) return;
 
     if (module?.init) {
       await module.init();
     }
+    if (gen !== navGen) return;
 
     if (config?.permission !== null) {
       const notif = await import("../views/notificacoes.views.js").catch(() => null);
@@ -667,6 +729,7 @@ async function carregarView(viewName) {
       });
     }
   } catch (err) {
+    if (gen !== navGen) return;
     console.error("Erro ao carregar view:", err?.message || err, "(view:", viewName, "| arquivo:", config?.view + ")");
     const host = document.getElementById(`view-${viewName}`) || document.getElementById("mainContent");
     if (host) {
@@ -822,6 +885,35 @@ function setActive(view) {
       btnFinanceiro.classList.remove("parent-active");
     }
   }
+
+  const gestaoViews = ["procedimento", "estoque", "team", "export", "financeiro", "market-radar", "precificacao-taxas"];
+  const intelViews = ["copiloto", "marketing", "calendario-conteudo"];
+  const gestaoSub = document.getElementById("gestaoSubmenu");
+  const btnGestao = document.getElementById("btnGestao");
+  if (gestaoSub && btnGestao) {
+    if (gestaoViews.includes(view)) {
+      gestaoSub.classList.remove("sidebar-submenu--collapsed");
+      btnGestao.setAttribute("aria-expanded", "true");
+      btnGestao.classList.add("parent-active");
+    } else {
+      gestaoSub.classList.add("sidebar-submenu--collapsed");
+      btnGestao.setAttribute("aria-expanded", "false");
+      btnGestao.classList.remove("parent-active");
+    }
+  }
+  const intelSub = document.getElementById("inteligenciaSubmenu");
+  const btnIntel = document.getElementById("btnInteligencia");
+  if (intelSub && btnIntel) {
+    if (intelViews.includes(view)) {
+      intelSub.classList.remove("sidebar-submenu--collapsed");
+      btnIntel.setAttribute("aria-expanded", "true");
+      btnIntel.classList.add("parent-active");
+    } else {
+      intelSub.classList.add("sidebar-submenu--collapsed");
+      btnIntel.setAttribute("aria-expanded", "false");
+      btnIntel.classList.remove("parent-active");
+    }
+  }
 }
 
 /* =========================
@@ -836,6 +928,12 @@ function bindMenu() {
     e.stopPropagation();
     if (el.dataset.financeiroTab && typeof sessionStorage !== "undefined") {
       sessionStorage.setItem("financeiro_open_tab", el.dataset.financeiroTab);
+    }
+    if (el.dataset.crmSection && typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("crm_open_section", el.dataset.crmSection);
+    }
+    if (el.dataset.openPlanos && typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("sc_open_planos", "1");
     }
     await navigate(el.dataset.view);
   });

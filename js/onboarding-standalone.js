@@ -48,6 +48,22 @@ async function init() {
 
   if (!form || !input) return;
 
+  const vv = window.visualViewport;
+  const applyKeyboard = () => {
+    const keyboard = vv
+      ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      : 0;
+    document.documentElement.style.setProperty("--sc-vv-offset", `${keyboard}px`);
+    if (document.activeElement === input) {
+      input.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+  };
+  if (vv) {
+    vv.addEventListener("resize", applyKeyboard);
+    vv.addEventListener("scroll", applyKeyboard);
+  }
+  input.addEventListener("focus", () => setTimeout(applyKeyboard, 80));
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = (input.value || "").trim();
@@ -65,7 +81,13 @@ async function init() {
       redirect("/dashboard.html");
     } catch (err) {
       console.error("[ONBOARDING]", err);
-      showError(userFacingError(err, "Erro ao criar clínica. Tente de novo."));
+      let msg = userFacingError(err, "Erro ao criar clínica. Tente de novo.");
+      const raw = String(err?.message || "");
+      if (/row-level|42501|create_clinic|permission denied/i.test(raw)) {
+        msg =
+          "O banco ainda não deixa criar clínica. No Supabase → SQL Editor, cole e rode o arquivo supabase-fase0-criar-clinica-colar.sql. Depois tente de novo.";
+      }
+      showError(msg);
       if (btn) btn.disabled = false;
     }
   });

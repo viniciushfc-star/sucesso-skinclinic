@@ -19,6 +19,9 @@ import { toast }
 import { showLoader, hideLoader }
   from "../ui/loader.js";
 
+import { bindCpfMask }
+  from "../utils/input-masks.js";
+
 /* =========================
    ELEMENTOS
 ========================= */
@@ -52,8 +55,34 @@ function init() {
   bindRegister();
   bindGoogle();
   bindPasswordToggles();
+  bindKeyboardSafeArea();
+  bindCpfMask(cpfInput);
   if (btnRegister) btnRegister.addEventListener("click", () => modal?.classList.remove("hidden"));
   if (closeBtn) closeBtn.addEventListener("click", () => modal?.classList.add("hidden"));
+}
+
+/** Mantém o campo visível quando o teclado do celular abre. */
+function bindKeyboardSafeArea() {
+  const vv = window.visualViewport;
+  const apply = () => {
+    const keyboard = vv
+      ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      : 0;
+    document.documentElement.style.setProperty("--sc-vv-offset", `${keyboard}px`);
+    const el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) {
+      try {
+        el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+      } catch (_) {
+        el.scrollIntoView(true);
+      }
+    }
+  };
+  if (vv) {
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+  }
+  document.addEventListener("focusin", () => setTimeout(apply, 80));
 }
 
 if (document.readyState === "loading") {
@@ -104,13 +133,11 @@ function bindLogin() {
         passwordInput.value
       );
 
-      // 🔹 LOGIN BEM-SUCEDIDO (sessão válida)
-     if (!data) {
+      if (!data) {
          throw new Error("Falha ao autenticar usuário");
        }
 
-
-      // 🔹 DECISÃO DE FLUXO CENTRALIZADA
+      clearActiveOrg();
       const result = await bootstrapAfterLogin();
 
       if (result.next === "dashboard" || result.next === "agenda") {
@@ -174,19 +201,27 @@ function bindRegister() {
         throw new Error("A senha precisa ter pelo menos 6 caracteres.");
       }
 
-      await registerEmail(
+      const created = await registerEmail(
         nameInput.value,
         cpfInput.value,
         regEmailInput.value,
         pass
       );
 
-      const ok = "Conta criada. Se o projeto exigir confirmação, abra o e-mail (e o spam) antes de entrar.";
+      if (created?.session) {
+        clearActiveOrg();
+        toast("Conta criada. Agora dê um nome à clínica.", "success");
+        redirect("/onboarding.html");
+        return;
+      }
+
+      const ok = "Conta criada. Confirme o e-mail (e o spam) e entre de novo — em seguida criamos a clínica.";
       toast(ok, "success", 6000);
       if (msgEl) {
         msgEl.style.color = "#15803d";
         msgEl.textContent = ok;
       }
+      if (emailInput && regEmailInput) emailInput.value = regEmailInput.value;
       modal.classList.add("hidden");
 
     } catch (err) {

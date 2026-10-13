@@ -33,8 +33,9 @@ export async function applyPermissions() {
 
   log("info", "Aplicando role", role);
 
-  /* REMOVE ÁREA ADMIN */
-  if (role !== "admin") {
+  /* Configurações: dono da clínica é master (legado: admin) */
+  const isOwner = role === "master" || role === "admin";
+  if (!isOwner) {
    document
     .querySelectorAll(".admin-only")
     .forEach(el => el.remove());

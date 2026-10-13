@@ -15,7 +15,9 @@ import { sendWhatsapp }
 from "../services/whatsapp.service.js"
 
 import { getActiveOrg, withOrg } from "../core/org.js"
-import { listClientesForSelect } from "../services/clientes.service.js"
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js"
+import { listClientesForSelect, createClient } from "../services/clientes.service.js"
+import { bindPhoneMask } from "../utils/input-masks.js"
 
 import {
  listAppointmentsByDate,
@@ -36,25 +38,33 @@ import {
 
 import { listSalas, listSalasQueSuportamTipo } from "../services/salas.service.js"
 import { getAgendaConfig } from "../services/agenda-config.service.js"
-import { getProcedure } from "../services/procedimentos.service.js"
+import { getProcedure, getProcedureStockUsage, listProcedures } from "../services/procedimentos.service.js"
+import { resumoAluguelNaAgenda, textoAluguelNaAgenda } from "../utils/aluguel-dia.js"
+import {
+  custoMedioPorNomeFromResumo,
+  custoRealFromBaixaLinhas,
+  labelUnidadeQtd,
+  linhaBaixaFromUsage,
+  quantidadeConsumoBaixa,
+} from "../utils/estoque-custo.js"
 import { getProfessionalIdsWhoCanDoProcedure } from "../services/professional-procedures.service.js"
 
 import { getOrgMembers } from "../core/org.js"
 
 import { audit } from "../services/audit.service.js"
 
-import { listProcedures } from "../services/procedimentos.service.js"
 import { listPlanosTerapeuticos } from "../services/planos-terapeuticos.service.js"
 import { buildPlanoAgendaSlots, expandPlanoSessoes } from "../utils/plano-agenda.js"
 
 import { navigate } from "../core/spa.js"
 import { redirect } from "../core/base-path.js"
 
-import { getEntradasByAgendaId } from "../services/financeiro.service.js"
+import { getEntradasByAgendaId, createLancamento } from "../services/financeiro.service.js"
 
 import { listPacotesComSaldoByClient, consumirSessao } from "../services/pacotes.service.js"
 import { createClientEvent } from "../services/client-events.service.js"
 import { payloadCombinadoConsulta } from "../utils/consulta-combinado.js"
+import { payloadSessaoProntuario } from "../utils/prontuario-sessao.js"
 import { sugerirPacoteNaAgenda, valorFinanceiroNaBaixa, sugerirProximaAcaoNaBaixa } from "../utils/ciclo-ouro.js"
 import { previstoVsRealizado } from "../utils/comissao-apuracao.js"
 import { economiaSessaoPacote, textoEconomiaSessao } from "../utils/pacote-consumo-economia.js"
@@ -69,7 +79,7 @@ import {
 import { createConfirmation } from "../services/confirmations.service.js"
 import { getAniversariantes } from "../services/clientes.service.js"
 import { getProtocolos, getProtocolosAplicadosByAgendaId, createProtocoloAplicado, getAlertaEstoqueProtocolo } from "../services/protocolo-db.service.js"
-import { getCustoRealProcedimento, getResumoPorProduto } from "../services/estoque-entradas.service.js"
+import { getCustoRealProcedimento, getResumoPorProduto, registrarConsumoEstimado } from "../services/estoque-entradas.service.js"
 import { getTaxas, getTaxaForParcelas } from "../services/precificacao-taxas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
@@ -77,6 +87,7 @@ import { importarLote, getTemplateHeaders } from "../services/importacao-lote.se
 import { listAfazeresByPrazo } from "../services/afazeres.service.js"
 import { listWaitlist } from "../services/waitlist.service.js"
 import { matchWaitlistToSlot } from "../utils/espera-encaixe.js"
+import { proximaAcaoDoHorario } from "../utils/sala-espera.js"
 import { filaWhatsappTemplate } from "../utils/crm-fila.js"
 import { occupyProfessionalCalendar } from "../services/google-calendar.service.js"
 import { rotuloLembrete, origemLembreteWhatsapp } from "../utils/confirmacao-tentativa.js"
@@ -116,13 +127,35 @@ function ensureAgendaPanel() {
 
 export async function init() {
   ensureAgendaPanel()
-  selectedDate = getTodayStr()
-  const t = new Date()
-  calendarYear = t.getFullYear()
-  calendarMonth = t.getMonth() + 1
+  const prefDate = sessionStorage.getItem("agendaDefaultDate")
+  sessionStorage.removeItem("agendaDefaultDate")
+  if (prefDate && /^\d{4}-\d{2}-\d{2}$/.test(prefDate)) {
+    selectedDate = prefDate
+    calendarYear = Number(prefDate.slice(0, 4))
+    calendarMonth = Number(prefDate.slice(5, 7))
+  } else {
+    selectedDate = getTodayStr()
+    const t = new Date()
+    calendarYear = t.getFullYear()
+    calendarMonth = t.getMonth() + 1
+  }
   bindUI()
   getOrgMembers().catch(() => {})
-  renderCalendarAndDay().catch((err) => {
+  const openSlotId = sessionStorage.getItem("agendaOpenSlotId")
+  const openAplicado = sessionStorage.getItem("agendaOpenAplicado") === "1"
+  sessionStorage.removeItem("agendaOpenSlotId")
+  sessionStorage.removeItem("agendaOpenAplicado")
+  renderCalendarAndDay()
+    .then(async () => {
+      if (!openSlotId) return
+      await openSlotPanel(openSlotId)
+      if (!openAplicado) return
+      const item = await getAgendaItemById(openSlotId)
+      if (!item || item.item_type === "event") return
+      closeSlotPanel()
+      await openRegistrarProtocoloAgendaModal(item)
+    })
+    .catch((err) => {
     console.error("[AGENDA] erro render", err)
     toast("Erro ao carregar agenda")
   })
@@ -228,8 +261,9 @@ async function renderCalendarAndDay() {
 
     if (filtroEl && filtroEl.options.length <= 1) {
       const members = await getOrgMembers()
+      const uid = await agendaUserId()
       const opts = (members || []).map((m, i) => {
-        const label = memberLabel(m, i)
+        const label = memberLabel(m, i, uid)
         return `<option value="${m.user_id}">${String(label).replace(/</g, "&lt;")}</option>`
       })
       filtroEl.innerHTML = "<option value=\"\">Todos</option>" + opts.join("")
@@ -340,14 +374,124 @@ const WEEK_END_HOUR = 20
 const WEEK_DAY_COUNT = 6
 const ROLE_AGENDA = { master: "Administrador", gestor: "Gestor", recepcao: "Recepção", profissional: "Profissional", funcionario: "Equipe", staff: "Colaborador", viewer: "Visualização" }
 
-function memberLabel(m, i = 0) {
+async function agendaUserId() {
+  const { data } = await supabase.auth.getUser()
+  return data?.user?.id || ""
+}
+
+function profPrimeiroNome(members, userId) {
+  const m = (members || []).find((x) => x.user_id === userId)
+  const full = String(m?.display_name || "").trim()
+  if (full) return full.split(/\s+/)[0]
+  return ""
+}
+
+function memberLabel(m, i = 0, currentUserId = "") {
+  const name = String(m?.display_name || "").trim()
+  if (name) return m?.user_id === currentUserId ? `${name} (você)` : name
   const role = ROLE_AGENDA[m?.role] || m?.role || `Profissional ${i + 1}`
-  const short = String(m?.user_id || "").slice(0, 6)
-  return short ? `${role} · ${short}` : role
+  if (m?.user_id && m.user_id === currentUserId) return `${role} (você)`
+  return role
+}
+
+function htmlQuemVendeuSelect(members, currentUserId, selectedId = "") {
+  const opts = (members || []).map((m, i) => {
+    const sel = selectedId && m.user_id === selectedId ? " selected" : ""
+    return `<option value="${m.user_id}"${sel}>${escapeHtml(memberLabel(m, i, currentUserId))}</option>`
+  }).join("")
+  return `
+   <label for="soldByUser">Quem vendeu (opcional)</label>
+   <select id="soldByUser">
+    <option value="">A mesma que aplica</option>
+    ${opts}
+   </select>
+   <p class="form-hint">Quem fechou com a paciente. Quem aplica é o campo Profissional acima. Não muda preço e não paga sozinho.</p>`
+}
+
+function readSoldByUserId() {
+  const v = document.getElementById("soldByUser")?.value?.trim() || ""
+  return v || null
+}
+
+function nomeMembroPorId(members, userId, currentUserId = "") {
+  if (!userId) return ""
+  const list = members || []
+  const i = list.findIndex((m) => m.user_id === userId)
+  if (i < 0) return ""
+  return memberLabel(list[i], i, currentUserId)
 }
 
 function escapeHtml(s) {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+}
+
+function htmlWeekAptBlock(apt, { showProf = false, members = [] } = {}) {
+  const cliente = apt.clientes || apt.clients || {}
+  const isEvent = apt.item_type === "event"
+  const nome = isEvent ? apt.event_title || "Evento" : cliente.nome || cliente.name || "—"
+  const proc = isEvent ? apt.event_type || "" : apt.procedimento || ""
+  const kind = isEvent ? "event" : "ok"
+  const horaTxt = String(apt.hora || "").slice(0, 5)
+  const prof = showProf && !isEvent ? profPrimeiroNome(members, apt.user_id) : ""
+  const retorno = !isEvent && apt.is_retorno ? " agenda-week-block--retorno" : ""
+  const sub = [proc, prof].filter(Boolean).join(" · ")
+  return `<button type="button" class="agenda-week-block agenda-week-block--${kind}${retorno}" data-id="${apt.id}">
+            <b>${escapeHtml(horaTxt)} ${escapeHtml(nome)}</b>
+            <span>${escapeHtml(sub)}</span>
+          </button>`
+}
+
+function htmlWeekOcupado(b) {
+  const ini = new Date(b.start_at)
+  const fim = new Date(b.end_at)
+  const t0 = `${String(ini.getHours()).padStart(2, "0")}:${String(ini.getMinutes()).padStart(2, "0")}`
+  const t1 = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`
+  return `<span class="agenda-week-block agenda-week-block--ocupado" title="Agenda pessoal — sem detalhes">
+            <b>${escapeHtml(labelOcupadoPessoal())}</b>
+            <span>${t0}–${t1}</span>
+          </span>`
+}
+
+function weekDayStripHtml(start) {
+  const dayNames = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+  let html = `<div class="agenda-week-daystrip" role="tablist" aria-label="Dia da semana">`
+  for (let i = 0; i < WEEK_DAY_COUNT; i++) {
+    const ds = addDaysStr(start, i)
+    const [, m, d] = ds.split("-")
+    const isSelected = ds === selectedDate
+    const isToday = ds === getTodayStr()
+    html += `<button type="button" class="agenda-week-head${isSelected ? " is-selected" : ""}${isToday ? " is-today" : ""}" data-date="${ds}" role="tab" aria-selected="${isSelected ? "true" : "false"}">${dayNames[i]} <span>${d}/${m}</span></button>`
+  }
+  html += `</div>`
+  return html
+}
+
+function bindWeekGridClicks(grid, { bindDayHeads = true } = {}) {
+  if (bindDayHeads) {
+    grid.querySelectorAll(".agenda-week-head[data-date]").forEach((btn) => {
+      btn.onclick = () => {
+        selectedDate = btn.dataset.date
+        renderCalendarAndDay()
+      }
+    })
+  }
+  grid.querySelectorAll(".agenda-week-block").forEach((el) => {
+    el.onclick = (e) => {
+      e.stopPropagation()
+      if (!el.dataset.id) return
+      openSlotPanel(el.dataset.id)
+    }
+  })
+  grid.querySelectorAll(".agenda-week-cell").forEach((cell) => {
+    cell.onclick = () => {
+      if (cell.dataset.date) selectedDate = cell.dataset.date
+      openCreateModal({
+        hora: cell.dataset.hour,
+        professionalId: cell.dataset.userId || undefined,
+        date: cell.dataset.date || selectedDate,
+      })
+    }
+  })
 }
 
 function formatConflitoHtml(c, extraLabel) {
@@ -379,6 +523,7 @@ async function renderWeekGrid(professionalId = null) {
 
   let items = []
   let externals = []
+  const members = await getOrgMembers().catch(() => [])
   try {
     items = await listAppointmentsByRange(start, end, professionalId)
     if (professionalId) {
@@ -396,8 +541,55 @@ async function renderWeekGrid(professionalId = null) {
     ;(byDate[row.data] ||= []).push(row)
   }
 
-  const dayNames = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+  const hint = document.querySelector(".agenda-week-hint")
+  const cols = !professionalId ? (members || []).filter((m) => m.user_id) : []
+  const dayItems = byDate[selectedDate] || []
+  if (cols.length && dayItems.some((a) => !a.user_id)) {
+    cols.push({ user_id: "", display_name: "Clínica" })
+  }
+  const useProfCols = !professionalId && cols.length > 0
+
+  if (hint) {
+    hint.textContent = useProfCols
+      ? "Cada coluna é uma profissional deste dia. Clique no vazio da coluna para marcar nela. Clique no bloco para ficha, WhatsApp e baixa."
+      : "Clique no vazio para marcar. Clique no bloco para ficha, WhatsApp e baixa. Filtre o profissional no topo."
+  }
+  grid.classList.toggle("agenda-week--cols", useProfCols)
+  grid.setAttribute("aria-label", useProfCols ? "Agenda do dia por profissional" : "Agenda da semana")
+
+  if (useProfCols) {
+    const n = cols.length
+    grid.style.setProperty("--agenda-cols", String(n))
+    let html = weekDayStripHtml(start)
+    html += `<div class="agenda-week-row agenda-week-row--head agenda-week-row--prof"><span class="agenda-week-gutter"></span>`
+    const uid = await agendaUserId()
+    const colLabels = cols.map((m, i) => profPrimeiroNome([m], m.user_id) || memberLabel(m, i, uid))
+    colLabels.forEach((label) => {
+      html += `<span class="agenda-week-colh">${escapeHtml(label)}</span>`
+    })
+    html += `</div>`
+    for (let h = WEEK_START_HOUR; h <= WEEK_END_HOUR; h++) {
+      const hh = String(h).padStart(2, "0")
+      html += `<div class="agenda-week-row agenda-week-row--prof"><span class="agenda-week-gutter">${hh}:00</span>`
+      cols.forEach((m, i) => {
+        const hourItems = dayItems.filter((apt) => {
+          if (Math.floor(parseHoraToMinutes(apt.hora) / 60) !== h) return false
+          return String(apt.user_id || "") === String(m.user_id || "")
+        })
+        const clinicBlocks = hourItems.map((apt) => htmlWeekAptBlock(apt, { showProf: false, members })).join("")
+        const livre = clinicBlocks ? "" : " Livre"
+        html += `<div class="agenda-week-cell" data-date="${selectedDate}" data-hour="${hh}:00" data-user-id="${escapeHtml(m.user_id || "")}" aria-label="${escapeHtml(colLabels[i])} ${hh}:00${livre}">${clinicBlocks}</div>`
+      })
+      html += `</div>`
+    }
+    grid.innerHTML = html
+    bindWeekGridClicks(grid)
+    return items
+  }
+
+  grid.style.removeProperty("--agenda-cols")
   let html = `<div class="agenda-week-row agenda-week-row--head"><span class="agenda-week-gutter"></span>`
+  const dayNames = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
   for (let i = 0; i < WEEK_DAY_COUNT; i++) {
     const ds = addDaysStr(start, i)
     const [, m, d] = ds.split("-")
@@ -415,32 +607,10 @@ async function renderWeekGrid(professionalId = null) {
       const hourStart = new Date(`${ds}T${hh}:00:00`)
       const hourEnd = new Date(hourStart.getTime() + 60 * 60000)
       const hourItems = (byDate[ds] || []).filter((apt) => Math.floor(parseHoraToMinutes(apt.hora) / 60) === h)
-      const clinicBlocks = hourItems
-        .map((apt) => {
-          const cliente = apt.clientes || apt.clients || {}
-          const isEvent = apt.item_type === "event"
-          const nome = isEvent ? apt.event_title || "Evento" : cliente.nome || cliente.name || "—"
-          const proc = isEvent ? apt.event_type || "" : apt.procedimento || ""
-          const kind = isEvent ? "event" : "ok"
-          const horaTxt = String(apt.hora || "").slice(0, 5)
-          return `<button type="button" class="agenda-week-block agenda-week-block--${kind}" data-id="${apt.id}">
-            <b>${escapeHtml(horaTxt)} ${escapeHtml(nome)}</b>
-            <span>${escapeHtml(proc)}</span>
-          </button>`
-        })
-        .join("")
+      const clinicBlocks = hourItems.map((apt) => htmlWeekAptBlock(apt, { showProf: !professionalId, members })).join("")
       const ocupados = (externals || [])
         .filter((b) => rangesOverlap(hourStart.getTime(), hourEnd.getTime(), new Date(b.start_at).getTime(), new Date(b.end_at).getTime()))
-        .map((b) => {
-          const ini = new Date(b.start_at)
-          const fim = new Date(b.end_at)
-          const t0 = `${String(ini.getHours()).padStart(2, "0")}:${String(ini.getMinutes()).padStart(2, "0")}`
-          const t1 = `${String(fim.getHours()).padStart(2, "0")}:${String(fim.getMinutes()).padStart(2, "0")}`
-          return `<span class="agenda-week-block agenda-week-block--ocupado" title="Agenda pessoal — sem detalhes">
-            <b>${escapeHtml(labelOcupadoPessoal())}</b>
-            <span>${t0}–${t1}</span>
-          </span>`
-        })
+        .map((b) => htmlWeekOcupado(b))
         .join("")
       html += `<div class="agenda-week-cell" data-date="${ds}" data-hour="${hh}:00">${clinicBlocks}${ocupados}</div>`
     }
@@ -448,26 +618,7 @@ async function renderWeekGrid(professionalId = null) {
   }
 
   grid.innerHTML = html
-
-  grid.querySelectorAll(".agenda-week-head").forEach((btn) => {
-    btn.onclick = () => {
-      selectedDate = btn.dataset.date
-      renderCalendarAndDay()
-    }
-  })
-  grid.querySelectorAll(".agenda-week-block").forEach((el) => {
-    el.onclick = (e) => {
-      e.stopPropagation()
-      if (!el.dataset.id) return
-      openSlotPanel(el.dataset.id)
-    }
-  })
-  grid.querySelectorAll(".agenda-week-cell").forEach((cell) => {
-    cell.onclick = () => {
-      selectedDate = cell.dataset.date
-      openCreateModal({ hora: cell.dataset.hour })
-    }
-  })
+  bindWeekGridClicks(grid)
   return items
 }
 
@@ -513,12 +664,14 @@ function renderDayList(date, professionalId = null, weekItems = null) {
   Promise.all([
     appointmentsP,
     professionalId ? listExternalBlocksForRange(date, date, professionalId).catch(() => []) : Promise.resolve([]),
+    listProcedures(true).catch(() => []),
   ])
-    .then(([data, externals]) => {
+    .then(async ([data, externals, procedures]) => {
       const cliente = (a) => a.clientes || a.clients || {}
       const hora = (a) => a.hora ?? ""
       const isEvent = (a) => a.item_type === "event"
       const items = data || []
+      const members = !professionalId ? await getOrgMembers().catch(() => []) : []
 
       if (items.length === 0 && !(externals || []).length) {
         listaAgenda.innerHTML = `
@@ -536,6 +689,8 @@ function renderDayList(date, professionalId = null, weekItems = null) {
             ? (a.event_title || "Evento")
             : (cliente(a).nome || cliente(a).name || "—")
           const proc = isEvent(a) ? (a.event_type || "") : (a.procedimento || "")
+          const prof = !professionalId && !isEvent(a) ? profPrimeiroNome(members, a.user_id) : ""
+          const linha = [proc, prof, a.is_retorno ? "retorno" : ""].filter(Boolean).join(" · ")
           return `
     <div class="calendar-event agenda-day-row ${isEvent(a) ? "calendar-event--event" : "calendar-event--procedure"} ${a.is_retorno ? "calendar-event--retorno" : ""}"
          data-id="${a.id}"
@@ -544,7 +699,7 @@ function renderDayList(date, professionalId = null, weekItems = null) {
       <div class="agenda-day-row-time">${escapeHtml(hora(a))}</div>
       <div class="agenda-day-row-main">
         <strong>${escapeHtml(nome)}</strong>
-        <span>${escapeHtml(proc)}${a.is_retorno ? " · retorno" : ""}</span>
+        <span>${escapeHtml(linha)}</span>
       </div>
       <div class="calendar-event-block-actions">
         ${htmlAcoesLembrete(a)}
@@ -567,7 +722,11 @@ function renderDayList(date, professionalId = null, weekItems = null) {
     </div>`
       }).join("")
 
-      listaAgenda.innerHTML = `<div class="agenda-day-list">${rows}${ocupadoRows}</div>`
+      const aluguelTxt = textoAluguelNaAgenda(resumoAluguelNaAgenda(items, procedures))
+      const aluguelBanner = aluguelTxt
+        ? `<p class="agenda-aluguel-dia">${escapeHtml(aluguelTxt)}</p>`
+        : ""
+      listaAgenda.innerHTML = `${aluguelBanner}<div class="agenda-day-list">${rows}${ocupadoRows}</div>`
 
       bindEditEvents()
       bindLembreteButtons(items, date)
@@ -891,12 +1050,18 @@ async function openCreateModal(opts = {}){
  }
  const prefillClient = opts.clientId || sessionStorage.getItem("agendaPrefillClientId") || ""
  if (sessionStorage.getItem("agendaPrefillClientId")) sessionStorage.removeItem("agendaPrefillClientId")
+ const prefillPlano = opts.planoId || sessionStorage.getItem("agendaPrefillPlanoId") || ""
+ if (sessionStorage.getItem("agendaPrefillPlanoId")) sessionStorage.removeItem("agendaPrefillPlanoId")
 
  const members = await getOrgMembers()
+ const uid = await agendaUserId()
  const profOptions = (members || []).map((m, i) => {
-  const label = memberLabel(m, i)
+  const label = memberLabel(m, i, uid)
   return `<option value="${m.user_id}">${label}</option>`
  }).join("")
+ const profHint = (members || []).length < 2
+  ? `<p class="form-hint">Se a profissional já aceitou o convite e não aparece, rode no Supabase o arquivo supabase-equipe-agenda-membros-colar.sql.</p>`
+  : ""
 
  // Carregar salas
  let salas = []
@@ -948,15 +1113,25 @@ async function openCreateModal(opts = {}){
     <option value="">Selecione o profissional…</option>
     ${profOptions}
    </select>
+   ${profHint}
    <p id="agendaProfStatus" class="agenda-prof-status" aria-live="polite"></p>
+   ${htmlQuemVendeuSelect(members, uid, opts.soldByUserId || "")}
 
-   <label for="cliente">Cliente</label>
+   <label for="cliente">Paciente</label>
    <select id="cliente">
-    <option value="">Selecione o cliente…</option>
+    <option value="">Selecione o paciente…</option>
     ${(clientes || []).map(c=>`
      <option value="${c.id}" ${c.id === prefillClient ? "selected" : ""} data-modelo="${c.is_paciente_modelo ? "1" : "0"}" data-discount="${c.model_discount_pct != null ? c.model_discount_pct : ""}">${(c.nome || c.name || "").replace(/</g, "&lt;")}${c.is_paciente_modelo ? " (modelo)" : ""}</option>
     `).join("")}
    </select>
+   <button type="button" class="btn-link" id="btnAgendaNovoPaciente">Cadastrar paciente agora</button>
+   <div id="agendaNovoPacienteWrap" class="hidden agenda-novo-paciente">
+    <label for="agendaNovoNome">Nome</label>
+    <input type="text" id="agendaNovoNome" autocomplete="name">
+    <label class="field-label" for="agendaNovoPhone">WhatsApp</label>
+    <input type="tel" id="agendaNovoPhone" inputmode="tel" placeholder="(00) 00000-0000" maxlength="15">
+    <button type="button" class="btn-secondary" id="btnAgendaSalvarPaciente">Salvar paciente</button>
+   </div>
    <div id="agendaModeloWrap" class="agenda-modelo-wrap hidden">
     <p class="agenda-modelo-title">Paciente modelo</p>
     <label><input type="checkbox" id="agendaAplicarDescontoModelo" checked> Aplicar desconto modelo neste agendamento</label>
@@ -1028,6 +1203,7 @@ async function openCreateModal(opts = {}){
  if (clienteSelect) {
   clienteSelect.addEventListener("change", updateModeloWrap)
   updateModeloWrap()
+  bindAgendaCadastroRapido(clienteSelect)
  }
 
  const planoEl = document.getElementById("agendaPlano")
@@ -1085,6 +1261,15 @@ async function openCreateModal(opts = {}){
  })
  if (procEl) procEl.addEventListener("change", () => preencherEsperaEncaixeNoModal())
 
+ if (prefillPlano && planoEl) {
+  const hasPlano = [...planoEl.options].some((o) => o.value === prefillPlano)
+  if (hasPlano) {
+   planoEl.value = prefillPlano
+   const mais = document.querySelector(".agenda-modal-mais")
+   if (mais) mais.open = true
+   refreshPlanoPreview()
+  }
+ }
  if (opts.procedureId && procCatalogEl) {
   procCatalogEl.value = opts.procedureId
   if (typeof procCatalogEl.onchange === "function") await procCatalogEl.onchange()
@@ -1102,6 +1287,38 @@ async function openCreateModal(opts = {}){
  }
 }
 
+function bindAgendaCadastroRapido(clienteSelect) {
+  const wrap = document.getElementById("agendaNovoPacienteWrap")
+  bindPhoneMask(document.getElementById("agendaNovoPhone"))
+  document.getElementById("btnAgendaNovoPaciente")?.addEventListener("click", (e) => {
+    e.preventDefault()
+    wrap?.classList.toggle("hidden")
+  })
+  document.getElementById("btnAgendaSalvarPaciente")?.addEventListener("click", async (e) => {
+    e.preventDefault()
+    const name = document.getElementById("agendaNovoNome")?.value?.trim()
+    const phone = document.getElementById("agendaNovoPhone")?.value?.trim()
+    if (!name || !phone) {
+      toast("Nome e WhatsApp para cadastrar neste horário.")
+      return
+    }
+    try {
+      const c = await createClient({ name, phone })
+      if (!clienteSelect || !c?.id) return
+      const opt = document.createElement("option")
+      opt.value = c.id
+      opt.textContent = c.name || name
+      opt.selected = true
+      clienteSelect.appendChild(opt)
+      wrap?.classList.add("hidden")
+      clienteSelect.dispatchEvent(new Event("change"))
+      toast("Paciente cadastrado. Confira o horário e salve.")
+    } catch (err) {
+      toast(err?.message || "Não foi possível cadastrar.")
+    }
+  })
+}
+
 /** Filtra dropdowns de sala e profissional pelo procedimento selecionado (sala suporta tipo; profissional realiza). */
 async function filterSalasAndProfsByProcedure(procedureId, salaEl, profEl, salas, members) {
   if (!salaEl || !profEl) return
@@ -1109,21 +1326,32 @@ async function filterSalasAndProfsByProcedure(procedureId, salaEl, profEl, salas
   const allMembers = members || []
   const emptyOptionSala = '<option value="">Selecione a sala…</option>'
   const emptyOptionProf = '<option value="">Selecione o profissional…</option>'
+  const uid = await agendaUserId()
   if (!procedureId || procedureId.trim() === "") {
     salaEl.innerHTML = emptyOptionSala + allSalas.map(s => `<option value="${s.id}">${(s.nome || "").replace(/</g, "&lt;")}</option>`).join("")
     profEl.innerHTML = emptyOptionProf + allMembers.map((m, i) => {
-      return `<option value="${m.user_id}">${memberLabel(m, i)}</option>`
+      return `<option value="${m.user_id}">${memberLabel(m, i, uid)}</option>`
     }).join("")
     return
   }
-  const proc = await getProcedure(procedureId)
-  const tipo = proc?.tipo_procedimento || null
-  const salasFiltradas = tipo ? await listSalasQueSuportamTipo(tipo) : allSalas
-  const profIds = await getProfessionalIdsWhoCanDoProcedure(procedureId)
+  let salasFiltradas = allSalas
+  try {
+    const proc = await getProcedure(procedureId)
+    const tipo = proc?.tipo_procedimento || null
+    if (tipo) salasFiltradas = await listSalasQueSuportamTipo(tipo)
+  } catch (_) {
+    salasFiltradas = allSalas
+  }
+  let profIds = null
+  try {
+    profIds = await getProfessionalIdsWhoCanDoProcedure(procedureId)
+  } catch (_) {
+    profIds = null
+  }
   const membersFiltrados = profIds && profIds.length > 0 ? allMembers.filter(m => profIds.includes(m.user_id)) : allMembers
   salaEl.innerHTML = emptyOptionSala + salasFiltradas.map(s => `<option value="${s.id}">${(s.nome || "").replace(/</g, "&lt;")}</option>`).join("")
   profEl.innerHTML = emptyOptionProf + membersFiltrados.map((m, i) => {
-    return `<option value="${m.user_id}">${memberLabel(m, i)}</option>`
+    return `<option value="${m.user_id}">${memberLabel(m, i, uid)}</option>`
   }).join("")
 }
 
@@ -1142,10 +1370,11 @@ async function refreshDisponiveis(dataEl, horaEl, profEl, salaEl, procDurationEl
  msg.textContent = "Verificando…"
  try {
   const members = await getOrgMembers()
+  const uid = await agendaUserId()
   const ids = await getAvailableProfessionals(date, time, duration, procedureId)
   const profNames = ids.map(id => {
    const m = members.find(m => m.user_id === id)
-   return m?.role || (id || "").slice(0, 8) + "…"
+   return m ? memberLabel(m, 0, uid) : (id || "").slice(0, 8) + "…"
   })
   const salasDisponiveis = await getAvailableSalas(date, time, duration, null, procedureId)
   const salaNames = salasDisponiveis.map(s => s.nome)
@@ -1285,6 +1514,17 @@ async function openSlotPanel(id){
   const primeiraBaixa = baixasJaRegistradas[0]
   const valorBaixa = primeiraBaixa && (primeiraBaixa.valor_recebido != null && primeiraBaixa.valor_recebido !== "" ? Number(primeiraBaixa.valor_recebido) : Number(primeiraBaixa.valor))
   const dataBaixaFmt = primeiraBaixa && primeiraBaixa.data ? new Date(primeiraBaixa.data + "T12:00:00").toLocaleDateString("pt-BR") : ""
+  const acao = proximaAcaoDoHorario(item, { temBaixa })
+  const proximaHtml = !isEvent && !temBaixa
+    ? `<div class="agenda-panel__proxima">
+        <p class="agenda-panel__proxima-kicker">Próxima ação</p>
+        <p class="agenda-panel__hint">${escapeHtml(acao.hint)}</p>
+        ${acao.primary === "chegou" ? `<button type="button" class="btn-primary" id="agendaPanelBtnChegou">Chegou</button>` : ""}
+        ${acao.primary === "atendimento" ? `<button type="button" class="btn-primary" id="agendaPanelBtnAtendimento">Em atendimento</button>` : ""}
+        ${acao.primary === "baixa" ? `<button type="button" class="btn-primary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão">Registrar o que foi aplicado</button>
+        <button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
+      </div>`
+    : ""
   const baixaRegistradaHtml = temBaixa
    ? `<div class="agenda-panel__baixa-ja-registrada">
        <p class="agenda-panel__baixa-ja-msg">Baixa já registrada${dataBaixaFmt ? ` em ${dataBaixaFmt}` : ""}: R$ ${(valorBaixa || 0).toFixed(2).replace(".", ",")}</p>
@@ -1292,6 +1532,16 @@ async function openSlotPanel(id){
        <a href="#" data-view="financeiro" class="agenda-panel__link-financeiro">Ver no Financeiro</a>
       </div>`
    : ""
+
+  const membersPainel = await getOrgMembers().catch(() => [])
+  const uidPainel = await agendaUserId()
+  const nomeAplica = nomeMembroPorId(membersPainel, item.user_id, uidPainel)
+  const nomeVendeu = nomeMembroPorId(membersPainel, item.sold_by_user_id, uidPainel)
+  const papeisHtml = !isEvent && (nomeAplica || nomeVendeu)
+    ? `<p class="agenda-panel__hint">${nomeVendeu && item.sold_by_user_id && item.sold_by_user_id !== item.user_id
+      ? `Vendeu: ${escapeHtml(nomeVendeu)} · Aplica: ${escapeHtml(nomeAplica || "—")}`
+      : (nomeAplica ? `Profissional: ${escapeHtml(nomeAplica)}` : "")}</p>`
+    : ""
 
   let resumoHtml = ""
   if (!isEvent && clientId) {
@@ -1321,22 +1571,25 @@ async function openSlotPanel(id){
      <p class="agenda-panel__client-label">Cliente</p>
      <p class="agenda-panel__client">${(cliente.nome || cliente.name || "—").replace(/</g, "&lt;")}</p>
      <p class="agenda-panel__procedure">${(item.procedimento || "—").replace(/</g, "&lt;")}</p>
+     ${papeisHtml}
      ${item.plano_id && item.sessao_plano && item.sessoes_plano ? `<p class="agenda-panel__hint">Plano: sessão ${item.sessao_plano} de ${item.sessoes_plano}</p>` : ""}
      ${(cliente.telefone || cliente.phone) ? `<p class="agenda-panel__phone">${String(cliente.telefone || cliente.phone).replace(/</g, "&lt;")}</p>` : ""}
      ${resumoHtml}
-    <p class="agenda-panel__hint">Anamnese e histórico completo: abra o perfil do cliente.</p>
+    ${proximaHtml}
     ${baixaRegistradaHtml}
-    <button type="button" class="btn-primary agenda-panel__btn-profile" id="agendaPanelBtnProfile">Abrir perfil do cliente (e Anamnese)</button>
-    <button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão, sem abrir o perfil inteiro">Registrar o que foi aplicado</button>
-    ${protocolosDestaAgenda.length ? `<p class="agenda-panel__hint">Já há ${protocolosDestaAgenda.length} registro(s) de protocolo nesta sessão.</p>` : `<p class="agenda-panel__hint">Registro rápido do método aplicado nesta sessão. Não é promoção.</p>`}
-    ${!temBaixa ? `<button type="button" class="btn-primary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa" title="Procedimento realizado: registrar forma de pagamento e valor">Dar baixa (registrar pagamento)</button>` : ""}
-    ${!isEvent ? `<button type="button" class="btn-secondary" id="agendaPanelBtnCancelar">Cancelar horário</button>` : ""}
-    ${!isEvent ? `<div class="agenda-panel__sala-espera">
-      <p class="agenda-panel__hint">Sala de espera (sem WhatsApp automático)</p>
-      <button type="button" class="btn-secondary" id="agendaPanelBtnChegou">Chegou</button>
-      <button type="button" class="btn-secondary" id="agendaPanelBtnAtendimento">Em atendimento</button>
-    </div>` : ""}
-    <button type="button" class="btn-secondary" id="agendaPanelBtnReview">Pedir avaliação no Google</button>
+    ${protocolosDestaAgenda.length ? `<p class="agenda-panel__hint">Já há ${protocolosDestaAgenda.length} registro(s) de protocolo nesta sessão.</p>` : ""}
+    <details class="agenda-panel__mais">
+      <summary>Outras ações</summary>
+      <p class="agenda-panel__hint">Anamnese e histórico completo: abra o perfil do cliente.</p>
+      <button type="button" class="btn-secondary agenda-panel__btn-profile" id="agendaPanelBtnProfile">Abrir perfil do cliente (e Anamnese)</button>
+      ${clientId ? `<button type="button" class="btn-secondary" id="agendaPanelBtnOrcamento">Orçamento</button>` : ""}
+      ${acao.primary !== "baixa" ? `<button type="button" class="btn-secondary agenda-panel__btn-protocolo" id="agendaPanelBtnProtocolo" title="Registrar o que foi aplicado nesta sessão">Registrar o que foi aplicado</button>` : ""}
+      ${!temBaixa && acao.primary !== "baixa" ? `<button type="button" class="btn-secondary agenda-panel__btn-baixa" id="agendaPanelBtnBaixa">Dar baixa (registrar pagamento)</button>` : ""}
+      ${!isEvent && !temBaixa && acao.primary !== "chegou" ? `<button type="button" class="btn-secondary" id="agendaPanelBtnChegou">Chegou</button>` : ""}
+      ${!isEvent && !temBaixa && acao.primary !== "atendimento" ? `<button type="button" class="btn-secondary" id="agendaPanelBtnAtendimento">Em atendimento</button>` : ""}
+      ${!isEvent ? `<button type="button" class="btn-secondary" id="agendaPanelBtnCancelar">Cancelar horário</button>` : ""}
+      <button type="button" class="btn-secondary" id="agendaPanelBtnReview">Pedir avaliação no Google</button>
+    </details>
      `
      }
      <button type="button" class="btn-secondary agenda-panel__btn-edit" id="agendaPanelBtnEdit">Editar</button>
@@ -1356,6 +1609,15 @@ async function openSlotPanel(id){
     sessionStorage.setItem("anamnese_agenda_id", item.id)
     sessionStorage.setItem("anamnese_client_id", clientId)
     sessionStorage.setItem("anamnese_procedimento", item.procedimento || "")
+    closeSlotPanel()
+    navigate("cliente-perfil")
+   }
+  }
+  const btnOrcamento = document.getElementById("agendaPanelBtnOrcamento")
+  if (btnOrcamento && clientId) {
+   btnOrcamento.onclick = () => {
+    sessionStorage.setItem("clientePerfilId", clientId)
+    sessionStorage.setItem("clientePerfilOpenTab", "orcamentos")
     closeSlotPanel()
     navigate("cliente-perfil")
    }
@@ -1452,8 +1714,9 @@ async function openEditModal(id){
   }
 
   const members = await getOrgMembers()
+  const uidEdit = await agendaUserId()
   const profOptionsEdit = (members || []).map((m, i) => {
-   const label = memberLabel(m, i)
+   const label = memberLabel(m, i, uidEdit)
    const sel = data.user_id === m.user_id ? " selected" : ""
    return `<option value="${m.user_id}"${sel}>${label}</option>`
   }).join("")
@@ -1505,6 +1768,7 @@ async function openEditModal(id){
      ${profOptionsEdit}
     </select>
     <p id="agendaProfStatus" class="agenda-prof-status" aria-live="polite"></p>
+    ${htmlQuemVendeuSelect(members, uidEdit, data.sold_by_user_id || "")}
 
     <label for="cliente">Cliente</label>
     <select id="cliente">
@@ -1664,6 +1928,85 @@ async function pedirAvaliacaoGoogle(item, { silenciosoSeVazio = false } = {}) {
   toast("Pedido de avaliação no WhatsApp.")
 }
 
+function receitaBaixaLinhaHtml(linha, nomesEstoque) {
+  const skuOpts = ["<option value=\"\">— produto do estoque —</option>"]
+    .concat((nomesEstoque || []).map((n) => {
+      const sel = !linha.vaga && linha.nome && n === linha.nome ? " selected" : ""
+      return `<option value="${escapeHtml(n)}"${sel}>${escapeHtml(n)}</option>`
+    }))
+    .join("")
+  const titulo = linha.vaga
+    ? `${escapeHtml(linha.papel || "item")} (escolhe no dia)`
+    : escapeHtml(linha.nome || "Produto")
+  const usa = linha.usa != null ? linha.usa : ""
+  const rende = linha.rende != null ? linha.rende : ""
+  const un = escapeHtml(labelUnidadeQtd(linha.unidade, linha.usa))
+  return `<li class="protocolo-produto-line baixa-receita-line" data-vaga="${linha.vaga ? "1" : "0"}" data-unidade="${escapeHtml(linha.unidade || "un")}">
+    <span class="baixa-receita-papel">${titulo}${un ? ` · ${un}` : ""}</span>
+    <select class="baixa-receita-sku" aria-label="Produto">${skuOpts}</select>
+    <label class="baixa-receita-mini">Usa<input type="number" class="baixa-receita-usa" min="0" step="any" value="${usa}" placeholder="Nesta ficha"></label>
+    <label class="baixa-receita-mini">Cabe<input type="number" class="baixa-receita-rende" min="0" step="any" value="${rende}" placeholder="Embalagem"></label>
+    <button type="button" class="btn-sm btn-remove-produto" aria-label="Remover">×</button>
+  </li>`
+}
+
+function preencherReceitaNaLista(listEl, usage, nomesEstoque) {
+  if (!listEl) return
+  const linhas = (usage || []).map((u) => linhaBaixaFromUsage(u)).filter((l) => l.vaga || l.nome)
+  if (!linhas.length) return
+  listEl.insertAdjacentHTML("afterbegin", linhas.map((l) => receitaBaixaLinhaHtml(l, nomesEstoque)).join(""))
+  listEl.querySelectorAll(".btn-remove-produto").forEach((btn) => {
+    btn.onclick = () => btn.closest("li")?.remove()
+  })
+}
+
+async function garantirAplicadoNoProntuario(item, { produtos = [], observacao = "", intercorrencia = "" } = {}) {
+  const clientId = item.client_id || item.cliente_id || item.clients?.id
+  if (!clientId) return false
+  const ja = await getProtocolosAplicadosByAgendaId(item.id).catch(() => [])
+  if (ja && ja.length) return false
+  const inter = String(intercorrencia || "").trim()
+  const obs = [String(observacao || "").trim(), inter ? `Intercorrência: ${inter}` : ""].filter(Boolean).join("\n")
+  const descricao = String(item.procedimento || "Procedimento").trim()
+  await createProtocoloAplicado({
+    clientId,
+    agendaId: item.id,
+    descricao,
+    observacao: obs || undefined,
+    aplicado_em: item.data ? `${item.data}T12:00:00.000Z` : undefined,
+    produtos_usados: produtos,
+  })
+  return true
+}
+
+async function registrarEventoSessaoProntuario(item, { produtos = [], intercorrencia = "" } = {}) {
+  const clientId = item.client_id || item.cliente_id || item.clients?.id
+  if (!clientId) return
+  const payload = payloadSessaoProntuario({
+    procedimento: item.procedimento,
+    produtos,
+    intercorrencia,
+    agendaId: item.id,
+    procedureId: item.procedure_id,
+  })
+  if (!payload) return
+  await createClientEvent({ client_id: clientId, ...payload })
+}
+
+function collectReceitaBaixaLinhas(root) {
+  const out = []
+  root?.querySelectorAll(".baixa-receita-line").forEach((li) => {
+    const sku = (li.querySelector(".baixa-receita-sku")?.value || "").trim()
+    if (!sku) return
+    const usa = Number(li.querySelector(".baixa-receita-usa")?.value)
+    const rende = Number(li.querySelector(".baixa-receita-rende")?.value)
+    const q = quantidadeConsumoBaixa({ usa, rende })
+    if (q == null) return
+    out.push({ produto_nome: sku, quantidade: q })
+  })
+  return out
+}
+
 /** Modal "Dar baixa": valor vem do procedimento (agenda); acréscimo só se produto a mais / outro procedimento. Opção de descontar 1 sessão de pacote. */
 async function openRegistrarProtocoloAgendaModal(item) {
   const clientId = item.cliente_id || item.client_id
@@ -1678,12 +2021,16 @@ async function openRegistrarProtocoloAgendaModal(item) {
   let protocolos = []
   let produtosEstoque = []
   let jaAplicados = []
+  let usageReceita = []
   try { protocolos = await getProtocolos() } catch (_) {}
   try {
     const resumo = await getResumoPorProduto()
     produtosEstoque = (resumo || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b))
   } catch (_) {}
   try { jaAplicados = await getProtocolosAplicadosByAgendaId(item.id) } catch (_) {}
+  if (item.procedure_id) {
+    try { usageReceita = await getProcedureStockUsage(item.procedure_id) } catch (_) { usageReceita = [] }
+  }
 
   const hist = jaAplicados.length
     ? `<ul class="protocolo-produtos-list">${jaAplicados.map((a) => {
@@ -1696,7 +2043,7 @@ async function openRegistrarProtocoloAgendaModal(item) {
   openModal(
     "Registrar o que foi aplicado",
     `
-    <p class="agenda-baixa-hint">Sessão de <strong>${nomeCliente}</strong> em ${escapeHtml(dataAtend)}. Método + histórico; não é promoção. O sistema não bloqueia se o estoque estiver baixo.</p>
+    <p class="agenda-baixa-hint">Sessão de <strong>${nomeCliente}</strong> em ${escapeHtml(dataAtend)}. A receita desta ficha vem preenchida; você confirma ou altera no dia. Vaga sem produto não baixa estoque. O sistema não bloqueia se o estoque estiver baixo.</p>
     <p class="agenda-baixa-hint">Já nesta sessão:</p>
     ${hist}
     <label for="agendaProtocoloDescricao">O que foi feito</label>
@@ -1719,10 +2066,15 @@ async function openRegistrarProtocoloAgendaModal(item) {
     <p class="agenda-baixa-hint">Se escolher um protocolo, os descartáveis cadastrados entram no consumo estimado (sem bloquear o atendimento).</p>
     <label for="agendaProtocoloObservacao">Observação (opcional)</label>
     <textarea id="agendaProtocoloObservacao" rows="2" placeholder="Ex.: área, reação…"></textarea>
+    <label for="agendaProtocoloIntercorrencia">Intercorrência nesta sessão (opcional)</label>
+    <textarea id="agendaProtocoloIntercorrencia" rows="2" placeholder="Reação, efeito adverso, o que ficou registrado na ficha"></textarea>
+    <p class="agenda-baixa-hint">Isso vai para o prontuário do paciente (histórico e respaldo). Não some no próximo procedimento.</p>
     <p class="agenda-baixa-hint"><button type="button" class="btn-link" id="agendaProtocoloAbrirFicha">Abrir ficha completa do cliente</button></p>
     `,
     () => submitRegistrarProtocoloAgenda(item)
   )
+
+  preencherReceitaNaLista(document.getElementById("agendaProtocoloProdutosList"), usageReceita, produtosEstoque)
 
   document.getElementById("agendaProtocoloAddProduto")?.addEventListener("click", (e) => {
     e.preventDefault()
@@ -1761,8 +2113,9 @@ async function submitRegistrarProtocoloAgenda(item) {
   const protocoloId = document.getElementById("agendaProtocoloSelect")?.value?.trim() || null
   const descricao = document.getElementById("agendaProtocoloDescricao")?.value?.trim() || ""
   const observacao = document.getElementById("agendaProtocoloObservacao")?.value?.trim() || ""
-  const produtos_usados = []
-  document.getElementById("agendaProtocoloProdutosList")?.querySelectorAll(".protocolo-produto-line").forEach((li) => {
+  const intercorrencia = document.getElementById("agendaProtocoloIntercorrencia")?.value?.trim() || ""
+  const produtos_usados = collectReceitaBaixaLinhas(document.getElementById("agendaProtocoloProdutosList"))
+  document.getElementById("agendaProtocoloProdutosList")?.querySelectorAll(".protocolo-produto-line:not(.baixa-receita-line)").forEach((li) => {
     const nome = (li.dataset.produto || "").trim()
     if (nome) produtos_usados.push({ produto_nome: nome, quantidade: parseFloat(li.dataset.quantidade) || 1 })
   })
@@ -1779,17 +2132,35 @@ async function submitRegistrarProtocoloAgenda(item) {
       }
     }
     const aplicado_em = item.data ? `${item.data}T12:00:00.000Z` : undefined
-    await createProtocoloAplicado({
+    const obs = [observacao, intercorrencia ? `Intercorrência: ${intercorrencia}` : ""].filter(Boolean).join("\n")
+    const salvo = await createProtocoloAplicado({
       clientId,
       protocoloId: protocoloId || undefined,
       agendaId: item.id,
-      observacao,
-      descricao,
+      observacao: obs || undefined,
+      descricao: descricao || item.procedimento || "Procedimento",
       aplicado_em,
       produtos_usados,
     })
+    try {
+      await registrarEventoSessaoProntuario(item, { produtos: produtos_usados, intercorrencia })
+    } catch (e) {
+      console.warn("[AGENDA] evento prontuario", e)
+    }
     closeModal()
-    toast("Registro salvo no prontuário desta sessão.")
+    if (salvo?.consumo_erros?.length) {
+      toast("Prontuário salvo. O estoque não baixou: " + salvo.consumo_erros.join("; "), "warning")
+    } else {
+      toast("Registro salvo no prontuário desta sessão.")
+    }
+    const jaTemBaixa = await getEntradasByAgendaId(item.id).then((r) => r.length > 0).catch(() => false)
+    if (!jaTemBaixa && !item.is_retorno) {
+      await openDarBaixaModal(item)
+    } else if (clientId) {
+      sessionStorage.setItem("clientePerfilId", clientId)
+      sessionStorage.setItem("clientePerfilOpenTab", "protocolo")
+      navigate("cliente-perfil")
+    }
   } catch (err) {
     console.error("[AGENDA] protocolo aplicado", err)
     toast(err?.message || "Erro ao registrar")
@@ -1839,10 +2210,19 @@ async function openDarBaixaModal(item) {
   let procedure = null
   let custoRealInfo = { custoReal: null, incompleto: false }
   let taxasOrg = null
+  let usageReceita = []
+  let produtosEstoque = []
+  let custosMap = {}
   if (item.procedure_id) {
     try { procedure = await getProcedure(item.procedure_id) } catch (_) {}
     try { custoRealInfo = await getCustoRealProcedimento(item.procedure_id) } catch (_) {}
+    try { usageReceita = await getProcedureStockUsage(item.procedure_id) } catch (_) { usageReceita = [] }
   }
+  try {
+    const resumo = await getResumoPorProduto()
+    produtosEstoque = (resumo || []).map((r) => (r.produto_nome || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b))
+    custosMap = custoMedioPorNomeFromResumo(resumo)
+  } catch (_) {}
   try { taxasOrg = await getTaxas() } catch (_) { taxasOrg = null }
   let valorProcedimento = procedure?.valor_cobrado != null && procedure?.valor_cobrado !== "" ? Number(procedure.valor_cobrado) : null
   if (valorProcedimento != null && item.is_modelo_agendamento && item.desconto_modelo_pct != null) {
@@ -1868,7 +2248,13 @@ async function openDarBaixaModal(item) {
   openModal(
     "Dar baixa — Registrar pagamento",
     `
-    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. Se usar pacote, o financeiro registra o valor da sessão, não o preço cheio. A fórmula usa insumo real do estoque quando existir. Simular desconto ou parcela não muda o catálogo. O atendimento não trava.</p>
+    <p class="agenda-baixa-hint">Cliente e procedimento vêm da agenda. O que confirmar nos materiais entra no prontuário da ficha. Se usar pacote, o financeiro registra o valor da sessão, não o preço cheio. Vaga sem produto não baixa. Simular desconto não muda o catálogo.</p>
+    <div id="baixaReceitaWrap" class="agenda-baixa-receita"${usageReceita.length ? "" : " hidden"}>
+      <p class="agenda-baixa-hint"><strong>Materiais desta sessão</strong> (desta ficha; editável — vai para o prontuário)</p>
+      <ul id="baixaReceitaList" class="protocolo-produtos-list"></ul>
+    </div>
+    <label for="baixaIntercorrencia">Intercorrência nesta sessão (opcional)</label>
+    <textarea id="baixaIntercorrencia" rows="2" placeholder="Reação ou efeito adverso — fica na ficha para o próximo procedimento"></textarea>
     ${blocoPacote}
     <p id="baixaEconomiaHint" class="agenda-baixa-economia"></p>
     <label for="baixaDesc">Descrição</label>
@@ -1904,6 +2290,8 @@ async function openDarBaixaModal(item) {
     () => submitDarBaixa(item)
   )
 
+  preencherReceitaNaLista(document.getElementById("baixaReceitaList"), usageReceita, produtosEstoque)
+
   const pacoteEl = document.getElementById("baixaPacoteId")
   const economiaEl = document.getElementById("baixaEconomiaHint")
   const simEl = document.getElementById("baixaSimulacaoHint")
@@ -1911,10 +2299,21 @@ async function openDarBaixaModal(item) {
     const opt = pacoteEl?.selectedOptions?.[0]
     const estimadoPacote = opt?.dataset?.custo === "" ? null : opt?.dataset?.custo
     const estimadoProc = procedure?.custo_material_estimado
+    const estimado = estimadoPacote != null && estimadoPacote !== "" ? estimadoPacote : estimadoProc
+    const linhas = collectReceitaBaixaLinhas(document.getElementById("baixaReceitaList"))
+    if (linhas.length) {
+      const dia = custoRealFromBaixaLinhas(linhas, custosMap)
+      return escolherCustoMaterial({
+        real: dia.custoReal,
+        incompleto: dia.incompleto,
+        estimado,
+        fonteReal: "sessao",
+      })
+    }
     return escolherCustoMaterial({
       real: custoRealInfo?.custoReal,
       incompleto: custoRealInfo?.incompleto,
-      estimado: estimadoPacote != null && estimadoPacote !== "" ? estimadoPacote : estimadoProc,
+      estimado,
     })
   }
   const taxaFormaAtual = () => {
@@ -1974,6 +2373,8 @@ async function openDarBaixaModal(item) {
   document.getElementById("baixaSimDesconto")?.addEventListener("input", refreshBaixaNumeros)
   document.getElementById("baixaSimParcelas")?.addEventListener("change", refreshBaixaNumeros)
   pacoteEl?.addEventListener("change", refreshBaixaNumeros)
+  document.getElementById("baixaReceitaList")?.addEventListener("input", refreshBaixaNumeros)
+  document.getElementById("baixaReceitaList")?.addEventListener("change", refreshBaixaNumeros)
   refreshBaixaNumeros()
 }
 
@@ -2029,11 +2430,46 @@ async function submitDarBaixa(item) {
     if (vr !== "" && vr != null && !isNaN(Number(vr))) payload.valor_recebido = Number(vr)
 
     if (valor > 0) {
-      const { error } = await supabase
-        .from("financeiro")
-        .insert(payload)
-        .select("id")
-      if (error) throw error
+      await createLancamento(payload)
+    }
+
+    let extraEstoque = ""
+    try {
+      const jaAplicados = await getProtocolosAplicadosByAgendaId(item.id).catch(() => [])
+      const linhas = collectReceitaBaixaLinhas(document.getElementById("baixaReceitaList"))
+      if (linhas.length && !(jaAplicados && jaAplicados.length)) {
+        const erros = []
+        for (const p of linhas) {
+          try {
+            await registrarConsumoEstimado({
+              produto_nome: p.produto_nome,
+              quantidade: p.quantidade,
+              agenda_id: item.id,
+              procedure_id: item.procedure_id,
+              tipo: "estimado",
+            })
+          } catch (e) {
+            erros.push(`${p.produto_nome}: ${e?.message || "não gravou"}`)
+          }
+        }
+        extraEstoque = erros.length
+          ? " Estoque: " + erros.join("; ")
+          : " Materiais da ficha baixados no estoque (quantidade confirmada)."
+      }
+    } catch (_) {}
+
+    let extraProntuario = ""
+    try {
+      const produtosPront = collectReceitaBaixaLinhas(document.getElementById("baixaReceitaList"))
+      const intercorrencia = document.getElementById("baixaIntercorrencia")?.value?.trim() || ""
+      const criou = await garantirAplicadoNoProntuario(item, { produtos: produtosPront, intercorrencia })
+      if (criou || intercorrencia) {
+        await registrarEventoSessaoProntuario(item, { produtos: produtosPront, intercorrencia })
+      }
+      extraProntuario = " Registro na ficha do paciente."
+    } catch (e) {
+      console.warn("[AGENDA] prontuario sessao", e)
+      extraProntuario = " Não gravou no prontuário: " + (e?.message || "abra a ficha do paciente.")
     }
 
     const aberto = previstoVsRealizado({ valor, valorRecebido: payload.valor_recebido })
@@ -2059,13 +2495,13 @@ async function submitDarBaixa(item) {
         sessoesRestantes = cons.sessoes_restantes ?? 0
         toast((cons.already
           ? "Esta sessão do pacote já tinha sido descontada neste horário."
-          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada.")) + extraAberto + extraEco)
+          : (valor > 0 ? "Sessão do pacote descontada e valor da sessão no financeiro." : "Sessão do pacote descontada.")) + extraAberto + extraEco + extraEstoque + extraProntuario)
       } catch (e) {
         console.warn("[AGENDA] consumirSessao", e)
         toast("Erro ao descontar sessão do pacote: " + (e?.message || "tente no perfil do cliente."))
       }
     } else {
-      toast("Pagamento registrado. Entrada criada no Financeiro." + extraAberto)
+      toast("Pagamento registrado. Entrada criada no Financeiro." + extraAberto + extraEstoque + extraProntuario)
     }
 
     await audit({
@@ -2151,29 +2587,11 @@ async function oferecerProximaSessaoAposBaixa(item, sessoesRestantes) {
 }
 
 async function insertAgendaRow(payload) {
-  let { data, error } = await supabase.from("agenda").insert(payload).select("id").single()
-  if (error && /plano_id|sessao_plano|sessoes_plano/i.test(error.message || "")) {
-    const fallback = { ...payload }
-    delete fallback.plano_id
-    delete fallback.sessao_plano
-    delete fallback.sessoes_plano
-    const retry = await supabase.from("agenda").insert(fallback).select("id").single()
-    error = retry.error
-    data = retry.data
-  }
-  if (error && /is_retorno|is_modelo|desconto_modelo|procedure_id|sala_id|duration_minutes/i.test(error.message || "")) {
-    const core = {
-      org_id: payload.org_id,
-      data: payload.data,
-      hora: payload.hora,
-      procedimento: payload.procedimento,
-    }
-    if (payload.cliente_id) core.cliente_id = payload.cliente_id
-    if (payload.user_id) core.user_id = payload.user_id
-    const retry2 = await supabase.from("agenda").insert(core).select("id").single()
-    error = retry2.error
-    data = retry2.data
-  }
+  const { data, error } = await retryUnknownColumns(
+    payload,
+    (row) => supabase.from("agenda").insert(row).select("id").single(),
+    { immutable: ["org_id", "data", "hora", "procedimento"] }
+  )
   if (error) throw error
   if (data?.id && payload.user_id) {
     occupyProfessionalCalendar(data.id).then((r) => {
@@ -2372,6 +2790,7 @@ async function createAgenda(){
       is_retorno: isRetorno,
       is_modelo_agendamento: !!aplicarDescontoModelo && descontoModeloPct != null,
       desconto_modelo_pct: descontoModeloPct,
+      sold_by_user_id: readSoldByUserId(),
     }
     if (clienteId) payload.cliente_id = clienteId
     if (slot.procedure_id) payload.procedure_id = slot.procedure_id
@@ -2497,11 +2916,14 @@ async function updateAgenda(id){
    is_retorno: isRetorno,
    is_modelo_agendamento: !!aplicarDescontoModeloEdit && descontoModeloPctEdit != null,
    desconto_modelo_pct: descontoModeloPctEdit,
+   sold_by_user_id: readSoldByUserId(),
   }
   if (procCatalogEl && procCatalogEl.value) payload.procedure_id = procCatalogEl.value
 
-  const { error } = await withOrg(
-   supabase.from("agenda").update(payload).eq("id", id)
+  const { error } = await retryUnknownColumns(
+    payload,
+    (row) => withOrg(supabase.from("agenda").update(row).eq("id", id)),
+    { immutable: ["data", "hora"] }
   )
 
   if(error) throw error

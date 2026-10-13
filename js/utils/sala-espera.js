@@ -22,3 +22,33 @@ export function salaEsperaStatus(row, now = new Date()) {
   }
   return null;
 }
+
+/**
+ * Uma ação no painel do horário. Sem WhatsApp automático.
+ * @returns {{ primary: 'chegou'|'atendimento'|'baixa'|null, hint: string }}
+ */
+export function proximaAcaoDoHorario(row, { temBaixa = false } = {}) {
+  if (!row || row.item_type === "event") {
+    return { primary: null, hint: "" };
+  }
+  if (temBaixa) {
+    return { primary: null, hint: "Baixa já registrada. Prontuário e financeiro estão no cadastro." };
+  }
+  const st = salaEsperaStatus(row);
+  if (st?.key === "atendimento") {
+    return {
+      primary: "baixa",
+      hint: "Em atendimento. Próximo: registrar o que foi aplicado e dar baixa no pagamento.",
+    };
+  }
+  if (st?.key === "sala") {
+    return {
+      primary: "atendimento",
+      hint: "Na espera. Quando chamar, marque em atendimento.",
+    };
+  }
+  return {
+    primary: "chegou",
+    hint: "Marque quando a pessoa chegar. Sem WhatsApp automático.",
+  };
+}

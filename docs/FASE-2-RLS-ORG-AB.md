@@ -1,8 +1,6 @@
 # Fase 2 — RLS Org A ≠ Org B
 
-**DATA:** 2026-09-29T14:17:03.998Z  
-**Leitura:** Postgres/Storage PASS neste ciclo. APIs HTTP 500 (esperava 403) → isolamento de API **não** aprovado. RPC `get_analises_pele_by_token` ainda 42601.
-
+**DATA:** 2026-09-29T15:17:20.094Z
 **Ator:** JWT QA_EMAIL_MASTER (anon key)
 **Orgs do JWT:** 2
 **Outras orgs no projeto:** 10
@@ -21,7 +19,7 @@
 | `estoque_entradas` | PASS | linhas_visiveis=7 leak_org_b=0 |
 | `protocolos_aplicados` | PASS | linhas_visiveis=0 leak_org_b=0 |
 | `analise_pele` | PASS | linhas_visiveis=0 leak_org_b=0 |
-| `client_sessions` | PASS | linhas_visiveis=0 leak_org_b=0 |
+| `client_sessions` | PASS | linhas_visiveis=4 leak_org_b=0 |
 | `audit_logs` | PASS | linhas_visiveis=50 leak_org_b=0 |
 | `organization_invites` | PASS | linhas_visiveis=13 leak_org_b=0 |
 | `profiles` | PASS | visiveis=0 leak_user_outra_org=0 |
@@ -48,15 +46,15 @@
 | `analise_pele.eq_id` | PASS | sem linha na org B (analise_pele) |
 | `protocolos_aplicados.eq_id` | PASS | sem linha na org B (protocolos_aplicados) |
 | `clients.insert_org_b` | PASS | negado 42501 |
-| `api.copiloto.org_b` | FAIL | HTTP 500 (esperava 403; conferir deploy) |
-| `api.preco.org_b` | FAIL | HTTP 500 (esperava 403; conferir deploy) |
-| `api.marketing.org_b` | FAIL | HTTP 500 (esperava 403; conferir deploy) |
-| `api.whatsapp-send.org_b` | FAIL | HTTP 500 (esperava 403; conferir deploy) |
-| `api.audit-log.org_b` | FAIL | HTTP 500 (esperava 403; conferir deploy) |
-| `api.create-portal-session.org_b` | FAIL | HTTP 500 (esperava 403; conferir deploy) |
+| `api.copiloto.org_b` | PASS | HTTP 403 |
+| `api.preco.org_b` | PASS | HTTP 403 |
+| `api.marketing.org_b` | PASS | HTTP 403 |
+| `api.whatsapp-send.org_b` | PASS | HTTP 403 |
+| `api.audit-log.org_b` | PASS | HTTP 403 |
+| `api.create-portal-session.org_b` | PASS | HTTP 403 |
 | `rpc.get_client_session_by_token` | PASS | sem sessão |
 | `rpc.get_client_by_token` | PASS | sem sessão |
-| `rpc.get_analises_pele_by_token` | PASS | vazio/erro 42601 |
+| `rpc.get_analises_pele_by_token` | PASS | sem sessão |
 | `storage.list.analise-pele-fotos` | PASS | itens=0 pastas_org_b=0 |
 | `storage.download.analise-pele-fotos` | PASS | sem pasta org B para testar |
 | `storage.list.client-photos` | PASS | itens=1 pastas_org_b=0 |
@@ -64,6 +62,6 @@
 | `storage.list.anamnese-fotos` | PASS | itens=1 pastas_org_b=0 |
 | `storage.download.anamnese-fotos` | PASS | sem pasta org B para testar |
 
-**PASS:** 42  **FAIL/BLOQUEADO:** 6
+**PASS:** 48  **FAIL/BLOQUEADO:** 0
 
-Isolamento **não** aprovado neste ciclo.
+Select cruzado, insert org B, RPC do portal (token lixo) e Storage list/download cobertos neste ciclo.

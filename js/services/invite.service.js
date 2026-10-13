@@ -1,5 +1,7 @@
 import { supabase } from "../core/supabase.js";
 import { ALLOWED_INVITE_ROLES } from "../core/permissions.map.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
+import { userFacingError } from "../core/errors.js";
 
 function newInviteToken() {
   const bytes = new Uint8Array(24);
@@ -11,24 +13,29 @@ function newInviteToken() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function createInvite({ orgId, email, role }) {
+export async function createInvite({ orgId, email, role, inviterRole }) {
   const stored = String(role || "").trim();
   if (!ALLOWED_INVITE_ROLES.includes(stored)) {
     throw new Error("Essa função não pode ser atribuída por convite.");
   }
-  const { error } = await supabase
-    .from("organization_invites")
-    .insert({
+  if (stored === "master" && inviterRole !== "master") {
+    throw new Error("Só o administrador pode convidar outro administrador.");
+  }
+  const { error } = await retryUnknownColumns(
+    {
       org_id: orgId,
       email: String(email || "").trim().toLowerCase(),
       role: stored,
       status: "pending",
       token: newInviteToken(),
-    });
+    },
+    (row) => supabase.from("organization_invites").insert(row).select("id").maybeSingle(),
+    { immutable: ["org_id", "email", "role", "status"] }
+  );
 
   if (error) {
     console.error("[INVITE-SERVICE] Erro ao criar convite", error);
-    throw new Error(error.message || "Não foi possível criar o convite.");
+    throw new Error(userFacingError(error, "Não foi possível criar o convite."));
   }
 }
 
@@ -49,8 +56,8 @@ export async function getInviteByEmail(email) {
     .maybeSingle();
 
   if (error) {
-    console.error("[INVITE-SERVICE] Erro ao buscar convite", error);
-    throw new Error(error.message || "Não foi possível buscar o convite.");
+    console.warn("[INVITE-SERVICE] Erro ao buscar convite", error);
+    return null;
   }
   if (!data) return null;
 

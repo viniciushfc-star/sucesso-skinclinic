@@ -23,10 +23,17 @@ import {
   bindEnderecoCliente,
   readEnderecoCliente,
   htmlFotoCadastro,
+  htmlClientAvatar,
   captureIds,
   wireFotoCadastro,
   photoFileFromCadastro,
 } from "../utils/cliente-cadastro.js";
+import { bindCpfMask, bindPhoneMask } from "../utils/input-masks.js";
+import {
+  htmlCheckLinkPortalCadastro,
+  querLinkPortalNoCadastro,
+  mostrarLinkPortalCadastro,
+} from "../utils/portal-link-cadastro.js";
 
 let ultimaBuscaAbreOrcamento = false;
 
@@ -47,6 +54,10 @@ export async function init() {
 }
 
 function bindImportClientes() {
+  document.getElementById("btnTragaLista")?.addEventListener("click", () => {
+    sessionStorage.setItem("importTipoPrefill", "clientes");
+    navigate("export");
+  });
   const btn = document.getElementById("btnImportarClientes");
   const input = document.getElementById("importClientesFile");
   if (!btn || !input) return;
@@ -55,6 +66,7 @@ function bindImportClientes() {
     const file = input.files?.[0];
     if (!file) return;
     input.value = "";
+    if (!window.confirm("Importar este CSV agora? Para planilha de outro app (mapa de colunas e prévia), use Traga sua lista.")) return;
     const pularDuplicados = document.getElementById("clientesPularDuplicados")?.checked !== false;
     try {
       const r = await importarLote("clientes", file, { pularDuplicados });
@@ -116,7 +128,7 @@ function renderClientes() {
     tbody.innerHTML = "";
     if (emptyEl) {
       emptyEl.classList.remove("hidden");
-      emptyEl.textContent = "Nenhum cliente encontrado.";
+      emptyEl.textContent = "Nenhum paciente encontrado.";
     }
     return;
   }
@@ -126,24 +138,12 @@ function renderClientes() {
   tbody.innerHTML = clientes
     .map(
       (c) => {
-        const avatar = c.avatar_url
-          ? `<img class="clientes-avatar" src="${String(c.avatar_url).replace(/"/g, "&quot;")}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling?.classList.remove('hidden')">`
-          : "";
-        const initials = (c.name || "")
-          .trim()
-          .split(/\s+/)
-          .map((w) => w[0])
-          .slice(0, 2)
-          .join("")
-          .toUpperCase() || "?";
+        const wa = waMeHref(c.phone);
         return `
     <tr class="clientes-row" data-id="${c.id}" role="button" tabindex="0">
       <td>
         <div class="clientes-row-name">
-          <span class="clientes-avatar-wrap">
-            ${avatar}
-            <span class="clientes-avatar-initials ${avatar ? "hidden" : ""}">${escapeHtml(initials)}</span>
-          </span>
+          ${htmlClientAvatar(c.avatar_url, c.name)}
           <strong>${escapeHtml(c.name || "")}</strong>
         </div>
       </td>
@@ -151,7 +151,14 @@ function renderClientes() {
       <td><span class="clientes-state clientes-state-${(c.state || c.status || "").replace("_", "-")}">${stateLabel(c.state || c.status)}</span></td>
       <td>${escapeHtml(c.phone || c.email || "—")}</td>
       <td>${formatDate(c.created_at)}</td>
-      <td class="clientes-col-acoes">${canEdit ? `<button type="button" class="btn-secondary btn-sm btn-editar-cliente" data-id="${c.id}" title="Editar cliente">Editar</button>` : ""}</td>
+      <td class="clientes-col-acoes">
+        <div class="clientes-row-acoes">
+          <button type="button" class="btn-link clientes-acao-ver" data-id="${c.id}">Ver</button>
+          <button type="button" class="btn-link clientes-acao-agendar" data-id="${c.id}">Agendar</button>
+          ${wa ? `<a class="btn-link clientes-acao-wa" href="${escapeHtml(wa)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : `<span class="clientes-acao-wa clientes-acao-wa--off" title="Sem telefone">WhatsApp</span>`}
+          ${canEdit ? `<button type="button" class="btn-link btn-editar-cliente" data-id="${c.id}">Editar</button>` : ""}
+        </div>
+      </td>
     </tr>
   `;
       }
@@ -215,10 +222,17 @@ function bindUI() {
   }
 }
 
+function waMeHref(phone) {
+  const d = String(phone || "").replace(/\D/g, "");
+  if (d.length < 10) return "";
+  const n = d.startsWith("55") ? d : `55${d}`;
+  return `https://wa.me/${n}`;
+}
+
 function bindEditEvents() {
   document.querySelectorAll(".clientes-row").forEach((row) => {
     row.addEventListener("click", (e) => {
-      if (e.target.closest(".btn-editar-cliente")) return;
+      if (e.target.closest(".clientes-row-acoes")) return;
       openPerfil(row.dataset.id);
     });
     row.addEventListener("keydown", (e) => {
@@ -227,6 +241,26 @@ function bindEditEvents() {
         openPerfil(row.dataset.id);
       }
     });
+  });
+  document.querySelectorAll(".clientes-acao-ver").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openPerfil(btn.dataset.id);
+    });
+  });
+  document.querySelectorAll(".clientes-acao-agendar").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!btn.dataset.id) return;
+      sessionStorage.setItem("agendaPrefillClientId", btn.dataset.id);
+      navigate("agenda");
+      toast("Escolha o horário: a pessoa já vem selecionada.");
+    });
+  });
+  document.querySelectorAll(".clientes-acao-wa").forEach((el) => {
+    el.addEventListener("click", (e) => e.stopPropagation());
   });
   document.querySelectorAll(".btn-editar-cliente").forEach((btn) => {
     btn.addEventListener("click", (e) => {
@@ -340,30 +374,6 @@ function dataUrlToBlob(dataUrl) {
    MODAL: ADICIONAR CLIENTE
 ========================= */
 
-function maskCpf(input) {
-  let v = input.value.replace(/\D/g, "");
-  if (v.length > 11) v = v.slice(0, 11);
-  v = v.replace(/(\d{3})(\d)/, "$1.$2");
-  v = v.replace(/(\d{3})(\d)/, "$1.$2");
-  v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-  input.value = v;
-}
-
-/** Máscara (00) 00000-0000 celular ou (00) 0000-0000 fixo */
-function maskPhone(input) {
-  let v = input.value.replace(/\D/g, "");
-  if (v.length > 11) v = v.slice(0, 11);
-  if (v.length > 6) {
-    if (v[2] === "9") v = v.replace(/(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3");
-    else v = v.replace(/(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3");
-  } else if (v.length > 2) {
-    v = v.replace(/(\d{2})(\d{0,4})/, "($1) $2");
-  } else if (v.length) {
-    v = "(" + v;
-  }
-  input.value = v;
-}
-
 /** Encerra o hardware: para cada track do MediaStream (limpa trilhos). Fechar o vídeo não desliga o LED da câmera. */
 function fecharCamera() {
   fotoCadastroWire?.fechar?.();
@@ -380,11 +390,11 @@ function openCreateModal() {
     ${htmlFotoCadastro(fotoCadastroIds)}
     <label>Nome completo <span class="required">*</span></label>
     <input id="name" required placeholder="Nome completo">
-    <label>CPF (evita duplicado)</label>
-    <input id="cpf" type="text" placeholder="000.000.000-00" maxlength="14">
+    <label class="field-label" for="cpf">CPF (evita duplicado)</label>
+    <input id="cpf" type="text" placeholder="000.000.000-00" maxlength="14" inputmode="numeric" autocomplete="off">
     <p id="cpfDuplicateWarning" class="form-warning hidden" role="alert"></p>
-    <label>Telefone</label>
-    <input id="phone" type="tel" placeholder="(00) 00000-0000" maxlength="15">
+    <label class="field-label" for="phone">Telefone</label>
+    <input id="phone" type="tel" placeholder="(00) 00000-0000" maxlength="15" inputmode="tel">
     <label>E-mail</label>
     <input id="email" type="email" placeholder="email@exemplo.com">
     <p class="form-hint">Informe pelo menos telefone ou e-mail.</p>
@@ -413,15 +423,17 @@ function openCreateModal() {
       <option value="pre_cadastro">Pré-cadastro</option>
     </select>
     <label class="form-check"><input type="checkbox" id="agendarAposCadastro"> Após salvar, abrir a agenda com esta pessoa</label>
+    ${htmlCheckLinkPortalCadastro()}
   `,
     createCliente,
     fecharCamera
   );
   const cpfInput = document.getElementById("cpf");
   const cpfWarning = document.getElementById("cpfDuplicateWarning");
+  bindCpfMask(cpfInput);
+  bindPhoneMask(document.getElementById("phone"));
   if (cpfInput) {
     cpfInput.addEventListener("input", () => {
-      maskCpf(cpfInput);
       if (cpfWarning) {
         cpfWarning.classList.add("hidden");
         cpfWarning.textContent = "";
@@ -444,8 +456,6 @@ function openCreateModal() {
       }
     });
   }
-  const phoneInput = document.getElementById("phone");
-  if (phoneInput) phoneInput.addEventListener("input", () => maskPhone(phoneInput));
   bindEnderecoCliente("client", toast);
   fotoCadastroWire = wireFotoCadastro(fotoCadastroIds, fotoCadastroState, toast);
 }
@@ -512,38 +522,41 @@ async function createCliente() {
     });
 
     const agendarApos = document.getElementById("agendarAposCadastro")?.checked;
+    const gerarLink = querLinkPortalNoCadastro();
     closeModal();
     await new Promise((r) => setTimeout(r, 400));
     await loadClientes();
     toast("Cliente criado");
-    if (state === "pre_cadastro" && client?.id) {
+
+    const seguirAposCadastro = () => {
+      if (client?.id && agendarApos) {
+        sessionStorage.setItem("agendaPrefillClientId", client.id);
+        navigate("agenda");
+        toast("Escolha o horário: a pessoa já vem selecionada.");
+        return;
+      }
+      if (client?.id) {
+        const abrirAnamnese = confirm("Deseja abrir a anamnese deste cliente agora?");
+        if (abrirAnamnese) {
+          sessionStorage.setItem("anamnese_client_id", client.id);
+          sessionStorage.removeItem("anamnese_agenda_id");
+          sessionStorage.removeItem("anamnese_procedimento");
+          navigate("anamnese");
+        }
+      }
+    };
+
+    if (gerarLink && client?.id) {
       try {
         const { url } = await createClientPortalSession(client.id);
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(url);
-          toast("Link para o cliente completar o cadastro foi copiado. Envie para o cliente.");
-        } else {
-          setTimeout(() => prompt("Copie o link e envie para o cliente completar o cadastro:", url), 500);
-        }
+        mostrarLinkPortalCadastro({ url, nome: client.name }, { toast, onClose: seguirAposCadastro, openModal });
+        return;
       } catch (e) {
         console.warn("[Clientes] Link portal:", e);
+        toast(e?.message || "Paciente gravado. O link do portal não saiu — gere na ficha.");
       }
     }
-    if (client?.id && agendarApos) {
-      sessionStorage.setItem("agendaPrefillClientId", client.id);
-      navigate("agenda");
-      toast("Escolha o horário: a pessoa já vem selecionada.");
-      return;
-    }
-    if (client?.id) {
-      const abrirAnamnese = confirm("Deseja abrir a anamnese deste cliente agora?");
-      if (abrirAnamnese) {
-        sessionStorage.setItem("anamnese_client_id", client.id);
-        sessionStorage.removeItem("anamnese_agenda_id");
-        sessionStorage.removeItem("anamnese_procedimento");
-        navigate("anamnese");
-      }
-    }
+    seguirAposCadastro();
   } catch (err) {
     console.error(err);
     const msg = err?.message || "Erro ao criar cliente";

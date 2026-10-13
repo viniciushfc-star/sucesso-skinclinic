@@ -1,5 +1,12 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
+import { isUnknownColumnError, retryUnknownColumns } from "../utils/supabase-unknown-col.js";
+
+function missingPacoteTable(error) {
+  const msg = String(error?.message || "");
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205" || /package_consumptions|client_packages|does not exist|schema cache/i.test(msg);
+}
 
 /**
  * Lista pacotes de um cliente (com procedimento e saldo de sessões).
@@ -35,10 +42,15 @@ async function enrichPacotes(rows) {
   const procIds = [...new Set(list.map((r) => r.procedure_id).filter(Boolean))];
   let procMap = {};
   if (procIds.length) {
-    const { data: procs } = await withOrg(
+    let procRes = await withOrg(
       supabase.from("procedures").select("id, name, custo_material_estimado, comissao_profissional_pct, margem_minima_desejada").in("id", procIds)
     );
-    procMap = (procs ?? []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+    if (procRes.error && isUnknownColumnError(procRes.error)) {
+      procRes = await withOrg(
+        supabase.from("procedures").select("id, name").in("id", procIds)
+      );
+    }
+    procMap = (procRes.data ?? []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
   }
   return list.map((r) => {
     const proc = r.procedure_id ? procMap[r.procedure_id] : null;
@@ -91,13 +103,11 @@ export async function createPacote(p) {
     valido_ate: p.valido_ate || null,
   };
   if (p.orcamento_id) payload.orcamento_id = p.orcamento_id;
-  let { data, error } = await supabase.from("client_packages").insert(payload).select().single();
-  if (error && payload.orcamento_id && /orcamento_id|schema cache|column/i.test(String(error.message || ""))) {
-    delete payload.orcamento_id;
-    const retry = await supabase.from("client_packages").insert(payload).select().single();
-    data = retry.data;
-    error = retry.error;
-  }
+  const { data, error } = await retryUnknownColumns(
+    payload,
+    (row) => supabase.from("client_packages").insert(row).select().single(),
+    { immutable: ["org_id", "client_id", "nome_pacote", "total_sessoes"] }
+  );
   if (error) throw error;
   return data;
 }
@@ -151,7 +161,14 @@ export async function consumirSessao(packageId, agendaId = null) {
   if (updateErr) throw updateErr;
   const cons = { package_id: packageId };
   if (agendaId) cons.agenda_id = agendaId;
-  await supabase.from("package_consumptions").insert(cons);
+  const { error: consErr } = await retryUnknownColumns(
+    cons,
+    (row) => supabase.from("package_consumptions").insert(row).select("id").maybeSingle(),
+    { immutable: ["package_id"] }
+  );
+  if (consErr && !missingPacoteTable(consErr)) {
+    console.warn("[PACOTES] histórico da sessão não gravou", consErr);
+  }
   return { sessoes_utilizadas: used, sessoes_restantes: (pack.total_sessoes ?? 0) - used, already: false };
 }
 

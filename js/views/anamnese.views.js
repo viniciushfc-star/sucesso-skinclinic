@@ -22,9 +22,11 @@ import {
 import { ehDuplicataDaUltima, mapaVersaoAnamnese, rotuloVersaoAnamnese } from "../utils/anamnese-versao.js";
 import { getRole } from "../services/permissions.service.js";
 import { startCameraCapture } from "../utils/camera.js";
+import { isTouchCameraDevice } from "../utils/cliente-cadastro.js";
 import { fileFromClipboardEvent, downloadImageUrl } from "../utils/cliente-cadastro.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { MAPAS_EDIT, PRODUTOS_APLICACAO } from "../utils/injetaveis-mapas.js";
+import { bindMapa3d, htmlToolbarMapa3d } from "../utils/mapa-3d.js";
 
 const STORAGE_AGENDA = "anamnese_agenda_id";
 const STORAGE_CLIENT = "anamnese_client_id";
@@ -141,6 +143,12 @@ export async function init() {
   const conteudoEl = document.getElementById("anamneseConteudo");
   const fotosInputAntes = document.getElementById("anamneseFotosAntes");
   const fotosInputDepois = document.getElementById("anamneseFotosDepois");
+  const fotosCamInputs = [
+    ["anamneseFotosAntesCamUser", "antes"],
+    ["anamneseFotosAntesCamEnv", "antes"],
+    ["anamneseFotosDepoisCamUser", "depois"],
+    ["anamneseFotosDepoisCamEnv", "depois"],
+  ];
   const fotosPreviewAntes = document.getElementById("anamneseFotosPreviewAntes");
   const fotosPreviewDepois = document.getElementById("anamneseFotosPreviewDepois");
   const condutaEl = document.getElementById("anamneseConduta");
@@ -176,6 +184,8 @@ export async function init() {
       btn.classList.toggle("is-active", on);
       btn.setAttribute("aria-selected", on ? "true" : "false");
     });
+    const mais = document.getElementById("anamneseMaisSelect");
+    if (mais) mais.value = name === "ficha" ? "" : name;
     document.querySelectorAll("[data-anamnese-pane]").forEach((pane) => {
       const match = pane.dataset.anamnesePane === name;
       if (pane.id === "anamneseFormWrap" && !currentClientId) {
@@ -196,6 +206,11 @@ export async function init() {
       setAnamneseTab(btn.dataset.anamneseTab);
     });
   });
+  document.getElementById("anamneseMaisSelect")?.addEventListener("change", (e) => {
+    const v = e.target.value;
+    if (v) setAnamneseTab(v);
+    else setAnamneseTab("ficha");
+  });
 
   function renderWithClient(id) {
     currentClientId = id || "";
@@ -210,12 +225,19 @@ export async function init() {
       registrosEl.innerHTML = "";
       document.getElementById("btnAnamneseHistorico")?.setAttribute("disabled", "disabled");
       document.getElementById("btnAnamneseComparativo")?.setAttribute("disabled", "disabled");
+      const maisOff = document.getElementById("anamneseMaisSelect");
+      if (maisOff) {
+        maisOff.disabled = true;
+        maisOff.value = "";
+      }
       setAnamneseTab("ficha");
       return;
     }
 
     document.getElementById("btnAnamneseHistorico")?.removeAttribute("disabled");
     document.getElementById("btnAnamneseComparativo")?.removeAttribute("disabled");
+    const maisOn = document.getElementById("anamneseMaisSelect");
+    if (maisOn) maisOn.disabled = false;
 
     semClienteEl?.classList.add("hidden");
     if (document.querySelector(".anamnese-tab.is-active")?.dataset.anamneseTab === "ficha" || !document.querySelector(".anamnese-tab.is-active")) {
@@ -246,9 +268,16 @@ export async function init() {
     registrosEl.innerHTML = "";
     document.getElementById("btnAnamneseHistorico")?.setAttribute("disabled", "disabled");
     document.getElementById("btnAnamneseComparativo")?.setAttribute("disabled", "disabled");
+    const maisInitOff = document.getElementById("anamneseMaisSelect");
+    if (maisInitOff) {
+      maisInitOff.disabled = true;
+      maisInitOff.value = "";
+    }
   } else {
     document.getElementById("btnAnamneseHistorico")?.removeAttribute("disabled");
     document.getElementById("btnAnamneseComparativo")?.removeAttribute("disabled");
+    const maisInitOn = document.getElementById("anamneseMaisSelect");
+    if (maisInitOn) maisInitOn.disabled = false;
     semClienteEl?.classList.add("hidden");
     formWrap.classList.remove("hidden");
     if (contextEl) contextEl.classList.remove("hidden");
@@ -308,15 +337,22 @@ export async function init() {
       faceWrap.className = "anamnese-face-map-wrap anamnese-face-map-wrap--large";
       const mapas = MAPAS_EDIT;
       faceWrap.innerHTML = `
-        <p class="anamnese-face-map-title">Áreas de aplicação: clique no desenho (rosto, corpo ou glúteo). Tracejado = planejado; preenchido = já aplicado.</p>
+        <p class="anamnese-face-map-title">Áreas de aplicação: clique no desenho (rosto, corpo ou glúteo). Gire e amplie para o ponto exato. Imprimir achata em 2D. Tracejado = planejado; preenchido = já aplicado.</p>
         <div class="anamnese-mapa-tabs">
           ${mapas.map((m) => `<button type="button" class="anamnese-mapa-tab" data-mapa="${escapeHtml(m.id)}">${escapeHtml(m.label)}</button>`).join("")}
         </div>
         ${mapas.map((m) => `
         <div class="anamnese-mapa-panel" id="anamneseMapaPanel_${escapeHtml(m.id)}" data-mapa="${escapeHtml(m.id)}">
-          <div class="anamnese-mapa-clicavel" data-mapa="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="Clique para adicionar ponto em ${escapeHtml(m.label)}">
-            <div class="anamnese-mapa-svg-wrap">${m.svg}</div>
-            <div class="anamnese-mapa-pontos" id="anamneseMapaPontos_${escapeHtml(m.id)}"></div>
+          <div class="mapa-3d">
+            ${htmlToolbarMapa3d()}
+            <div class="mapa-3d-viewport">
+              <div class="mapa-3d-scene">
+                <div class="anamnese-mapa-clicavel" data-mapa="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="Clique para adicionar ponto em ${escapeHtml(m.label)}">
+                  <div class="anamnese-mapa-svg-wrap">${m.svg}</div>
+                  <div class="anamnese-mapa-pontos" id="anamneseMapaPontos_${escapeHtml(m.id)}"></div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="anamnese-mapa-lista">
             <p class="anamnese-mapa-lista-title">Pontos em ${escapeHtml(m.label)}</p>
@@ -366,11 +402,18 @@ export async function init() {
           dot.style.top = pt.y_pct + "%";
           dot.dataset.pontoId = pt.id;
           dot.title = (PRODUTOS_APLICACAO.find((p) => p.id === pt.produto)?.label || pt.produto || "Ponto") + (pt.quantidade != null ? " — " + pt.quantidade + " " + (pt.unidade || "") : "");
+          if (pt.quantidade != null) {
+            const badge = document.createElement("span");
+            badge.className = "mapa-dot-qty";
+            badge.textContent = pt.quantidade + " " + (pt.unidade || "");
+            dot.appendChild(badge);
+          }
           dot.addEventListener("click", (e) => {
             e.stopPropagation();
             selectedPontoId = pt.id;
             renderAllPontos();
             showPontoDetalhes(panel, pt);
+            panel._mapa3d?.zoomTo(pt.x_pct, pt.y_pct);
           });
           container.appendChild(dot);
         });
@@ -491,6 +534,15 @@ export async function init() {
       faceWrap.querySelector(".anamnese-mapa-tab")?.classList.add("active");
       faceWrap.querySelectorAll(".anamnese-mapa-panel").forEach((p, i) => {
         if (i > 0) p.classList.add("hidden");
+      });
+
+      faceWrap.querySelectorAll(".mapa-3d").forEach((el) => {
+        const panel = el.closest(".anamnese-mapa-panel");
+        const api = bindMapa3d(el, {
+          titulo: "Mapa de aplicação — " + (panel?.dataset.mapa || ""),
+          getPrintRoot: () => panel,
+        });
+        if (panel) panel._mapa3d = api;
       });
 
       faceWrap._getPontos = () => pontos.slice();
@@ -774,6 +826,13 @@ export async function init() {
     addPendingFiles(fotosInputDepois.files, "depois");
     fotosInputDepois.value = "";
   });
+  fotosCamInputs.forEach(([id, momento]) => {
+    const el = document.getElementById(id);
+    el?.addEventListener("change", () => {
+      addPendingFiles(el.files, momento);
+      el.value = "";
+    });
+  });
 
   document.querySelectorAll(".anamnese-fotos-col").forEach((col) => {
     col.addEventListener("paste", (e) => {
@@ -786,17 +845,30 @@ export async function init() {
     });
   });
 
-  function abrirCamera(momento) {
+  function camInputId(momento, facing) {
+    const lado = momento === "depois" ? "Depois" : "Antes";
+    const cam = facing === "environment" ? "Env" : "User";
+    return `anamneseFotos${lado}Cam${cam}`;
+  }
+
+  function abrirCamera(momento, facing) {
+    const camInput = document.getElementById(camInputId(momento, facing));
+    if (isTouchCameraDevice() && camInput) {
+      camInput.click();
+      return;
+    }
     const cameraRef = { stop: () => {} };
+    const titulo = momento === "depois" ? "Foto depois do procedimento" : "Foto antes do procedimento";
+    const lado = facing === "environment" ? "traseira" : "frontal";
     openModal(
-      momento === "depois" ? "Foto depois do procedimento" : "Foto antes do procedimento",
+      `${titulo} · ${lado}`,
       `<div id="anamneseCameraPreview" class="anamnese-camera-preview"></div>
-       <p class="anamnese-camera-hint">Posicione e clique em Capturar.</p>`,
-      () => {},
+       <p class="anamnese-camera-hint">Posicione e clique em Capturar. Dá para virar a câmera se precisar.</p>`,
+      () => closeModal(),
       () => {
         cameraRef.stop();
-        closeModal();
-      }
+      },
+      { hideSubmit: true }
     );
     const previewEl = document.getElementById("anamneseCameraPreview");
     if (previewEl) {
@@ -807,11 +879,11 @@ export async function init() {
         closeModal();
         renderFotosPreview();
         toast("Foto adicionada. Salve a ficha para gravar.");
-      }, toast);
+      }, toast, { facing });
     }
   }
   document.querySelectorAll(".btn-anamnese-camera").forEach((btn) => {
-    btn.addEventListener("click", () => abrirCamera(btn.dataset.momento || "antes"));
+    btn.addEventListener("click", () => abrirCamera(btn.dataset.momento || "antes", btn.dataset.facing || "user"));
   });
 
   async function loadRegistros() {

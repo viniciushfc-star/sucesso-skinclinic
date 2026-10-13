@@ -472,13 +472,13 @@ export async function getCustoRealProcedimento(procedureId) {
 export async function getProcedimentosQueUsamProduto(produtoNome) {
   if (!(produtoNome && String(produtoNome).trim())) return [];
   const { data: usages, error: errU } = await withOrg(
-    supabase
-      .from("procedure_stock_usage")
-      .select("procedure_id, item_ref")
-      .ilike("item_ref", "%" + String(produtoNome).trim() + "%")
+    supabase.from("procedure_stock_usage").select("procedure_id, item_ref, quantity_used")
   );
   if (errU || !usages?.length) return [];
-  const procedureIds = [...new Set(usages.map((u) => u.procedure_id).filter(Boolean))];
+  const { usageCasaComProduto } = await import("../utils/margem-risco.js");
+  const matched = usages.filter((u) => usageCasaComProduto(u.item_ref, produtoNome));
+  if (!matched.length) return [];
+  const procedureIds = [...new Set(matched.map((u) => u.procedure_id).filter(Boolean))];
   if (procedureIds.length === 0) return [];
   const { data: procedures, error: errP } = await withOrg(
     supabase.from("procedures").select("id, name").in("id", procedureIds)

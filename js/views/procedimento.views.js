@@ -11,7 +11,25 @@ import {
   createProcedureCategory,
   updateProcedure,
   deleteProcedure,
+  getProcedureStockUsage,
+  listAllProcedureStockUsage,
+  replaceProcedureStockUsage,
+  isUsageVaga,
+  usageDisplayName,
+  USAGE_VAGA_PREFIX,
 } from "../services/procedimentos.service.js";
+import { listProdutosCatalogo } from "../services/estoque-produtos.service.js";
+import { getCustoRealProcedimento, getResumoPorProduto } from "../services/estoque-entradas.service.js";
+import {
+  custoRealFromUsage,
+  joinUsageRef,
+  labelUnidadeQtd,
+  normalizarUnidade,
+  qtyFromUsaRende,
+  rendimentoFromQty,
+  splitUsageRef,
+  UNIDADES_RECEITA,
+} from "../utils/estoque-custo.js";
 import {
   listPlanosTerapeuticos,
   createPlanoTerapeutico,
@@ -20,13 +38,24 @@ import {
 } from "../services/planos-terapeuticos.service.js";
 import { pedirOpiniaoCaso } from "../services/discussao-caso.service.js";
 import { gerarPreco } from "../services/preco.service.js";
+import { listMarketRadar } from "../services/market-radar.service.js";
+import { casarRadarRef } from "../utils/market-radar.js";
+import { leituraNaoPerder } from "../utils/preco-nao-perder.js";
 import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
 import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js";
 import { getMargemEmRisco } from "../services/audit.service.js";
+import { htmlCardMargemRisco } from "../utils/margem-risco.js";
 import { rankLucroHora, summarizeLucroHora } from "../utils/lucro-hora.js";
-import { getCustoRealProcedimento } from "../services/estoque-entradas.service.js";
 import { explainProcedureEconomics, brl } from "../services/procedimento-pl.service.js";
+import {
+  contaDiaEquipamento,
+  parseAluguelCadastro,
+  stripAluguelMarker,
+  textoContaDia,
+  withAluguelMarker,
+} from "../utils/aluguel-dia.js";
 import { navigate } from "../core/spa.js";
+import { checkPermission } from "../core/permissions.js";
 import { getOrgMembers } from "../core/org.js";
 import { getProcedimentosRealizadosPorPeriodo } from "../services/metrics.service.js";
 import {
@@ -36,6 +65,322 @@ import {
   valorBrutoMinimoParaMargem,
   margemReal,
 } from "../services/precificacao-taxas.service.js";
+
+const PAPEL_RECEITA = [
+  { id: "mascara", label: "Máscara" },
+  { id: "emoliente", label: "Emoliente" },
+  { id: "descartavel", label: "Descartável" },
+  { id: "limpeza", label: "Limpeza / higiene" },
+  { id: "outro", label: "Outro" },
+];
+
+let custosReceitaMap = {};
+let unidadesReceitaMap = {};
+
+function unidadeOptionsHtml(selected) {
+  const cur = normalizarUnidade(selected);
+  return UNIDADES_RECEITA.map(
+    (u) => `<option value="${u.id}"${u.id === cur ? " selected" : ""}>${u.label}</option>`
+  ).join("");
+}
+
+async function nomesEstoqueReceita() {
+  const names = new Set();
+  try {
+    const cat = await listProdutosCatalogo();
+    for (const p of cat || []) {
+      const n = String(p.nome || "").trim();
+      if (n) names.add(n);
+    }
+  } catch (_) {}
+  try {
+    const resumo = await getResumoPorProduto();
+    for (const r of resumo || []) {
+      const n = String(r.produto_nome || "").trim();
+      if (n) names.add(n);
+    }
+  } catch (_) {}
+  return [...names].sort((a, b) => a.localeCompare(b, "pt"));
+}
+
+async function custosEstoqueReceita() {
+  const map = {};
+  try {
+    const resumo = await getResumoPorProduto();
+    for (const r of resumo || []) {
+      const n = String(r.produto_nome || "").trim().toLowerCase();
+      if (n && r.custo_medio != null && Number.isFinite(Number(r.custo_medio))) {
+        map[n] = Number(r.custo_medio);
+      }
+    }
+  } catch (_) {}
+  try {
+    const cat = await listProdutosCatalogo();
+    for (const p of cat || []) {
+      const n = String(p.nome || "").trim().toLowerCase();
+      const c = Number(p.custo_pago);
+      if (n && Number.isFinite(c) && map[n] == null) map[n] = c;
+    }
+  } catch (_) {}
+  return map;
+}
+
+async function unidadesEstoqueReceita() {
+  const map = {};
+  try {
+    const cat = await listProdutosCatalogo();
+    for (const p of cat || []) {
+      const n = String(p.nome || "").trim().toLowerCase();
+      if (n && p.unidade) map[n] = normalizarUnidade(p.unidade);
+    }
+  } catch (_) {}
+  return map;
+}
+
+function brlReceita(n) {
+  if (n == null || !Number.isFinite(Number(n))) return "—";
+  return "R$ " + Number(n).toFixed(2).replace(".", ",");
+}
+
+function usageEditorHtml(existing = [], nomes = []) {
+  const opts = PAPEL_RECEITA.map((p) => `<option value="${p.id}">${p.label}</option>`).join("");
+  const chips = PAPEL_RECEITA.map(
+    (p) => `<button type="button" class="btn-secondary proc-usage-chip" data-papel="${p.id}">+ ${p.label}</button>`
+  ).join(" ");
+  const list = nomes
+    .map((n) => `<option value="${escapeHtml(n)}"></option>`)
+    .join("");
+  const materiais = (existing || []).filter((u) => !/^aluguel:/i.test(String(u.item_ref || "")));
+  const rows = (materiais.length ? materiais : [{ item_ref: "", quantity_used: 1 }])
+    .map((u) => usageRowHtml(u, opts))
+    .join("");
+  return `
+    <div id="procUsageWrap" class="proc-usage-wrap">
+      <h4>Receita deste procedimento</h4>
+      <p class="procedimento-modal-hint">Os números são desta ficha, não da clínica inteira: cada procedimento (e cada clínica) preenche o que usa. Exemplo só para a conta: 3 pares numa caixa de 50 a R$ 40 → R$ 2,40 nesta sessão. Vaga (sem produto: o profissional escolhe a marca no dia) fica sem custo. Não baixa estoque daqui; não muda o preço.</p>
+      <div class="proc-usage-chips">${chips}</div>
+      <datalist id="procUsageProdutosList">${list}</datalist>
+      <div id="procUsageRows">${rows}</div>
+      <button type="button" class="btn-secondary" id="btnProcUsageAdd">+ Linha</button>
+    </div>
+  `;
+}
+
+function usageRowHtml(u = {}, papelOpts) {
+  const parsed = splitUsageRef(u.item_ref);
+  const ref = parsed.nome;
+  const vaga = isUsageVaga(ref);
+  const papel = vaga ? ref.slice(USAGE_VAGA_PREFIX.length).trim().toLowerCase() : "";
+  const produto = vaga ? "" : ref;
+  const qty = u.quantity_used != null && u.quantity_used !== "" ? u.quantity_used : 1;
+  const unidade = u.unidade ? normalizarUnidade(u.unidade) : parsed.unidade;
+  const usa = u.usa != null ? u.usa : parsed.usa != null ? parsed.usa : !vaga && produto ? 1 : "";
+  const rend =
+    u.rende != null
+      ? u.rende
+      : parsed.rende != null
+        ? parsed.rende
+        : !vaga && produto
+          ? rendimentoFromQty(qty)
+          : "";
+  const opts = PAPEL_RECEITA.map(
+    (p) => `<option value="${p.id}"${p.id === papel ? " selected" : ""}>${p.label}</option>`
+  ).join("");
+  return `<div class="proc-usage-row">
+    <label>Papel<select class="proc-usage-papel"><option value="">—</option>${opts || papelOpts}</select></label>
+    <label>Produto (opcional na vaga)<input type="text" class="proc-usage-produto" list="procUsageProdutosList" value="${escapeHtml(produto)}" placeholder="Vazio = escolhe no dia"></label>
+    <label>Usa nesta ficha<input type="number" class="proc-usage-usa" min="0.01" step="any" value="${usa}" placeholder="Quanto usa aqui"></label>
+    <label>Unidade<select class="proc-usage-unidade">${unidadeOptionsHtml(unidade)}</select></label>
+    <label>Cabe na embalagem<input type="number" class="proc-usage-rendimento" min="1" step="any" value="${rend ?? ""}" placeholder="Quanto vem no produto"></label>
+    <input type="hidden" class="proc-usage-qty" value="${qty}">
+    <p class="proc-usage-custo" aria-live="polite"></p>
+    <button type="button" class="btn-secondary proc-usage-remove" aria-label="Remover linha">×</button>
+  </div>`;
+}
+
+function refreshUsageRowCusto(row) {
+  if (!row) return;
+  const el = row.querySelector(".proc-usage-custo");
+  if (!el) return;
+  const produto = (row.querySelector(".proc-usage-produto")?.value || "").trim();
+  const usa = Number(row.querySelector(".proc-usage-usa")?.value);
+  const rend = Number(row.querySelector(".proc-usage-rendimento")?.value);
+  const unidade = row.querySelector(".proc-usage-unidade")?.value;
+  const frac = qtyFromUsaRende(usa, rend);
+  if (row.querySelector(".proc-usage-qty") && frac != null) {
+    row.querySelector(".proc-usage-qty").value = String(frac);
+  }
+  if (!produto) {
+    el.textContent = "Vaga: sem custo até escolher o produto.";
+    return;
+  }
+  const q = frac != null ? frac : Number(row.querySelector(".proc-usage-qty")?.value);
+  const out = custoRealFromUsage(
+    [{ item_ref: joinUsageRef(produto, unidade, usa, rend), quantity_used: q || 0 }],
+    custosReceitaMap
+  );
+  const item = out.itens[0];
+  if (!item || item.custo_unitario == null) {
+    el.textContent = "Produto sem custo médio no estoque — informe a entrada com valor.";
+    return;
+  }
+  const unUsa = labelUnidadeQtd(unidade, usa);
+  const unEmb = labelUnidadeQtd(unidade, rend);
+  if (Number.isFinite(usa) && usa > 0 && Number.isFinite(rend) && rend > 0) {
+    el.textContent = `${usa} ${unUsa} nesta sessão / ${rend} ${unEmb} na embalagem de ${brlReceita(item.custo_unitario)} = ${brlReceita(item.subtotal)}`;
+    return;
+  }
+  el.textContent = `${brlReceita(item.custo_unitario)} × ${q} = ${brlReceita(item.subtotal)} nesta sessão`;
+}
+
+function bindUsageEditor(custos = {}, unidades = {}) {
+  custosReceitaMap = custos || {};
+  unidadesReceitaMap = unidades || {};
+  const wrap = document.getElementById("procUsageWrap");
+  if (!wrap) return;
+  const rows = document.getElementById("procUsageRows");
+  const opts = PAPEL_RECEITA.map((p) => `<option value="${p.id}">${p.label}</option>`).join("");
+  wrap.querySelectorAll(".proc-usage-chip").forEach((btn) => {
+    btn.onclick = () => {
+      rows?.insertAdjacentHTML("beforeend", usageRowHtml({ item_ref: USAGE_VAGA_PREFIX + btn.dataset.papel, quantity_used: 1 }, opts));
+      const last = rows?.querySelector(".proc-usage-row:last-child");
+      refreshUsageRowCusto(last);
+    };
+  });
+  document.getElementById("btnProcUsageAdd")?.addEventListener("click", () => {
+    rows?.insertAdjacentHTML("beforeend", usageRowHtml({}, opts));
+    refreshUsageRowCusto(rows?.querySelector(".proc-usage-row:last-child"));
+  });
+  wrap.addEventListener("click", (e) => {
+    const rm = e.target.closest(".proc-usage-remove");
+    if (!rm) return;
+    const row = rm.closest(".proc-usage-row");
+    if (!row) return;
+    if (rows.querySelectorAll(".proc-usage-row").length <= 1) {
+      row.querySelector(".proc-usage-produto").value = "";
+      row.querySelector(".proc-usage-papel").value = "";
+      row.querySelector(".proc-usage-rendimento").value = "";
+      const usaEl = row.querySelector(".proc-usage-usa");
+      if (usaEl) usaEl.value = "";
+      row.querySelector(".proc-usage-qty").value = "1";
+      const unEl = row.querySelector(".proc-usage-unidade");
+      if (unEl) unEl.value = "un";
+      refreshUsageRowCusto(row);
+      return;
+    }
+    row.remove();
+  });
+  wrap.addEventListener("input", (e) => {
+    const row = e.target.closest(".proc-usage-row");
+    if (!row) return;
+    if (e.target.classList.contains("proc-usage-produto")) {
+      const nome = e.target.value.trim().toLowerCase();
+      const un = unidadesReceitaMap[nome];
+      const unEl = row.querySelector(".proc-usage-unidade");
+      if (un && unEl && !unEl.dataset.touched) unEl.value = un;
+    }
+    refreshUsageRowCusto(row);
+  });
+  wrap.addEventListener("change", (e) => {
+    if (e.target.classList.contains("proc-usage-unidade")) {
+      e.target.dataset.touched = "1";
+    }
+    const row = e.target.closest(".proc-usage-row");
+    refreshUsageRowCusto(row);
+  });
+  wrap.querySelectorAll(".proc-usage-row").forEach(refreshUsageRowCusto);
+}
+
+function collectUsageFromForm() {
+  const out = [];
+  const seen = new Set();
+  document.querySelectorAll("#procUsageRows .proc-usage-row").forEach((row) => {
+    const papel = (row.querySelector(".proc-usage-papel")?.value || "").trim();
+    const produto = (row.querySelector(".proc-usage-produto")?.value || "").trim();
+    const usa = Number(row.querySelector(".proc-usage-usa")?.value);
+    const rende = Number(row.querySelector(".proc-usage-rendimento")?.value);
+    const frac = qtyFromUsaRende(usa, rende);
+    let qty = frac != null ? frac : Number(row.querySelector(".proc-usage-qty")?.value);
+    if (!produto && !papel) return;
+    const nome = produto || (papel ? USAGE_VAGA_PREFIX + papel : "");
+    if (!nome) return;
+    const key = nome.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const unidade = produto ? row.querySelector(".proc-usage-unidade")?.value : "un";
+    out.push({
+      item_ref: joinUsageRef(nome, unidade, usa, rende),
+      quantity_used: Number.isFinite(qty) && qty > 0 ? qty : 1,
+      usa: Number.isFinite(usa) && usa > 0 ? usa : undefined,
+      rende: Number.isFinite(rende) && rende > 0 ? rende : undefined,
+      unidade,
+    });
+  });
+  return out;
+}
+
+function aluguelEditorHtml(cfg = {}) {
+  return `
+    <div id="procAluguelWrap" class="proc-aluguel-wrap">
+      <h4>Aluguel de equipamento no dia</h4>
+      <p class="procedimento-modal-hint">Quando a clínica aluga o aparelho por dia (ex.: dia de laser), o aluguel entra no custo desse dia — não é rateado automaticamente em cada sessão e não muda o preço do paciente. Informe o valor do dia; o sistema mostra quantos atendimentos pagam o aluguel e ainda sobram.</p>
+      <label>Equipamento (opcional)</label>
+      <input type="text" id="procAluguelEquip" value="${escapeHtml(cfg.equip || "")}" placeholder="Ex.: HIFU, laser de CO2">
+      <label>Aluguel neste dia (R$)</label>
+      <input type="number" id="procAluguelDia" step="0.01" min="0" value="${cfg.dia != null ? cfg.dia : ""}" placeholder="Quanto custa o aparelho neste dia">
+      <label>Horas com o equipamento neste dia</label>
+      <input type="number" id="procAluguelHoras" min="1" max="16" step="0.5" value="${cfg.horas != null ? cfg.horas : 8}">
+      <div id="procAluguelConta" class="proc-aluguel-conta" aria-live="polite"></div>
+    </div>
+  `;
+}
+
+function collectAluguelFromForm() {
+  const diaEl = document.getElementById("procAluguelDia");
+  const horasEl = document.getElementById("procAluguelHoras");
+  const equipEl = document.getElementById("procAluguelEquip");
+  const dia = diaEl && diaEl.value !== "" ? Number(diaEl.value) : null;
+  const horas = horasEl && horasEl.value !== "" ? Number(horasEl.value) : 8;
+  const equip = equipEl ? (equipEl.value || "").trim() : "";
+  if (!(dia > 0)) return { dia: null, horas: 8, equip: "" };
+  return { dia, horas: Number.isFinite(horas) && horas > 0 ? horas : 8, equip };
+}
+
+function refreshAluguelConta() {
+  const el = document.getElementById("procAluguelConta");
+  if (!el) return;
+  const cfg = collectAluguelFromForm();
+  const preco = Number(document.getElementById("procValor")?.value);
+  const material = Number(document.getElementById("procCusto")?.value);
+  const comissaoPct = Number(document.getElementById("procComissao")?.value);
+  const margem = Number(document.getElementById("procMargem")?.value);
+  const durationMinutes = Number(document.getElementById("procDuration")?.value) || 60;
+  const c = contaDiaEquipamento({
+    aluguelDia: cfg.dia,
+    preco,
+    material,
+    comissaoPct,
+    durationMinutes,
+    horasDia: cfg.horas,
+    margemAlvoPct: Number.isFinite(margem) ? margem : null,
+  });
+  el.textContent = textoContaDia(c);
+}
+
+function bindAluguelConta() {
+  const wrap = document.getElementById("procAluguelWrap");
+  if (!wrap) return;
+  const ids = ["procAluguelDia", "procAluguelHoras", "procAluguelEquip", "procValor", "procCusto", "procComissao", "procMargem", "procDuration"];
+  ids.forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", refreshAluguelConta);
+    document.getElementById(id)?.addEventListener("change", refreshAluguelConta);
+  });
+  refreshAluguelConta();
+}
+
+function mergeDescriptionComAluguel(rawDesc) {
+  return withAluguelMarker(rawDesc, collectAluguelFromForm());
+}
 
 /* =====================
    INIT
@@ -52,12 +397,21 @@ export function init() {
     sessionStorage.removeItem("procedimentoEditId");
     setTimeout(() => openEditModal(editId), 200);
   }
+  if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("sc_open_planos") === "1") {
+    sessionStorage.removeItem("sc_open_planos");
+    setTimeout(() => openPlanosTerapeuticosPanel(), 80);
+  }
 }
 
 /** Se as taxas já estiverem configuradas, esconde o aviso da seção de planos. */
 async function esconderAvisoTaxasPlanosSeConfigurado() {
   const el = document.getElementById("procPlanosHintTaxas");
   if (!el) return;
+  const canFin = await checkPermission("financeiro:view").catch(() => false);
+  if (!canFin) {
+    el.hidden = true;
+    return;
+  }
   try {
     const taxas = await getTaxasOrganizacao();
     const temParceladoN = Array.from({ length: 11 }, (_, i) => taxas[`taxa_parcelado_${i + 2}_pct`] != null).some(Boolean);
@@ -93,10 +447,10 @@ function bindUI() {
   const planosPanel = document.getElementById("procPlanosPanel");
   if (planosToggle && planosPanel) {
     planosToggle.onclick = () => {
-      const isOpen = !planosPanel.hidden;
-      planosPanel.hidden = isOpen;
-      planosToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
-      if (isOpen) renderPlanosTerapeuticos();
+      const willOpen = planosPanel.hidden;
+      planosPanel.hidden = !willOpen;
+      planosToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      if (willOpen) renderPlanosTerapeuticos();
     };
   }
   const btnCriarPlano = document.getElementById("btnCriarPlanoTerapeutico");
@@ -252,20 +606,7 @@ async function renderCardMargemRisco(containerId) {
       return;
     }
     el.classList.remove("hidden");
-    const uniqueProducts = [...new Set(list.map((x) => x.produto_nome))];
-    const procNames = [...new Set(list.flatMap((x) => (x.procedimentos || []).map((p) => p.procedure_name).filter(Boolean)))];
-    const procsLine = procNames.slice(0, 6).join(", ") + (procNames.length > 6 ? "…" : "");
-    el.innerHTML = `
-      <div class="card-margem-risco__inner">
-        <span class="card-margem-risco__icon" aria-hidden="true">⚠️</span>
-        <div class="card-margem-risco__text">
-          <strong>Margem em risco:</strong> ${uniqueProducts.length} produto(s) com aumento de custo recente (≥15%).
-          ${procsLine ? `Procedimentos que usam esses produtos: ${escapeHtml(procsLine)}. ` : ""}
-          Revise precificação ou fornecedor. O sistema não altera preço sozinho.
-        </div>
-        <a href="#auditoria" class="btn-secondary btn-sm card-margem-risco__link">Ver na Auditoria</a>
-      </div>
-    `;
+    el.innerHTML = htmlCardMargemRisco(list);
   } catch (_) {
     el.classList.add("hidden");
     el.innerHTML = "";
@@ -290,6 +631,29 @@ export async function renderProcedimentos() {
     }
 
     let data = await listProcedures(false);
+    const custoReceitaById = {};
+    try {
+      const [usos, resumo] = await Promise.all([listAllProcedureStockUsage(), getResumoPorProduto()]);
+      const map = {};
+      for (const r of resumo || []) {
+        const n = String(r.produto_nome || "").trim().toLowerCase();
+        if (n && r.custo_medio != null && Number.isFinite(Number(r.custo_medio))) map[n] = Number(r.custo_medio);
+      }
+      const byProc = {};
+      for (const u of usos || []) {
+        if (!u.procedure_id) continue;
+        (byProc[u.procedure_id] ||= []).push(u);
+      }
+      for (const [id, rows] of Object.entries(byProc)) {
+        const out = custoRealFromUsage(rows, map);
+        if (out.custoReal != null) custoReceitaById[id] = out.custoReal;
+      }
+    } catch (_) {}
+    data = data.map((p) => ({
+      ...p,
+      custo_material_exibicao: custoReceitaById[p.id] != null ? custoReceitaById[p.id] : p.custo_material_estimado,
+      custo_receita: custoReceitaById[p.id],
+    }));
     const catById = (categories || []).reduce((acc, c) => { acc[c.id] = c.name; return acc; }, {});
 
     const catFilter = (filterCatEl && filterCatEl.value) ? filterCatEl.value : "";
@@ -306,14 +670,14 @@ export async function renderProcedimentos() {
     if (sortBy === "valor") data = [...data].sort((a, b) => (Number(a.valor_cobrado) || 0) - (Number(b.valor_cobrado) || 0));
     else if (sortBy === "duration") data = [...data].sort((a, b) => (a.duration_minutes || 0) - (b.duration_minutes || 0));
     else if (sortBy === "lucro_hora") {
-      const order = new Map(rankLucroHora(data).map((r, i) => [r.id, i]));
+      const order = new Map(rankLucroHora(data.map((p) => ({ ...p, custo_material_estimado: p.custo_material_exibicao }))).map((r, i) => [r.id, i]));
       data = [...data].sort((a, b) => (order.get(a.id) ?? 9999) - (order.get(b.id) ?? 9999));
     }
     else data = [...data].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
     const lucroEl = document.getElementById("procLucroHora");
     if (lucroEl) {
-      const sum = summarizeLucroHora(rankLucroHora(data));
+      const sum = summarizeLucroHora(rankLucroHora(data.map((p) => ({ ...p, custo_material_estimado: p.custo_material_exibicao }))));
       lucroEl.textContent = sum.copy;
     }
 
@@ -329,17 +693,40 @@ export async function renderProcedimentos() {
     listEl.innerHTML = data
       .map((p) => {
         const catName = p.category_id ? (catById[p.category_id] || "") : "";
-        const custoStr = p.custo_material_estimado != null ? `Custo material est.: R$ ${Number(p.custo_material_estimado).toFixed(2).replace(".", ",")}` : "";
+        const custoStr = p.custo_receita != null
+          ? `Custo receita: R$ ${Number(p.custo_receita).toFixed(2).replace(".", ",")}`
+          : p.custo_material_estimado != null
+            ? `Custo material est.: R$ ${Number(p.custo_material_estimado).toFixed(2).replace(".", ",")}`
+            : "";
         const margemStr = p.margem_minima_desejada != null ? `Margem: ${Number(p.margem_minima_desejada)}%` : "";
-        const extra = [custoStr, margemStr].filter(Boolean).join(" · ");
+        const aluguelCfg = parseAluguelCadastro(p);
+        const aluguelConta = aluguelCfg
+          ? contaDiaEquipamento({
+              aluguelDia: aluguelCfg.dia,
+              preco: p.valor_cobrado,
+              material: p.custo_material_exibicao,
+              comissaoPct: p.comissao_profissional_pct,
+              durationMinutes: p.duration_minutes,
+              horasDia: aluguelCfg.horas,
+              margemAlvoPct: p.margem_minima_desejada,
+            })
+          : null;
+        const aluguelStr =
+          aluguelConta && aluguelConta.nPagar
+            ? `Aluguel dia: ${aluguelConta.nPagar} p/ pagar${aluguelConta.nSobra ? ` · ${aluguelConta.nSobra} p/ sobrar` : ""}`
+            : aluguelCfg
+              ? `Aluguel dia: R$ ${Number(aluguelCfg.dia).toFixed(2).replace(".", ",")}`
+              : "";
+        const extra = [custoStr, margemStr, aluguelStr].filter(Boolean).join(" · ");
+        const descVisivel = stripAluguelMarker(p.description || "");
         return `
       <div class="procedimento-card ${p.active ? "" : "procedimento-card--inactive"}" data-id="${p.id}">
         <div class="procedimento-card__body">
           <h3 class="procedimento-card__name">${p.codigo ? `<span class="procedimento-card__codigo">${escapeHtml(p.codigo)}</span> ` : ""}${escapeHtml(p.name)}</h3>
           ${catName ? `<p class="procedimento-card__category">${escapeHtml(catName)}</p>` : ""}
-          ${p.description ? `<p class="procedimento-card__desc">${escapeHtml(p.description.slice(0, 80))}${p.description.length > 80 ? "…" : ""}</p>` : ""}
+          ${descVisivel ? `<p class="procedimento-card__desc">${escapeHtml(descVisivel.slice(0, 80))}${descVisivel.length > 80 ? "…" : ""}</p>` : ""}
           <p class="procedimento-card__meta">${p.duration_minutes} min${p.valor_cobrado != null ? ` · R$ ${Number(p.valor_cobrado).toFixed(2).replace(".", ",")}` : ""}${extra ? ` · ${extra}` : ""}${(() => {
-            const lh = rankLucroHora([p])[0];
+            const lh = rankLucroHora([{ ...p, custo_material_estimado: p.custo_material_exibicao }])[0];
             return lh ? ` · ~R$ ${Number(lh.lucroHora).toFixed(2).replace(".", ",")}/h` : "";
           })()}</p>
           <span class="procedimento-card__badge">${p.active ? "Ativo" : "Inativo"}</span>
@@ -441,8 +828,20 @@ async function submitNovaCategoria() {
 
 async function openCreateModal() {
   let categories = [];
+  let nomes = [];
+  let custos = {};
+  let unidades = {};
   try {
     categories = await listProcedureCategories();
+  } catch (_) {}
+  try {
+    nomes = await nomesEstoqueReceita();
+  } catch (_) {}
+  try {
+    custos = await custosEstoqueReceita();
+  } catch (_) {}
+  try {
+    unidades = await unidadesEstoqueReceita();
   } catch (_) {}
   const catOptions = (categories || []).map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   openModal(
@@ -471,28 +870,29 @@ async function openCreateModal() {
     <label>Cláusula de consentimento (opcional)</label>
     <textarea id="procTermoEspecifico" rows="3" placeholder="Texto jurídico específico deste procedimento (riscos, cuidados). Será exibido no termo de consentimento quando aplicável. Consulte o advogado."></textarea>
     <p class="procedimento-modal-hint">Use para o termo se adaptar ao procedimento: o advogado pode redigir uma cláusula por tipo de serviço.</p>
-      <div class="procedimento-pricing-block">
-      <h4>🤖 Apoio à precificação (IA)</h4>
-      <p class="procedimento-modal-hint" style="margin:0 0 8px;">A IA calcula um valor pela estrutura de custos. Não é preço de mercado. Você decide se aplica.</p>
-      <button type="button" id="btnSugerirPreco" class="btn-secondary">Sugerir valor com IA</button>
-      <div id="procPricingResult" class="procedimento-pricing-suggestion hidden" aria-live="polite"></div>
-    </div>
-    <div class="procedimento-pricing-taxas-block" id="procPrecificacaoComTaxasWrap">
-      <h4>📐 Precificação com taxas (margem real)</h4>
-      <p class="procedimento-modal-hint procedimento-aviso-taxas" style="margin:0 0 6px;">Com as <strong>taxas reais da maquininha</strong> em Configurações → Taxas da maquininha, a precificação fica mais assertiva: você vê a margem real deste procedimento por forma de pagamento e, ao montar o plano, já define como cobrar (parcelas, desconto à vista).</p>
-      <div id="procPrecificacaoComTaxas" class="proc-precificacao-taxas-content" aria-live="polite"></div>
-    </div>
+    ${aluguelEditorHtml()}
+    ${usageEditorHtml([], nomes)}
+    ${htmlBlocoNaoPerder()}
     <p class="procedimento-modal-hint">O valor aqui entra em finanças (lucro, custo, pagamento) e depois em metas reais.</p>
     `,
     submitCreate
   );
+  bindUsageEditor(custos, unidades);
+  bindAluguelConta();
   bindPricingSuggestion();
   bindPrecificacaoComTaxas();
 }
 
 async function openEditModal(id) {
   try {
-    const [list, categories] = await Promise.all([listProcedures(false), listProcedureCategories().catch(() => [])]);
+    const [list, categories, nomes, usage, custos, unidades] = await Promise.all([
+      listProcedures(false),
+      listProcedureCategories().catch(() => []),
+      nomesEstoqueReceita().catch(() => []),
+      getProcedureStockUsage(id),
+      custosEstoqueReceita().catch(() => ({})),
+      unidadesEstoqueReceita().catch(() => ({})),
+    ]);
     const p = list.find((x) => x.id === id);
     if (!p) {
       toast("Procedimento não encontrado");
@@ -509,7 +909,7 @@ async function openEditModal(id) {
       <label>Categoria</label>
       <select id="procCategory"><option value="">Nenhuma</option>${catOptions}</select>
       <label>Descrição</label>
-      <textarea id="procDesc" placeholder="Descrição do procedimento (opcional)" rows="2">${escapeHtml(p.description || "")}</textarea>
+      <textarea id="procDesc" placeholder="Descrição do procedimento (opcional)" rows="2">${escapeHtml(stripAluguelMarker(p.description || ""))}</textarea>
       <label>Duração (minutos)</label>
       <input type="number" id="procDuration" min="5" step="5" value="${p.duration_minutes}">
       <label>Tipo de procedimento (para agendamento: qual sala suporta)</label>
@@ -526,17 +926,9 @@ async function openEditModal(id) {
       <label>Cláusula de consentimento (opcional)</label>
       <textarea id="procTermoEspecifico" rows="3" placeholder="Texto jurídico específico deste procedimento (riscos, cuidados). Será exibido no termo de consentimento quando aplicável.">${escapeHtml(p.termo_especifico || "")}</textarea>
       <p class="procedimento-modal-hint">Use para o termo se adaptar ao procedimento: o advogado pode redigir uma cláusula por tipo de serviço.</p>
-      <div class="procedimento-pricing-block">
-        <h4>🤖 Apoio à precificação (IA)</h4>
-        <p class="procedimento-modal-hint" style="margin:0 0 8px;">A IA calcula um valor pela estrutura de custos. Não é preço de mercado. Você decide se aplica.</p>
-        <button type="button" id="btnSugerirPreco" class="btn-secondary">Sugerir valor com IA</button>
-        <div id="procPricingResult" class="procedimento-pricing-suggestion hidden" aria-live="polite"></div>
-      </div>
-      <div class="procedimento-pricing-taxas-block" id="procPrecificacaoComTaxasWrap">
-        <h4>📐 Precificação com taxas (margem real)</h4>
-        <p class="procedimento-modal-hint procedimento-aviso-taxas" style="margin:0 0 6px;">Com as <strong>taxas reais da maquininha</strong> em Configurações → Taxas da maquininha, a precificação fica mais assertiva: você vê a margem real deste procedimento por forma de pagamento e, ao montar o plano, já define como cobrar (parcelas, desconto à vista).</p>
-        <div id="procPrecificacaoComTaxas" class="proc-precificacao-taxas-content" aria-live="polite"></div>
-      </div>
+      ${aluguelEditorHtml(parseAluguelCadastro(p) || {})}
+      ${usageEditorHtml(usage, nomes)}
+      ${htmlBlocoNaoPerder()}
       <div id="procCustoRealBlock" class="procedimento-custo-real-block" aria-live="polite"></div>
       <div id="procPlBlock" class="procedimento-pl-block" aria-live="polite"></div>
       <input type="hidden" id="procId" value="${p.id}">
@@ -544,6 +936,8 @@ async function openEditModal(id) {
       `,
       () => submitEdit(id)
     );
+    bindUsageEditor(custos, unidades);
+    bindAluguelConta();
     bindPricingSuggestion();
     bindPrecificacaoComTaxas();
     const block = document.getElementById("procCustoRealBlock");
@@ -551,13 +945,13 @@ async function openEditModal(id) {
       try {
         const { custoReal, itens } = await getCustoRealProcedimento(id);
         if (itens.length === 0) {
-          block.innerHTML = `<h4>📦 Materiais usados e custo real</h4><p class="procedimento-custo-real-empty">Nenhum material vinculado a este procedimento (tabela <code>procedure_stock_usage</code>). Quando houver, o custo real será calculado com base no custo médio do estoque.</p>`;
+          block.innerHTML = "";
         } else {
           block.innerHTML = `
             <h4>📦 Materiais usados e custo real (calculado)</h4>
-            <p class="procedimento-modal-hint">Custo real = soma (quantidade × custo médio do estoque por produto). Compare com o custo estimado acima.</p>
-            <ul class="proc-custo-real-list">${itens.map((i) => `<li><strong>${escapeHtml(i.item_ref)}</strong>: ${i.quantity_used} × ${i.custo_unitario != null ? "R$ " + i.custo_unitario.toFixed(2).replace(".", ",") : "—"} = R$ ${i.subtotal.toFixed(2).replace(".", ",")}</li>`).join("")}</ul>
-            <p class="proc-custo-real-total"><strong>Custo real total: R$ ${custoReal.toFixed(2).replace(".", ",")}</strong></p>
+            <p class="procedimento-modal-hint">Custo desta ficha = (quanto usa aqui ÷ quanto cabe na embalagem) × valor do produto. Os valores são os que você cadastrou neste procedimento. Compare com o estimado acima.</p>
+            <ul class="proc-custo-real-list">${itens.map((i) => `<li><strong>${escapeHtml(usageDisplayName(i.item_ref))}</strong>: ${i.vaga ? "vaga, sem custo até o dia" : i.usa && i.rende ? `${i.usa} ${escapeHtml(labelUnidadeQtd(i.unidade, i.usa))} / ${i.rende} na embalagem = R$ ${(i.subtotal != null ? i.subtotal : 0).toFixed(2).replace(".", ",")}` : `${i.quantity_used} ${escapeHtml(labelUnidadeQtd(i.unidade, i.quantity_used))} × ${i.custo_unitario != null ? "R$ " + i.custo_unitario.toFixed(2).replace(".", ",") : "—"} = R$ ${(i.subtotal != null ? i.subtotal : 0).toFixed(2).replace(".", ",")}`}</li>`).join("")}</ul>
+            ${custoReal != null ? `<p class="proc-custo-real-total"><strong>Custo real total: R$ ${custoReal.toFixed(2).replace(".", ",")}</strong></p>` : `<p class="procedimento-modal-hint">Custo real total ainda não informado (vaga ou produto sem custo médio).</p>`}
           `;
         }
       } catch (e) {
@@ -579,6 +973,21 @@ async function openEditModal(id) {
             <li>Custo estrutural (${escapeHtml(eco.rateioMetodoLabel || "não informado")}): <strong>${brl(eco.custoEstrutural)}</strong>${eco.rateioDetalhe ? ` — ${escapeHtml(eco.rateioDetalhe)}` : ""}</li>
             <li>Lucro estimado: <strong>${brl(eco.lucro)}</strong> · margem ${eco.margemPct != null ? eco.margemPct.toFixed(1).replace(".", ",") + "%" : "não informado"}</li>
             <li>Lucro / hora: <strong>${brl(eco.lucroHora)}</strong></li>
+            ${(() => {
+              const cfgA = parseAluguelCadastro(p);
+              if (!cfgA) return "";
+              const dia = contaDiaEquipamento({
+                aluguelDia: cfgA.dia,
+                preco: p.valor_cobrado,
+                material: eco.material,
+                comissaoPct: eco.comissaoPct,
+                taxaPct: eco.taxaPct,
+                durationMinutes: p.duration_minutes,
+                horasDia: cfgA.horas,
+                margemAlvoPct: p.margem_minima_desejada,
+              });
+              return `<li>Aluguel no dia (${escapeHtml(cfgA.equip || "equipamento")}): <strong>${brl(cfgA.dia)}</strong> — ${escapeHtml(textoContaDia(dia, { nomeProc: p.name || "procedimento" }))}</li>`;
+            })()}
             <li>Preço de equilíbrio: <strong>${brl(eco.precoEquilibrio)}</strong> · mínimo (margem alvo): <strong>${brl(eco.precoMinimo)}</strong> · calculado (estrutura de custos, não mercado): <strong>${brl(eco.precoCalculado)}</strong></li>
           </ul>
           <p class="procedimento-modal-hint">Sugestões não alteram o valor cobrado. Você decide.</p>
@@ -609,7 +1018,8 @@ async function submitCreate() {
     toast("Informe o nome do serviço");
     return;
   }
-  const description = descEl ? (descEl.value || "").trim() || null : null;
+  const aluguel = collectAluguelFromForm();
+  const description = mergeDescriptionComAluguel(descEl ? (descEl.value || "").trim() : "");
   const valorCobrado = valorEl && valorEl.value !== "" ? valorEl.value : undefined;
   const codigo = codigoEl ? (codigoEl.value || "").trim() || null : null;
   const categoryId = categoryEl && categoryEl.value ? categoryEl.value : null;
@@ -621,7 +1031,18 @@ async function submitCreate() {
   const termoEl = document.getElementById("procTermoEspecifico");
   const termoEspecifico = termoEl ? (termoEl.value || "").trim() || null : null;
   try {
-    await createProcedure({ name, description, durationMinutes: Number(durationEl.value) || 60, valorCobrado, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, comissaoProfissionalPct, tipoProcedimento, termoEspecifico });
+    const created = await createProcedure({ name, description, durationMinutes: Number(durationEl.value) || 60, valorCobrado, codigo, categoryId, custoMaterialEstimado, margemMinimaDesejada, comissaoProfissionalPct, tipoProcedimento, termoEspecifico, aluguelEquipamentoDia: aluguel.dia, aluguelHorasDia: aluguel.horas, aluguelEquipamentoNome: aluguel.equip });
+    if (created?.id) {
+      try {
+        await replaceProcedureStockUsage(created.id, collectUsageFromForm());
+      } catch (uErr) {
+        console.warn("[PROCEDIMENTO] receita", uErr);
+        toast(uErr.message || "Procedimento criado; a receita de materiais não salvou.");
+        closeModal();
+        renderProcedimentos();
+        return;
+      }
+    }
     closeModal();
     renderProcedimentos();
     toast("Procedimento criado!");
@@ -647,7 +1068,8 @@ async function submitEdit(id) {
     toast("Informe o nome do serviço");
     return;
   }
-  const description = descEl ? (descEl.value || "").trim() || null : null;
+  const aluguel = collectAluguelFromForm();
+  const description = mergeDescriptionComAluguel(descEl ? (descEl.value || "").trim() : "");
   const valorCobrado = valorEl ? (valorEl.value === "" ? null : valorEl.value) : undefined;
   const codigo = codigoEl ? (codigoEl.value || "").trim() || null : null;
   const categoryId = categoryEl ? (categoryEl.value || null) : null;
@@ -671,7 +1093,19 @@ async function submitEdit(id) {
       margemMinimaDesejada,
       comissaoProfissionalPct,
       termoEspecifico,
+      aluguelEquipamentoDia: aluguel.dia,
+      aluguelHorasDia: aluguel.horas,
+      aluguelEquipamentoNome: aluguel.equip,
     });
+    try {
+      await replaceProcedureStockUsage(id, collectUsageFromForm());
+    } catch (uErr) {
+      console.warn("[PROCEDIMENTO] receita", uErr);
+      toast(uErr.message || "Procedimento salvo; a receita de materiais não atualizou.");
+      closeModal();
+      renderProcedimentos();
+      return;
+    }
     closeModal();
     renderProcedimentos();
     toast("Procedimento atualizado!");
@@ -705,6 +1139,18 @@ async function confirmDelete(id) {
   });
 }
 
+function openPlanosTerapeuticosPanel() {
+  const toggle = document.getElementById("procPlanosToggle");
+  const panel = document.getElementById("procPlanosPanel");
+  const wrap = document.getElementById("procedimentoPlanosWrap");
+  if (!panel || !toggle) return;
+  panel.hidden = false;
+  toggle.setAttribute("aria-expanded", "true");
+  wrap?.classList.add("procedimento-planos-wrap--focus");
+  wrap?.scrollIntoView({ behavior: "smooth", block: "start" });
+  renderPlanosTerapeuticos();
+}
+
 /* =====================
    PLANOS TERAPÊUTICOS (dentro de Procedimentos)
 ===================== */
@@ -718,6 +1164,7 @@ export async function renderPlanosTerapeuticos() {
       listProcedures(false).catch(() => []),
     ]);
     const procById = (procedures || []).reduce((acc, p) => { acc[p.id] = p; return acc }, {});
+    const canSimular = await checkPermission("financeiro:view").catch(() => false);
 
     if (!planos || planos.length === 0) {
       listEl.innerHTML = `
@@ -740,7 +1187,7 @@ export async function renderPlanosTerapeuticos() {
         }
       });
       const valorFormatado = valorTotal > 0 ? Number(valorTotal).toFixed(2).replace(".", ",") : "";
-      const blocoFinanceiro = valorTotal > 0
+      const blocoFinanceiro = canSimular && valorTotal > 0
         ? `<p class="plano-terapeutico-card__valor">Valor sugerido do plano: R$ ${valorFormatado}</p>
            <button type="button" class="btn-secondary btn-sm btn-simular-plano" data-valor="${valorTotal}" title="Ver quanto você recebe e qual desconto à vista oferecer">Simular recebimento</button>`
         : "";
@@ -959,6 +1406,23 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function htmlBlocoNaoPerder() {
+  return `
+    <div class="procedimento-nao-perder" id="procNaoPerder" aria-live="polite"></div>
+    <div class="procedimento-pricing-taxas-block" id="procPrecificacaoComTaxasWrap">
+      <h4>Margem depois da maquininha</h4>
+      <p class="procedimento-modal-hint procedimento-aviso-taxas" style="margin:0 0 6px;">Taxas reais em Configurações → Taxas da maquininha. O sistema não grava o preço daqui.</p>
+      <div id="procPrecificacaoComTaxas" class="proc-precificacao-taxas-content" aria-live="polite"></div>
+    </div>
+    <div class="procedimento-pricing-block">
+      <h4>Leitura da IA (opcional)</h4>
+      <p class="procedimento-modal-hint" style="margin:0 0 8px;">Usa custo e, se houver, a faixa citada do radar. Não inventa concorrente. Você decide se aplica o valor.</p>
+      <button type="button" id="btnSugerirPreco" class="btn-secondary">Pedir leitura da IA</button>
+      <div id="procPricingResult" class="procedimento-pricing-suggestion hidden" aria-live="polite"></div>
+    </div>
+  `;
+}
+
 /**
  * Apoio à precificação: IA sugere valor; humano aplica se quiser.
  */
@@ -989,7 +1453,11 @@ function bindPricingSuggestion() {
       const custos = { duracao_minutos: duracao };
       if (custoMaterial != null) custos.custo_material_estimado = custoMaterial;
       const protocolo = { nome, margem_minima_desejada: margemMin };
-      const res = await gerarPreco({ custos, protocolo });
+      const radar = casarRadarRef(radarRefsCache, {
+        procedureId: document.getElementById("procId")?.value || "",
+        nome,
+      });
+      const res = await gerarPreco({ custos, protocolo, mercado: radar || undefined });
 
       const raw = (res && res.content) ? res.content : (typeof res === "string" ? res : "");
       const jsonStr = raw.replace(/```json?\s*/g, "").replace(/```\s*$/g, "").trim();
@@ -1031,15 +1499,30 @@ function bindPricingSuggestion() {
   };
 }
 
+let radarRefsCache = [];
+
 /**
- * Precificação cruzada com taxas: valor mínimo para margem e margem real por forma de pagamento.
+ * Precificação cruzada: custo + taxa + faixa citada. Não grava preço.
  */
 function bindPrecificacaoComTaxas() {
   const container = document.getElementById("procPrecificacaoComTaxas");
+  const cardEl = document.getElementById("procNaoPerder");
   const valorEl = document.getElementById("procValor");
   const custoEl = document.getElementById("procCusto");
   const margemEl = document.getElementById("procMargem");
-  if (!container) return;
+  const nomeEl = document.getElementById("procName");
+  if (!container && !cardEl) return;
+
+  radarRefsCache = [];
+  listMarketRadar()
+    .then((rows) => {
+      radarRefsCache = rows || [];
+      atualizar();
+    })
+    .catch(() => {
+      radarRefsCache = [];
+      atualizar();
+    });
 
   function fmt(v) {
     if (v == null || Number.isNaN(v)) return "—";
@@ -1050,6 +1533,9 @@ function bindPrecificacaoComTaxas() {
     const valor = valorEl && valorEl.value !== "" ? Number(valorEl.value) : null;
     const custo = custoEl && custoEl.value !== "" ? Number(custoEl.value) : null;
     const margem = margemEl && margemEl.value !== "" ? Number(margemEl.value) : null;
+    const nome = (nomeEl && nomeEl.value || "").trim();
+    const procedureId = document.getElementById("procId")?.value || "";
+    const radar = casarRadarRef(radarRefsCache, { procedureId, nome });
 
     getTaxasOrganizacao()
       .then((taxas) => {
@@ -1062,11 +1548,45 @@ function bindPrecificacaoComTaxas() {
         const taxaAvista = getTaxaParaParcelas(taxas, 1);
         const taxa6 = getTaxaParaParcelas(taxas, 6);
         const taxa12 = getTaxaParaParcelas(taxas, 12);
+        const liqAvista = valor != null && valor > 0 ? calcularLiquido(valor, taxaAvista) : null;
+        const minAvista = custo != null && custo > 0 && margem != null && margem >= 0 && margem < 100
+          ? valorBrutoMinimoParaMargem(custo, margem, taxaAvista)
+          : null;
 
+        if (cardEl) {
+          const leitura = leituraNaoPerder({
+            preco: valor,
+            custo,
+            margemAlvo: margem,
+            liquidoAvista: liqAvista,
+            taxaAvistaPct: taxaAvista,
+            minAvistaAlvo: minAvista,
+            radar,
+          });
+          const faixaHtml = radar
+            ? `<p>Faixa citada: R$ ${fmt(radar.preco_min)} – R$ ${fmt(radar.preco_max)} · ${escapeHtml(radar.fonte)} · ${escapeHtml(radar.regiao)} · ${escapeHtml(String(radar.data_ref).slice(0, 10))}</p>`
+            : "";
+          const minHtml = minAvista != null
+            ? `<p>Valor mínimo à vista para o alvo de margem (estrutura + taxa): <strong>R$ ${fmt(minAvista)}</strong>. Não é preço de mercado.</p>`
+            : "";
+          const liqHtml = liqAvista != null && valor != null && valor > 0
+            ? `<p>Se cobrar R$ ${fmt(valor)}, à vista a clínica recebe <strong>R$ ${fmt(liqAvista)}</strong> depois da maquininha${leitura.margemAposTaxa != null ? ` (margem ${fmt(leitura.margemAposTaxa)}%)` : ""}.</p>`
+            : "";
+          cardEl.className = "procedimento-nao-perder procedimento-nao-perder--" + leitura.tom;
+          cardEl.innerHTML =
+            `<h4>${escapeHtml(leitura.titulo)}</h4>` +
+            `<p class="procedimento-modal-hint">Custo + taxa + faixa citada. A IA não grava o preço.</p>` +
+            faixaHtml +
+            liqHtml +
+            minHtml +
+            `<p>${escapeHtml(leitura.alerta)}</p>` +
+            `<p class="procedimento-modal-hint"><a href="#market-radar" data-view="market-radar">Radar de mercado</a> · <a href="#precificacao-taxas" data-view="precificacao-taxas">Taxas da maquininha</a></p>`;
+        }
+
+        if (!container) return;
         const partes = [];
 
         if (custo != null && custo > 0 && margem != null && margem >= 0 && margem < 100) {
-          const minAvista = valorBrutoMinimoParaMargem(custo, margem, taxaAvista);
           const min6 = valorBrutoMinimoParaMargem(custo, margem, taxa6);
           const min12 = valorBrutoMinimoParaMargem(custo, margem, taxa12);
           partes.push(
@@ -1075,7 +1595,6 @@ function bindPrecificacaoComTaxas() {
         }
 
         if (valor != null && valor > 0 && custo != null) {
-          const liqAvista = calcularLiquido(valor, taxaAvista);
           const liq6 = calcularLiquido(valor, taxa6);
           const liq12 = calcularLiquido(valor, taxa12);
           const margemA = margemReal(liqAvista, custo);
@@ -1096,11 +1615,25 @@ function bindPrecificacaoComTaxas() {
         const wrap = document.getElementById("procPrecificacaoComTaxasWrap");
         const aviso = wrap?.querySelector(".procedimento-aviso-taxas");
         if (aviso) aviso.hidden = false;
-        container.innerHTML = "<p class=\"procedimento-modal-hint\">Configure as taxas em <strong>Configurações → Taxas da maquininha</strong> para ver valor mínimo e margem após taxa.</p>";
+        if (container) {
+          container.innerHTML = "<p class=\"procedimento-modal-hint\">Configure as taxas em <strong>Configurações → Taxas da maquininha</strong> para ver valor mínimo e margem após taxa.</p>";
+        }
+        if (cardEl) {
+          const leitura = leituraNaoPerder({
+            preco: valor,
+            custo,
+            margemAlvo: margem,
+            radar,
+          });
+          cardEl.className = "procedimento-nao-perder procedimento-nao-perder--" + leitura.tom;
+          cardEl.innerHTML =
+            `<h4>${escapeHtml(leitura.titulo)}</h4>` +
+            `<p>${escapeHtml(leitura.alerta)}</p>`;
+        }
       });
   }
 
-  [valorEl, custoEl, margemEl].filter(Boolean).forEach((el) => {
+  [valorEl, custoEl, margemEl, nomeEl].filter(Boolean).forEach((el) => {
     el.addEventListener("input", atualizar);
     el.addEventListener("change", atualizar);
   });

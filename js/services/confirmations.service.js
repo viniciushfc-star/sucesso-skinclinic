@@ -1,5 +1,6 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
+import { isUnknownColumnError, retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
 function getOrgOrThrow(){
   const orgId = getActiveOrg();
@@ -11,15 +12,15 @@ export async function createConfirmation(appointmentId){
   const orgId = getOrgOrThrow();
   const token = crypto.randomUUID();
 
-  const { data, error } = await supabase
-    .from("appointment_confirmations")
-    .insert({
+  const { data, error } = await retryUnknownColumns(
+    {
       appointment_id: appointmentId,
       org_id: orgId,
       token
-    })
-    .select()
-    .single();
+    },
+    (row) => supabase.from("appointment_confirmations").insert(row).select().single(),
+    { immutable: ["appointment_id", "org_id"] }
+  );
 
   if(error) throw error;
   return data;
@@ -47,13 +48,24 @@ export async function getAppointmentsByDate(date){
 
  const orgId = getOrgOrThrow();
 
- const { data, error } =
+ let { data, error } =
   await supabase
    .from("agenda")
    .select("id, data, hora, duration_minutes, cliente_id, cancelled_at")
    .eq("org_id", orgId)
    .eq("data", date)
    .order("hora");
+
+ if (error && isUnknownColumnError(error) && /cancelled_at|duration_minutes/i.test(String(error.message || ""))) {
+  const retry = await supabase
+    .from("agenda")
+    .select("id, data, hora, cliente_id")
+    .eq("org_id", orgId)
+    .eq("data", date)
+    .order("hora");
+  data = retry.data;
+  error = retry.error;
+ }
 
  if(error) throw error;
  return (data || []).filter((row) => !row.cancelled_at);

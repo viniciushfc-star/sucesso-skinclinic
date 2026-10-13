@@ -15,6 +15,8 @@ import {
   jaConsumiuAgenda,
   addDaysIso,
   sugerirProximaAcaoNaBaixa,
+  slotsAgendaDoAceite,
+  sessoesDoPacoteParaAgenda,
 } from "../js/utils/ciclo-ouro.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,12 +68,47 @@ describe("ciclo ouro orçamento → pacote → baixa", () => {
     const agenda = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
     const sql = readFileSync(join(ROOT, "supabase/supabase-ciclo-ouro-colar.sql"), "utf8");
     assert.match(perfil, /aceitarOrcamento/);
+    assert.match(perfil, /oferecerAgendaAposAceite/);
+    assert.match(perfil, /createAgendaSlots/);
+    assert.doesNotMatch(perfil, /sendWhatsapp\(.*aceite/);
     assert.match(agenda, /valorFinanceiroNaBaixa/);
     assert.match(agenda, /consumirSessao/);
     assert.match(agenda, /oferecerProximaSessaoAposBaixa/);
+    assert.match(agenda, /createProtocoloAplicado/);
+    assert.match(agenda, /openDarBaixaModal\(item\)/);
+    assert.doesNotMatch(agenda, /auto.?pric/i);
     assert.match(sql, /orcamento_id/);
     assert.match(sql, /idx_package_consumptions_agenda_unica/);
     assert.doesNotMatch(perfil, /client_packages2/);
+  });
+
+  it("aceite sugere horários na agenda sem mudar preço", () => {
+    const sessoes = sessoesDoPacoteParaAgenda(
+      { id: "pk", nome_pacote: "HIFU facial", total_sessoes: 4, procedure_id: "p1", client_id: "c1" },
+      { id: "p1", name: "HIFU facial", duration_minutes: 60 }
+    );
+    assert.equal(sessoes.length, 4);
+    const soPrimeira = slotsAgendaDoAceite({
+      packages: [{ id: "pk", nome_pacote: "HIFU facial", total_sessoes: 4, procedure_id: "p1" }],
+      procedures: [{ id: "p1", name: "HIFU facial", duration_minutes: 60 }],
+      startDate: "2026-10-10",
+      startTime: "09:00",
+      onlyFirst: true,
+    });
+    assert.equal(soPrimeira.length, 1);
+    assert.equal(soPrimeira[0].data, "2026-10-10");
+    const todas = slotsAgendaDoAceite({
+      packages: [{ id: "pk", nome_pacote: "HIFU facial", total_sessoes: 4, procedure_id: "p1" }],
+      procedures: [{ id: "p1", name: "HIFU facial", duration_minutes: 60 }],
+      startDate: "2026-10-10",
+      startTime: "09:00",
+      intervalDays: 7,
+      onlyFirst: false,
+    });
+    assert.equal(todas.length, 4);
+    assert.equal(todas[3].data, "2026-10-31");
+    const agenda = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
+    assert.match(agenda, /agendaDefaultDate/);
   });
 
   it("baixa com saldo de pacote sugere próxima, sem WhatsApp automático", () => {

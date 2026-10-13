@@ -197,7 +197,7 @@ export const API_PERM = {
   "/api/skincare-ai": { perm: "ia:assist", gestor: true, master: true, funcionario: false },
   "/api/whatsapp-send": { perm: "whatsapp:send", gestor: true, master: true, funcionario: false },
   "/api/audit-log": { perm: "dashboard:view", gestor: true, master: true, funcionario: true },
-  "/api/create-portal-session": { perm: "clientes:manage", gestor: true, master: true, funcionario: false },
+  "/api/create-portal-session": { perm: "clientes:edit", gestor: true, master: true, funcionario: false },
   "/api/ops-summary": { perm: "auditoria:view", gestor: true, master: true, funcionario: false },
   "/api/send-invite-email": { perm: "team:invite", gestor: true, master: true, funcionario: false },
   "/api/analise-pele-fotos": { perm: "clientes:view", gestor: true, master: true, funcionario: true },

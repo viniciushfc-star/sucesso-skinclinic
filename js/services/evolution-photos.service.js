@@ -5,6 +5,13 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { signedStorageUrl } from "../core/storage-url.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
+
+function missingEvolutionTable(error) {
+  const msg = String(error?.message || "");
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205" || /client_evolution_photos|does not exist|schema cache/i.test(msg);
+}
 
 const BUCKET = "client-photos";
 
@@ -26,7 +33,10 @@ export async function listEvolutionPhotosByClient(clientId) {
     .eq("org_id", orgId)
     .eq("client_id", clientId)
     .order("taken_at", { ascending: false });
-  if (error) throw error;
+  if (error) {
+    if (missingEvolutionTable(error)) return [];
+    throw error;
+  }
   const rows = data ?? [];
   return Promise.all(
     rows.map(async (row) => {
@@ -59,9 +69,8 @@ export async function addEvolutionPhoto(clientId, takenAt, type, file, procedure
 }
 
 async function addEvolutionPhotoRecord(orgId, clientId, dateStr, type, path, procedureId, notes) {
-  const { data, error } = await supabase
-    .from("client_evolution_photos")
-    .insert({
+  const { data, error } = await retryUnknownColumns(
+    {
       org_id: orgId,
       client_id: clientId,
       taken_at: dateStr,
@@ -69,10 +78,16 @@ async function addEvolutionPhotoRecord(orgId, clientId, dateStr, type, path, pro
       type: type === "depois" ? "depois" : "antes",
       procedure_id: procedureId || null,
       notes: notes || null,
-    })
-    .select()
-    .single();
-  if (error) throw error;
+    },
+    (row) => supabase.from("client_evolution_photos").insert(row).select().single(),
+    { immutable: ["org_id", "client_id", "taken_at", "photo_url"] }
+  );
+  if (error) {
+    if (missingEvolutionTable(error)) {
+      throw new Error("Rode o SQL supabase-fase0-equipe-fotos-convite-colar.sql para gravar fotos de evolução.");
+    }
+    throw error;
+  }
   const signed = await signedStorageUrl(BUCKET, path);
   return signed ? { ...data, photo_url: signed } : data;
 }

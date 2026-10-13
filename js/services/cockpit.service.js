@@ -122,6 +122,13 @@ export async function getCockpitSnapshot() {
 
   const radarFila = (radar || []).filter((r) => r.sinal && r.sinal !== "inativa");
   const produtosRisco = [...new Set((margem || []).map((x) => x.produto_nome).filter(Boolean))];
+  const primeiroImpacto = (margem || []).flatMap((x) => x.impactos || []).find((i) => i.procedure_name);
+  const margemLinha =
+    primeiroImpacto && primeiroImpacto.margemAntes != null && primeiroImpacto.margemDepois != null
+      ? `${primeiroImpacto.procedure_name}: margem ${Number(primeiroImpacto.margemAntes).toFixed(1).replace(".", ",")}% → ${Number(primeiroImpacto.margemDepois).toFixed(1).replace(".", ",")}%`
+      : primeiroImpacto
+        ? `${primeiroImpacto.procedure_name} usa o insumo que subiu`
+        : "";
   const rankedLucro = rankLucroHora(procedures);
   const lucroHoraCard = lucroHoraOpportunity(rankedLucro);
 
@@ -161,6 +168,7 @@ export async function getCockpitSnapshot() {
       analisesPendentes: (analises || []).length,
       inativos: (inativos || []).length,
       produtosRisco: produtosRisco.length,
+      margemLinha,
     }),
     oportunidades: buildOpportunityInsights({
       espera: (espera || []).length,

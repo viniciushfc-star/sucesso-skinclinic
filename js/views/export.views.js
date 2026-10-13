@@ -1,5 +1,14 @@
 import { exportarTabela, exportarBackupUnico } from "../services/export.service.js";
-import { importarLote, getTemplateHeaders, importarBackupUnico, parseCSV, analisarPreviaImportacao, MAX_IMPORT_ROWS } from "../services/importacao-lote.service.js";
+import { importarLote, getTemplateHeaders, importarBackupUnico, analisarPreviaImportacao, MAX_IMPORT_ROWS } from "../services/importacao-lote.service.js";
+import {
+  parsePlanilhaTexto,
+  sugerirMapa,
+  aplicarMapa,
+  faltandoObrigatorios,
+  htmlMapaColunas,
+  lerMapaDoDom,
+} from "../utils/import-mapa.js";
+import { pareceXlsx, pareceXlsAntigo, planilhaDeXlsx } from "../utils/xlsx-lite.js";
 import {
   previewBackupUnico,
   confirmRestoreMessage,
@@ -17,6 +26,9 @@ import { navigate } from "../core/spa.js";
 
 let pendingImportFile = null;
 let pendingImportRowCount = 0;
+let pendingRowsBrutas = null;
+let pendingHeaders = [];
+let pendingMappedRows = null;
 
 
 /* =====================
@@ -59,13 +71,23 @@ function bindUI() {
     importFile.onchange = () => mostrarPreviewOuImportar(importFile, importResult);
   }
   const importTipo = document.getElementById("importTipo");
+  const prefill = sessionStorage.getItem("importTipoPrefill");
+  if (prefill && importTipo) {
+    importTipo.value = prefill;
+    sessionStorage.removeItem("importTipoPrefill");
+  }
   if (importTipo) {
     importTipo.onchange = () => {
       pendingImportFile = null;
       pendingImportRowCount = 0;
+      pendingRowsBrutas = null;
+      pendingHeaders = [];
+      pendingMappedRows = null;
       const btn = document.getElementById("btnImportarLote");
       if (btn) btn.disabled = true;
       if (importFile) importFile.value = "";
+      const colar = document.getElementById("importColarTexto");
+      if (colar) colar.value = "";
       if (importResult) {
         importResult.classList.add("hidden");
         importResult.innerHTML = "";
@@ -73,6 +95,10 @@ function bindUI() {
     };
   }
   if (btnImportarLote) btnImportarLote.onclick = () => confirmarImportacao(importResult);
+  document.getElementById("btnImportColar")?.addEventListener("click", () => {
+    const texto = document.getElementById("importColarTexto")?.value || "";
+    mostrarPreviewDeTexto(texto, importResult);
+  });
 
   const btnBackup = document.getElementById("btnRestaurarBackup");
   const inputBackup = document.getElementById("importBackupFile");
@@ -275,50 +301,106 @@ function mostrarPreviewOuImportar(fileInput, resultEl) {
   if (btn) btn.disabled = true;
   if (!file || !resultEl) return;
   pendingImportFile = file;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const text = reader.result;
-      const rows = parseCSV(text);
-      pendingImportRowCount = rows.length;
-      const tipo = getTipoSelecionado();
-      const previa = analisarPreviaImportacao(tipo, rows);
-      if (rows.length === 0) {
-        resultEl.innerHTML = "<p class=\"import-result-err\">Nenhuma linha válida no CSV. Nada foi gravado.</p>";
-        resultEl.classList.remove("hidden");
-        pendingImportFile = null;
-        pendingImportRowCount = 0;
-        return;
-      }
-      const headers = previa.headers;
-      const tableRows = previa.sample.map((r) => "<tr>" + headers.map((h) => "<td>" + String(r[h] ?? "").replace(/</g, "&lt;").slice(0, 40) + "</td>").join("") + "</tr>").join("");
-      const issueHtml = previa.issues.length
-        ? "<ul class=\"import-previa-issues\">" + previa.issues.map((x) => "<li class=\"import-previa-" + x.nivel + "\">" + String(x.msg).replace(/</g, "&lt;") + "</li>").join("") + "</ul>"
-        : "<p>Nenhum problema óbvio nas linhas lidas.</p>";
-      resultEl.innerHTML =
-        "<p><strong>Prévia — nada foi gravado ainda.</strong> " +
-        previa.total + " linha(s). Estimativa: " + previa.okEstimado + " ok, " + previa.problemas + " com problema.</p>" +
-        issueHtml +
-        "<div class=\"import-preview-wrap\"><table class=\"import-preview-table\"><thead><tr>" +
-        headers.map((h) => "<th>" + String(h).replace(/</g, "&lt;") + "</th>").join("") +
-        "</tr></thead><tbody>" + tableRows + "</tbody></table></div>" +
-        (previa.total > previa.sample.length ? "<p>… e mais " + (previa.total - previa.sample.length) + " linha(s).</p>" : "") +
-        "<p>Se estiver certo, clique em <strong>Importar</strong>. Duplicados no banco serão pulados se essa opção estiver marcada.</p>";
-      resultEl.classList.remove("hidden");
-      if (btn) btn.disabled = !previa.podeImportar;
-    } catch (e) {
+  if (pareceXlsAntigo(file)) {
+    resultEl.innerHTML = "<p class=\"import-result-err\">Arquivo .xls antigo. No Excel: Arquivo → Salvar como → .xlsx ou CSV. Nada foi gravado.</p>";
+    resultEl.classList.remove("hidden");
+    pendingImportFile = null;
+    return;
+  }
+  if (pareceXlsx(file)) {
+    file.arrayBuffer().then((buf) =>
+      planilhaDeXlsx(buf).then((parsed) => mostrarPreviewDeParsed(parsed, resultEl))
+    ).catch((e) => {
       resultEl.innerHTML = "<p class=\"import-result-err\">" + (e.message || String(e)).replace(/</g, "&lt;") + "</p>";
       resultEl.classList.remove("hidden");
       pendingImportFile = null;
       pendingImportRowCount = 0;
-    }
-  };
+      pendingRowsBrutas = null;
+    });
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => mostrarPreviewDeTexto(reader.result, resultEl);
   reader.readAsText(file, "UTF-8");
 }
 
+function mostrarPreviewDeTexto(text, resultEl) {
+  resultEl = resultEl || document.getElementById("importResult");
+  if (!resultEl) return;
+  try {
+    mostrarPreviewDeParsed(parsePlanilhaTexto(text), resultEl);
+  } catch (e) {
+    const btn = document.getElementById("btnImportarLote");
+    if (btn) btn.disabled = true;
+    resultEl.innerHTML = "<p class=\"import-result-err\">" + (e.message || String(e)).replace(/</g, "&lt;") + "</p>";
+    resultEl.classList.remove("hidden");
+    pendingImportFile = null;
+    pendingImportRowCount = 0;
+    pendingRowsBrutas = null;
+  }
+}
+
+function mostrarPreviewDeParsed(parsed, resultEl) {
+  const btn = document.getElementById("btnImportarLote");
+  if (btn) btn.disabled = true;
+  resultEl = resultEl || document.getElementById("importResult");
+  if (!resultEl) return;
+  if (!parsed?.rows?.length) {
+    resultEl.innerHTML = "<p class=\"import-result-err\">Nenhuma linha válida na planilha. Nada foi gravado.</p>";
+    resultEl.classList.remove("hidden");
+    pendingImportFile = null;
+    pendingImportRowCount = 0;
+    pendingRowsBrutas = null;
+    return;
+  }
+  pendingRowsBrutas = parsed.rows;
+  pendingHeaders = parsed.headers;
+  pendingImportRowCount = parsed.rows.length;
+  const tipo = getTipoSelecionado();
+  const mapa = sugerirMapa(parsed.headers, tipo);
+  renderPreviaComMapa(resultEl, tipo, mapa);
+}
+
+function renderPreviaComMapa(resultEl, tipo, mapa) {
+  const mapped = aplicarMapa(pendingRowsBrutas, mapa);
+  pendingMappedRows = mapped;
+  const previa = analisarPreviaImportacao(tipo, mapped);
+  const falta = faltandoObrigatorios(mapa, tipo);
+  const headers = previa.headers.length ? previa.headers : Object.keys(mapped[0] || {});
+  const tableRows = previa.sample
+    .map((r) => "<tr>" + headers.map((h) => "<td>" + String(r[h] ?? "").replace(/</g, "&lt;").slice(0, 40) + "</td>").join("") + "</tr>")
+    .join("");
+  const issueHtml = previa.issues.length
+    ? "<ul class=\"import-previa-issues\">" + previa.issues.map((x) => "<li class=\"import-previa-" + x.nivel + "\">" + String(x.msg).replace(/</g, "&lt;") + "</li>").join("") + "</ul>"
+    : "<p>Nenhum problema óbvio nas linhas lidas.</p>";
+  const faltaHtml = falta.length
+    ? "<p class=\"import-result-err\">Falta mapear: " + falta.map((x) => String(x).replace(/</g, "&lt;")).join(", ") + ".</p>"
+    : "";
+  resultEl.innerHTML =
+    htmlMapaColunas(tipo, pendingHeaders, mapa) +
+    faltaHtml +
+    "<p><strong>Prévia — nada foi gravado ainda.</strong> " +
+    previa.total + " linha(s). Estimativa: " + previa.okEstimado + " ok, " + previa.problemas + " com problema.</p>" +
+    issueHtml +
+    "<div class=\"import-preview-wrap\"><table class=\"import-preview-table\"><thead><tr>" +
+    headers.map((h) => "<th>" + String(h).replace(/</g, "&lt;") + "</th>").join("") +
+    "</tr></thead><tbody>" + tableRows + "</tbody></table></div>" +
+    (previa.total > previa.sample.length ? "<p>… e mais " + (previa.total - previa.sample.length) + " linha(s).</p>" : "") +
+    "<p>Se estiver certo, clique em <strong>Importar</strong>. Duplicados no banco serão pulados se essa opção estiver marcada.</p>";
+  resultEl.classList.remove("hidden");
+  const btn = document.getElementById("btnImportarLote");
+  if (btn) btn.disabled = !previa.podeImportar || falta.length > 0;
+  resultEl.querySelectorAll("select[data-dest]").forEach((el) => {
+    el.addEventListener("change", () => {
+      const novo = lerMapaDoDom(resultEl.querySelector("#importMapa"));
+      renderPreviaComMapa(resultEl, getTipoSelecionado(), novo);
+    });
+  });
+}
+
 function confirmarImportacao(resultEl) {
-  if (!pendingImportFile) {
-    toast("Selecione um arquivo CSV primeiro.");
+  if (!pendingMappedRows?.length && !pendingImportFile) {
+    toast("Selecione um CSV/.xlsx ou cole a planilha primeiro.");
     return;
   }
   if (pendingImportRowCount > MAX_IMPORT_ROWS) {
@@ -328,25 +410,30 @@ function confirmarImportacao(resultEl) {
   executarImportacao(pendingImportFile, resultEl);
   pendingImportFile = null;
   pendingImportRowCount = 0;
-  document.getElementById("importFile").value = "";
+  const fileEl = document.getElementById("importFile");
+  if (fileEl) fileEl.value = "";
   const btn = document.getElementById("btnImportarLote");
   if (btn) btn.disabled = true;
 }
 
 async function executarImportacao(fileOrFromInput, resultEl) {
-  const fileInput = document.getElementById("importFile");
-  const file = fileOrFromInput && (fileOrFromInput instanceof File) ? fileOrFromInput : fileInput?.files?.[0];
   resultEl = resultEl || document.getElementById("importResult");
-  if (!file || !resultEl) {
+  const rows = pendingMappedRows;
+  if ((!rows || !rows.length) && !(fileOrFromInput instanceof File)) {
     toast("Selecione um arquivo CSV.");
     return;
   }
-    const tipo = getTipoSelecionado();
+  const tipo = getTipoSelecionado();
   const pularDuplicados = document.querySelector("input[name=importDuplicados][value=pular]")?.checked !== false;
   try {
     resultEl.classList.remove("hidden");
     resultEl.innerHTML = "<p>Importando…</p>";
-    const result = await importarLote(tipo, file, { pularDuplicados });
+    const result = await importarLote(tipo, fileOrFromInput instanceof File ? fileOrFromInput : "", {
+      pularDuplicados,
+      rows: rows?.length ? rows : undefined,
+    });
+    pendingMappedRows = null;
+    pendingRowsBrutas = null;
     let msg = "Inseridos: " + result.inseridos + ".";
     if (result.ignorados_duplicados > 0) msg += " Ignorados (duplicados): " + result.ignorados_duplicados + ".";
     if (result.erros && result.erros.length > 0) {

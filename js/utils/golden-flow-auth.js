@@ -44,8 +44,12 @@ export function interpretarLeituraElo({ error, count, optional } = {}) {
  * Escolhe a org do JWT com mais pacientes (não a primeira linha).
  * Só SELECT.
  */
-export async function escolherOrgComPacientes(user) {
-  const { data: memberships, error } = await user.from("organization_users").select("org_id, role");
+export async function escolherOrgComPacientes(user, userId) {
+  const { data: authData } = await user.auth.getUser().catch(() => ({ data: { user: null } }));
+  const uid = userId || authData?.user?.id;
+  let q = user.from("organization_users").select("org_id, role, user_id");
+  if (uid) q = q.eq("user_id", uid);
+  const { data: memberships, error } = await q;
   if (error) return { ok: false, detalhe: error.message, memberships: [] };
   const list = memberships || [];
   if (!list.length) return { ok: false, detalhe: "sem membership", memberships: [] };

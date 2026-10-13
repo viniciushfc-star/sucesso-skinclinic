@@ -20,6 +20,34 @@ export function isFonteCompleta(row) {
   return true;
 }
 
+export function normalizarNomeProc(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\w]+/g, " ")
+    .trim();
+}
+
+/** Casa referência citada ao procedimento. Sem fonte completa, não casa. */
+export function casarRadarRef(refs, { procedureId, nome } = {}) {
+  const list = (refs || []).filter(isFonteCompleta);
+  if (procedureId) {
+    const byId = list.find((r) => String(r.procedure_id || "") === String(procedureId));
+    if (byId) return byId;
+  }
+  const n = normalizarNomeProc(nome);
+  if (!n) return null;
+  const exact = list.find((r) => normalizarNomeProc(r.procedimento) === n);
+  if (exact) return exact;
+  return (
+    list.find((r) => {
+      const pn = normalizarNomeProc(r.procedimento);
+      return pn.length >= 4 && (pn.includes(n) || n.includes(pn));
+    }) || null
+  );
+}
+
 export function compararPreco(precoClinica, precoMin, precoMax) {
   const p = Number(precoClinica);
   const min = Number(precoMin);

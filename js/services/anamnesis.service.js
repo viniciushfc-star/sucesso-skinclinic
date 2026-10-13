@@ -7,6 +7,7 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 import { signedStorageUrl } from "../core/storage-url.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
 async function withSignedAnamneseFotos(registros) {
   const list = registros ?? [];
@@ -209,9 +210,8 @@ export async function createRegistro({
   if (!hasContent) throw new Error("Preencha ao menos a ficha, observações, conduta ou envie fotos.");
   const orgId = getOrgOrThrow();
   const fichaSafe = ficha && typeof ficha === "object" ? JSON.parse(JSON.stringify(ficha)) : {};
-  const { data, error } = await supabase
-    .from("anamnesis_registros")
-    .insert({
+  const { data, error } = await retryUnknownColumns(
+    {
       org_id: orgId,
       client_id: clientId,
       funcao_id: funcaoId,
@@ -222,9 +222,10 @@ export async function createRegistro({
       conduta_tratamento: conduta_tratamento && conduta_tratamento.trim() ? conduta_tratamento.trim() : null,
       resultado_resumo: resultado_resumo && resultado_resumo.trim() ? resultado_resumo.trim() : null,
       author_id: authorId || null
-    })
-    .select()
-    .single();
+    },
+    (row) => supabase.from("anamnesis_registros").insert(row).select().single(),
+    { immutable: ["org_id", "client_id", "funcao_id"] }
+  );
   if (error) throw error;
   return data;
 }

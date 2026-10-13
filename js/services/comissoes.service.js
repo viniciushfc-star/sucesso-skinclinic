@@ -29,10 +29,10 @@ export async function listComissoesPeriodo(startDate, endDate) {
 
   const agendaIds = [...new Set(rows.map((e) => e.agenda_id).filter(Boolean))];
   const { data: agendas, error: errAg } = await withOrg(
-    supabase.from("agenda").select("id, user_id, professional_id, procedure_id").in("id", agendaIds)
+    supabase.from("agenda").select("id, user_id, professional_id, procedure_id, sold_by_user_id").in("id", agendaIds)
   );
   let agendaRows = agendas;
-  if (errAg && /professional_id|schema cache|column/i.test(errAg.message || "")) {
+  if (errAg && /sold_by_user_id|professional_id|schema cache|column/i.test(errAg.message || "")) {
     const fallback = await withOrg(
       supabase.from("agenda").select("id, user_id, procedure_id").in("id", agendaIds)
     );
@@ -59,6 +59,7 @@ export async function listComissoesPeriodo(startDate, endDate) {
     : 0;
 
   const linhas = [];
+  const vendas = [];
   for (const e of rows) {
     const ag = agendaById[e.agenda_id];
     const userId = ag?.user_id || ag?.professional_id;
@@ -69,8 +70,33 @@ export async function listComissoesPeriodo(startDate, endDate) {
       proc?.comissao_profissional_pct != null && proc.comissao_profissional_pct !== ""
         ? Number(proc.comissao_profissional_pct)
         : padraoPct;
-    linhas.push({ userId, receita: valorEntrada(e), receitaPrevista: Number(e.valor) || 0, pct });
+    const receita = valorEntrada(e);
+    const prevista = Number(e.valor) || 0;
+    linhas.push({ userId, receita, receitaPrevista: prevista, pct });
+    const vendeuId = ag?.sold_by_user_id || userId;
+    vendas.push({ userId: vendeuId, receita, receitaPrevista: prevista, pct: 0 });
   }
 
-  return { porProfissional: agruparComissoes(linhas), padraoPct };
+  const porAplicacao = agruparComissoes(linhas);
+  const porVenda = agruparComissoes(vendas);
+  const byId = new Map(porAplicacao.map((r) => [r.userId, { ...r, fechou: 0, receitaFechada: 0 }]));
+  for (const v of porVenda) {
+    const cur = byId.get(v.userId) || {
+      userId: v.userId,
+      receita: 0,
+      receitaPrevista: 0,
+      comissao: 0,
+      comissaoPrevista: 0,
+      aberto: 0,
+      atendimentos: 0,
+      fechou: 0,
+      receitaFechada: 0,
+    };
+    cur.fechou = v.atendimentos;
+    cur.receitaFechada = v.receita;
+    byId.set(v.userId, cur);
+  }
+  const porProfissional = [...byId.values()].sort((a, b) => (b.comissao - a.comissao) || (b.receitaFechada - a.receitaFechada));
+
+  return { porProfissional, padraoPct };
 }

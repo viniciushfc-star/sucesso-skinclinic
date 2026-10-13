@@ -18,6 +18,13 @@ describe("permissões fail-closed", () => {
     assert.equal(allows("funcionario", "agenda:manage"), false);
   });
 
+  it("auditoria só master e gestor; recepção e profissional não", () => {
+    assert.equal(allows("master", "auditoria:view"), true);
+    assert.equal(allows("gestor", "auditoria:view"), true);
+    assert.equal(allows("recepcao", "auditoria:view"), false);
+    assert.equal(allows("profissional", "auditoria:view"), false);
+  });
+
   it("papel sem entrada no mapa não herda gestor", () => {
     assert.equal(ROLE_PERMISSIONS.viewer, undefined);
     assert.equal((ROLE_PERMISSIONS["inexistente"] || []).length, 0);

@@ -54,7 +54,7 @@ export async function init() {
   if (fromMaster) sessionStorage.removeItem("teamShowManage")
   try {
     const role = await getRole()
-    showManageMode = fromMaster && (role === "master" || role === "gestor")
+    showManageMode = role === "master" || role === "gestor"
   } catch (_) {
     showManageMode = false
   }
@@ -489,11 +489,13 @@ function openInvite(){
    <p class="form-hint">O convite será enviado para este e-mail; a pessoa usará esse mesmo e-mail para entrar na clínica.</p>
    <label for="inviteRole">Função</label>
    <select id="inviteRole">
+    <option value="profissional">Profissional (aparece na agenda)</option>
     <option value="recepcao">Recepção</option>
-    <option value="profissional">Profissional</option>
+    <option value="master">Administrador</option>
     <option value="staff">Acesso limitado</option>
     <option value="viewer">Visualização</option>
    </select>
+   <p class="form-hint">Administrador: mesmo acesso que você. A profissional só entra na agenda depois de aceitar o convite. Se a agenda mostrar só “Administrador”, rode no Supabase o SQL supabase-equipe-agenda-membros-colar.sql.</p>
   `,
   sendInvite
  )
@@ -519,7 +521,7 @@ async function sendInvite() {
     return;
   }
   try {
-    await createInvite({ orgId, email, role });
+    await createInvite({ orgId, email, role, inviterRole: await getRole() });
     const profile = await getOrganizationProfile().catch(() => ({}));
     const orgName = profile?.name || "";
     const res = await apiFetch("/api/send-invite-email", {

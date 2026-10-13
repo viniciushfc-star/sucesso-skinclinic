@@ -26,7 +26,7 @@ export const ALLOWED_STORED_ROLES = [
 ];
 
 /** Convite pela Equipe (não oferece master). */
-export const ALLOWED_INVITE_ROLES = ["recepcao", "profissional", "staff", "viewer"];
+export const ALLOWED_INVITE_ROLES = ["recepcao", "profissional", "staff", "viewer", "master"];
 
 export function inviteRoleLabel(role) {
   const r = normalizeRole(role);

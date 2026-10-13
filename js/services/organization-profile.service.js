@@ -6,6 +6,7 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { mergeCanalVenda, writeCanalVendaLocal, normalizeCanalVenda } from "../utils/canal-venda.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -152,138 +153,17 @@ export async function updateOrganizationProfile(payload) {
   }
   saveCrmLocal(orgId, { google_review_url: update.google_review_url, fidelidade_visitas: update.fidelidade_visitas });
 
-  const { data, error } = await supabase
-    .from("organizations")
-    .update(update)
-    .eq("id", orgId)
-    .select()
-    .single();
-
-  if (!error) return data;
-
-  const msg = (error.message || "") + (error.details ? String(error.details) : "");
-  if ((msg.includes("google_review_url") || msg.includes("fidelidade_visitas")) && ("google_review_url" in update || "fidelidade_visitas" in update)) {
-    delete update.google_review_url;
-    delete update.fidelidade_visitas;
-    if (Object.keys(update).length === 0) return mergeCrmLocal(orgId, (await getOrganizationProfile()) ?? {});
-    const { data: retCrm, error: errCrm } = await supabase.from("organizations").update(update).eq("id", orgId).select().single();
-    if (errCrm) throw errCrm;
-    return mergeCrmLocal(orgId, retCrm ?? {});
-  }
-  if ((msg.includes("vende_para_cliente") || msg.includes("vende_para_profissional")) && ("vende_para_cliente" in update || "vende_para_profissional" in update)) {
-    delete update.vende_para_cliente;
-    delete update.vende_para_profissional;
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? {};
-    const { data: retCanal, error: errCanal } = await supabase.from("organizations").update(update).eq("id", orgId).select().single();
-    if (errCanal) throw errCanal;
-    return retCanal;
-  }
-  const isMissingColumn =
-    msg.includes("menu_anamnese_visible") || (msg.includes("column") && msg.toLowerCase().includes("does not exist"));
-
-  if (isMissingColumn && "menu_anamnese_visible" in update) {
-    delete update.menu_anamnese_visible;
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: ret, error: err2 } = await supabase
-      .from("organizations")
-      .update(update)
-      .eq("id", orgId)
-      .select()
-      .single();
-    if (err2) throw err2;
-    return { ...(ret ?? {}), menu_anamnese_visible: payload.menu_anamnese_visible };
+  if (Object.keys(update).length === 0) {
+    return mergeCrmLocal(orgId, (await getOrganizationProfile()) ?? {});
   }
 
-  const isTaxasNovasUpdate = msg.includes("taxa_transacao") || msg.includes("taxa_avista_debito") || msg.includes("taxa_avista_credito");
-  if (isTaxasNovasUpdate && ("taxa_transacao_pct" in update || "taxa_avista_debito_pct" in update || "taxa_avista_credito_pct" in update)) {
-    delete update.taxa_transacao_pct;
-    delete update.taxa_avista_debito_pct;
-    delete update.taxa_avista_credito_pct;
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: retTaxas, error: errTaxas } = await supabase
-      .from("organizations")
-      .update(update)
-      .eq("id", orgId)
-      .select()
-      .single();
-    if (errTaxas) throw errTaxas;
-    return { ...(retTaxas ?? {}), taxa_transacao_pct: payload.taxa_transacao_pct ?? null, taxa_avista_debito_pct: payload.taxa_avista_debito_pct ?? null, taxa_avista_credito_pct: payload.taxa_avista_credito_pct ?? null };
-  }
-
-  const isTaxaParceladoNUpdate = /taxa_parcelado_\d+_pct/.test(msg);
-  if (isTaxaParceladoNUpdate) {
-    for (let i = 2; i <= 12; i++) delete update[`taxa_parcelado_${i}_pct`];
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: retP, error: errP } = await supabase.from("organizations").update(update).eq("id", orgId).select().single();
-    if (errP) throw errP;
-    const parceladoPayload = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`taxa_parcelado_${i + 2}_pct`, payload[`taxa_parcelado_${i + 2}_pct`] ?? null]));
-    return { ...(retP ?? {}), ...parceladoPayload };
-  }
-
-  const isTaxasColumn = (msg.includes("taxa_avista") || msg.includes("taxa_parcelado")) || (isMissingColumn && ("taxa_avista_pct" in update || "taxa_parcelado_2_6_pct" in update || "taxa_parcelado_7_12_pct" in update));
-  if (isTaxasColumn) {
-    delete update.taxa_avista_pct;
-    delete update.taxa_parcelado_2_6_pct;
-    delete update.taxa_parcelado_7_12_pct;
-    delete update.taxa_transacao_pct;
-    delete update.taxa_avista_debito_pct;
-    delete update.taxa_avista_credito_pct;
-    for (let i = 2; i <= 12; i++) delete update[`taxa_parcelado_${i}_pct`];
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: ret2, error: err3 } = await supabase
-      .from("organizations")
-      .update(update)
-      .eq("id", orgId)
-      .select()
-      .single();
-    if (err3) throw err3;
-    return ret2 ?? data;
-  }
-
-  const isBrindeUpdate = msg.includes("brinde_aniversario") && "brinde_aniversario_habilitado" in update;
-  if (isBrindeUpdate) {
-    delete update.brinde_aniversario_habilitado;
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: retB, error: errB } = await supabase
-      .from("organizations")
-      .update(update)
-      .eq("id", orgId)
-      .select()
-      .single();
-    if (errB) throw errB;
-    return { ...(retB ?? {}), brinde_aniversario_habilitado: payload.brinde_aniversario_habilitado };
-  }
-
-  const isNotaFiscalUrlUpdate = msg.includes("nota_fiscal_emitir_url") && "nota_fiscal_emitir_url" in update;
-  if (isNotaFiscalUrlUpdate) {
-    delete update.nota_fiscal_emitir_url;
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: retNf, error: errNf } = await supabase
-      .from("organizations")
-      .update(update)
-      .eq("id", orgId)
-      .select()
-      .single();
-    if (errNf) throw errNf;
-    return { ...(retNf ?? {}), nota_fiscal_emitir_url: payload.nota_fiscal_emitir_url };
-  }
-
-  const isCepUpdate = msg.includes("cep") || msg.includes("complemento");
-  if (isCepUpdate && ("cep" in update || "complemento" in update)) {
-    delete update.cep;
-    delete update.complemento;
-    if (Object.keys(update).length === 0) return (await getOrganizationProfile()) ?? data;
-    const { data: retCep, error: errCep } = await supabase
-      .from("organizations")
-      .update(update)
-      .eq("id", orgId)
-      .select()
-      .single();
-    if (errCep) throw errCep;
-    return { ...(retCep ?? {}), cep: payload.cep ?? null, complemento: payload.complemento ?? null };
-  }
-
-  throw error;
+  const { data, error } = await retryUnknownColumns(
+    update,
+    (row) => supabase.from("organizations").update(row).eq("id", orgId).select().single(),
+    { immutable: ["name"] }
+  );
+  if (error) throw error;
+  return mergeCrmLocal(orgId, data ?? {});
 }
 
 /**

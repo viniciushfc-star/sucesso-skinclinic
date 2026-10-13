@@ -6,6 +6,7 @@ export const CRM_FILA_MAX = 15;
 
 const PRIORIDADE = {
   pacote: 100,
+  plano_fim: 95,
   espera: 90,
   nova_sem_2: 80,
   atrasada: 70,
@@ -122,6 +123,78 @@ export function filtrarFilaPorDesfecho(fila, ultimoPorCliente, hoje, opts = {}) 
   });
 }
 
+/**
+ * Um sinal por pessoa. Quem já tem horário futuro não entra no radar.
+ * WhatsApp continua só no clique (a view decide).
+ */
+export function classificarSinalRadar({
+  visits = 0,
+  idleDays = Infinity,
+  hasFuture = false,
+  packRest = 0,
+  packEnded = false,
+  packNome = "",
+  medianGap = null,
+  minDaysInativa = 60,
+} = {}) {
+  const minDays = Math.max(21, Number(minDaysInativa) || 60);
+  const idle = Number(idleDays);
+  const n = Number(visits) || 0;
+  const rest = Math.max(0, Number(packRest) || 0);
+  if (hasFuture) return { sinal: null, motivo: "", acao: "" };
+  if (rest > 0) {
+    return {
+      sinal: "pacote",
+      motivo: `Pacote ativo com ${rest} sessão(ões) e sem próximo horário.`,
+      acao: "Agendar retorno",
+    };
+  }
+  if (packEnded) {
+    const nome = String(packNome || "").trim();
+    return {
+      sinal: "plano_fim",
+      motivo: nome
+        ? `Pacote/plano encerrado (${nome}). Sem próximo horário.`
+        : "Pacote ou plano encerrado. Sem próximo horário.",
+      acao: "Agendar retorno",
+    };
+  }
+  if (n === 1 && Number.isFinite(idle) && idle >= 14) {
+    return {
+      sinal: "nova_sem_2",
+      motivo: "Veio 1 vez e não tem 2º atendimento.",
+      acao: "Agendar retorno",
+    };
+  }
+  if (
+    n >= 3 &&
+    medianGap &&
+    Number.isFinite(idle) &&
+    idle > Math.max(14, Number(medianGap) * 1.25)
+  ) {
+    return {
+      sinal: "atrasada",
+      motivo: `Ritmo pessoal ~${Math.round(Number(medianGap))} dia(s); última visita há ${idle} dia(s).`,
+      acao: "Agendar retorno",
+    };
+  }
+  if (n >= 1 && Number.isFinite(idle) && idle < minDays) {
+    return {
+      sinal: "sem_proxima",
+      motivo: "Já veio e não há sessão futura na agenda.",
+      acao: "Agendar retorno",
+    };
+  }
+  if (Number.isFinite(idle) && idle >= minDays) {
+    return {
+      sinal: "inativa",
+      motivo: `Sem visita há ${idle} dia(s) (limiar ${minDays}).`,
+      acao: "Entrar em contato",
+    };
+  }
+  return { sinal: null, motivo: "", acao: "" };
+}
+
 export function filaWhatsappTemplate({ name, sinal, clinic, agendarUrl, extra = "" }) {
   const n = String(name || "").trim() || "oi";
   const c = String(clinic || "nossa clínica");
@@ -135,6 +208,9 @@ export function filaWhatsappTemplate({ name, sinal, clinic, agendarUrl, extra = 
   }
   if (sinal === "fidelidade") {
     return `Oi, ${n}!${x} Te encaixo na ${c}?${link}`;
+  }
+  if (sinal === "plano_fim") {
+    return `Oi, ${n}! Encerramos o combinado na ${c}.${x} Quer marcar a manutenção?${link}`;
   }
   return `Oi, ${n}! Vi seu acompanhamento na ${c} e queria encaixar o retorno.${x} Posso te mandar horários?${link}`;
 }

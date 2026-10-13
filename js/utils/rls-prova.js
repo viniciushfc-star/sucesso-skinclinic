@@ -3,7 +3,8 @@
  * Não grava. Token lixo não pode devolver paciente.
  */
 
-export const SIGNED_TTL_MAX = 3600;
+/** Um dia de consultório: a ficha aberta não some a foto no meio da tarde. */
+export const SIGNED_TTL_MAX = 86400;
 
 export const RLS_TABLES = [
   "clients",

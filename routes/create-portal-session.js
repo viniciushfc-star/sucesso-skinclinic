@@ -1,4 +1,4 @@
-﻿/**
+/**
  * POST /api/create-portal-session
  * Body: { org_id, client_id } — contexto; identidade vem do JWT.
  */
@@ -20,11 +20,16 @@ export default async function handler(req, res) {
   const skipPermissao = isPortalSessionDevBypassEnabled();
   let auth;
   try {
-    auth = await requireStaffAccess(req, {
-      permission: skipPermissao ? undefined : "clientes:manage",
-    });
     if (skipPermissao) {
+      auth = await requireStaffAccess(req, { permission: undefined });
       console.warn("[create-portal-session] ALLOW_PORTAL_SESSION_DEV só vale em desenvolvimento local");
+    } else {
+      try {
+        auth = await requireStaffAccess(req, { permission: "clientes:manage" });
+      } catch (e) {
+        if (e?.status !== 403) throw e;
+        auth = await requireStaffAccess(req, { permission: "clientes:edit" });
+      }
     }
   } catch (e) {
     return sendAuthError(res, e);

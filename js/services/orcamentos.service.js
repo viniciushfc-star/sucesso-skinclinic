@@ -3,6 +3,7 @@ import { getActiveOrg } from "../core/org.js";
 import { totalOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
 import { deveGerarPacotesNoAceite, pacotesDoAceite } from "../utils/ciclo-ouro.js";
 import { createPacote, listPacotesByOrcamento } from "./pacotes.service.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 
 function missingTable(error) {
   const msg = String(error?.message || "");
@@ -78,14 +79,13 @@ export async function listOrcamentosForSearch({ search = "", limit = 40 } = {}) 
   });
 }
 
-export async function createOrcamento({ client_id, items, notes, valid_until, status = "rascunho" }) {
+export async function createOrcamento({ client_id, items, notes, valid_until, status = "rascunho", sold_by_user_id } = {}) {
   const orgId = orgIdOrThrow();
   const clean = normalizeItems(items);
   if (!client_id) throw new Error("Cliente inválido");
   if (!clean.length) throw new Error("Inclua pelo menos um item");
-  const { data, error } = await supabase
-    .from("orcamentos")
-    .insert({
+  const { data, error } = await retryUnknownColumns(
+    {
       org_id: orgId,
       client_id,
       items: clean,
@@ -94,10 +94,17 @@ export async function createOrcamento({ client_id, items, notes, valid_until, st
       status,
       sent_at: status === "enviado" ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (error) throw error;
+      ...(sold_by_user_id ? { sold_by_user_id } : {}),
+    },
+    (row) => supabase.from("orcamentos").insert(row).select().single(),
+    { immutable: ["org_id", "client_id", "items"] }
+  );
+  if (error) {
+    if (missingTable(error)) {
+      throw new Error("Rode o SQL de orçamentos no Supabase para salvar propostas.");
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -108,13 +115,11 @@ export async function updateOrcamentoStatus(id, status) {
   if (status === "enviado") patch.sent_at = now;
   if (status === "aceito") patch.accepted_at = now;
   if (status === "recusado") patch.declined_at = now;
-  const { data, error } = await supabase
-    .from("orcamentos")
-    .update(patch)
-    .eq("id", id)
-    .eq("org_id", orgId)
-    .select()
-    .single();
+  const { data, error } = await retryUnknownColumns(
+    patch,
+    (row) => supabase.from("orcamentos").update(row).eq("id", id).eq("org_id", orgId).select().single(),
+    { immutable: ["status"] }
+  );
   if (error) throw error;
   return data;
 }

@@ -1,13 +1,6 @@
-﻿import { askAI, summarizeGenericContext, COMPLEXITY } from "../ai/core/index.js";
+import { askAI, summarizeGenericContext, COMPLEXITY } from "../ai/core/index.js";
 import { requireStaffAccess, sendAuthError } from "../lib/api-auth.js";
-
-function mercadoUsavel(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const ticket = Number(raw.ticket || raw.ticketMedio);
-  const concorrencia = String(raw.concorrencia || "").trim();
-  if (!(Number.isFinite(ticket) && ticket > 0) || concorrencia.length < 3) return null;
-  return { ticket, concorrencia: concorrencia.slice(0, 200) };
-}
+import { mercadoParaIa } from "../js/utils/preco-nao-perder.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
@@ -24,7 +17,7 @@ export default async function handler(req, res) {
 
   const custosArr = Array.isArray(custos) ? custos : [];
   const resumoCustos = summarizeGenericContext(custosArr, "valor", 5);
-  const mercadoOk = mercadoUsavel(mercado);
+  const mercadoOk = mercadoParaIa(mercado);
   const payload = {
     custos: custosArr.length > 10 ? resumoCustos : custos,
     protocolo: protocolo || {},

@@ -6,6 +6,13 @@
 import { statusEfetivoOrcamento, statusOrcamentoLabel, idsOrcamentosVistos, contarPacotesPorOrcamento } from "./orcamento.js";
 import { mapaVersaoAnamnese } from "./anamnese-versao.js";
 import { tituloCombinadoNaLinha } from "./consulta-combinado.js";
+import { tituloPlanoFichaNaLinha } from "./plano-ficha.js";
+import {
+  TIPO_SESSAO_PRONTUARIO,
+  aplicadoECritico,
+  detalheAplicadoProntuario,
+  tituloSessaoNaLinha,
+} from "./prontuario-sessao.js";
 
 function dateKey(d) {
   if (!d) return "";
@@ -35,16 +42,19 @@ export function montarLinhaDoTempo({
   const out = [];
   const vistos = idsOrcamentosVistos(events);
   const pkgMap = contarPacotesPorOrcamento(pacotes);
+  const agendasAplicadas = new Set((aplicados || []).map((a) => a.agenda_id).filter(Boolean).map(String));
 
   for (const e of events || []) {
     if (String(e.event_type || "") === "orcamento_visto") continue;
+    const agendaEv = e.metadata?.agenda_id != null ? String(e.metadata.agenda_id) : "";
+    if (String(e.event_type || "") === TIPO_SESSAO_PRONTUARIO && agendaEv && agendasAplicadas.has(agendaEv)) continue;
     const blob = `${e.event_type || ""} ${e.description || ""}`;
     if (temIaPreliminar(blob)) continue;
     out.push({
       date: dateKey(e.event_date || e.created_at),
       visibilidade: e.created_by_client ? "portal" : "interno",
       fonte: "evento",
-      titulo: tituloCombinadoNaLinha(e.event_type),
+      titulo: tituloSessaoNaLinha(e.event_type) || tituloPlanoFichaNaLinha(e.event_type) || tituloCombinadoNaLinha(e.event_type),
       detalhe: String(e.description || "").trim(),
       critico: !!e.is_critical,
     });
@@ -68,15 +78,15 @@ export function montarLinhaDoTempo({
   }
 
   for (const a of aplicados || []) {
-    const nome = a.protocolos?.nome || "Protocolo aplicado";
-    const desc = String(a.descricao || "").trim().slice(0, 80);
+    const nome = a.protocolos?.nome || String(a.descricao || "").trim().slice(0, 48) || "O que foi aplicado";
+    const detalhe = detalheAplicadoProntuario(a).slice(0, 240);
     out.push({
       date: dateKey(a.aplicado_em),
       visibilidade: "interno",
       fonte: "aplicado",
       titulo: nome,
-      detalhe: desc,
-      critico: false,
+      detalhe,
+      critico: aplicadoECritico(a),
     });
   }
 

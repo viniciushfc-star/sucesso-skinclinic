@@ -5,10 +5,10 @@
 
 import { comissaoDeReceita, round2 } from "./comissao-apuracao.js";
 
-export function escolherCustoMaterial({ real, incompleto, estimado } = {}) {
+export function escolherCustoMaterial({ real, incompleto, estimado, fonteReal = "estoque" } = {}) {
   const r = Number(real);
   if (incompleto !== true && Number.isFinite(r) && r > 0) {
-    return { valor: round2(r), fonte: "estoque" };
+    return { valor: round2(r), fonte: fonteReal || "estoque" };
   }
   if (estimado == null || estimado === "") return { valor: null, fonte: null };
   const e = Number(estimado);
@@ -73,11 +73,13 @@ function brl(n) {
 export function textoEconomiaAtendimento(eco) {
   if (!eco) return "";
   const fonte =
-    eco.fonteCusto === "estoque"
-      ? "insumo real do estoque"
-      : eco.fonteCusto === "estimado"
-        ? "custo estimado do procedimento"
-        : "custo de material";
+    eco.fonteCusto === "sessao"
+      ? "insumo confirmado nesta sessão"
+      : eco.fonteCusto === "estoque"
+        ? "insumo real do estoque"
+        : eco.fonteCusto === "estimado"
+          ? "custo estimado do procedimento"
+          : "custo de material";
   if (eco.incompleto) {
     return `Receita ${brl(eco.receita)}. ${fonte} não informado — margem não calculada. Preço do catálogo não muda.`;
   }

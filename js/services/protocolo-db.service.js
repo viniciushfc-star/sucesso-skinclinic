@@ -8,6 +8,7 @@ import { getActiveOrg } from "../core/org.js";
 import { getTodayLocal } from "./metrics.service.js";
 import { getResumoPorProduto, registrarConsumoEstimado } from "./estoque-entradas.service.js";
 import { itensParaConsumoEstoque } from "../utils/estoque-previsto-real.js";
+import { audit } from "./audit.service.js";
 
 function getOrgId() {
   const orgId = getActiveOrg();
@@ -86,7 +87,7 @@ export async function getProtocolosAplicadosByClient(clientId) {
   const orgId = getOrgId();
   const { data, error } = await supabase
     .from("protocolos_aplicados")
-    .select("id, protocolo_id, aplicado_em, observacao, descricao, produtos_usados, protocolos(nome)")
+    .select("id, protocolo_id, agenda_id, aplicado_em, observacao, descricao, produtos_usados, protocolos(nome)")
     .eq("org_id", orgId)
     .eq("client_id", clientId)
     .order("aplicado_em", { ascending: false });
@@ -130,7 +131,7 @@ export async function getProtocolosAplicadosByAgendaId(agendaId) {
   const orgId = getOrgId();
   const { data, error } = await supabase
     .from("protocolos_aplicados")
-    .select("id, protocolo_id, aplicado_em, observacao, descricao, protocolos(nome)")
+    .select("id, protocolo_id, agenda_id, aplicado_em, observacao, descricao, produtos_usados, protocolos(nome)")
     .eq("org_id", orgId)
     .eq("agenda_id", agendaId)
     .order("aplicado_em", { ascending: false });
@@ -196,18 +197,45 @@ export async function createProtocoloAplicado(payload) {
     .single();
   if (error) throw error;
 
+  const ja = new Set();
+  const { data: existingCons } = await supabase
+    .from("estoque_consumo")
+    .select("produto_nome")
+    .eq("protocolo_aplicado_id", data.id);
+  for (const row of existingCons || []) {
+    const n = String(row.produto_nome || "").trim().toLowerCase();
+    if (n) ja.add(n);
+  }
+
+  const consumo_erros = [];
   for (const p of itensParaConsumoEstoque(previstos, produtosUsados)) {
+    const key = String(p.produto_nome || "").trim().toLowerCase();
+    if (key && ja.has(key)) continue;
     try {
       await registrarConsumoEstimado({
         produto_nome: p.produto_nome,
         quantidade: p.quantidade,
         protocolo_aplicado_id: data.id,
+        agenda_id: agendaId || null,
         tipo: "estimado",
       });
     } catch (e) {
       console.warn("[protocolo] consumo produto:", p.produto_nome, e);
+      consumo_erros.push(`${p.produto_nome}: ${e?.message || "não gravou"}`);
     }
   }
 
-  return data;
+  await audit({
+    action: "protocolo.aplicado",
+    tableName: "protocolos_aplicados",
+    recordId: data.id,
+    permissionUsed: "agenda:manage",
+    metadata: {
+      descricao: (descricao || "").trim() || undefined,
+      produtos: produtosUsados.map((p) => p.produto_nome).filter(Boolean),
+      agenda_id: agendaId || undefined,
+    },
+  });
+
+  return { ...data, consumo_erros };
 }

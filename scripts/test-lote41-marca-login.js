@@ -19,8 +19,9 @@ describe("marca e polish de login", () => {
     assert.match(index, /Beleza com propósito/i);
     assert.match(index, /Acesso ao sistema/);
     const css = readFileSync(join(ROOT, "js/css/style.css"), "utf8");
-    assert.match(css, /--sc-blue:\s*#4e54c8/);
-    assert.match(css, /--sc-violet:\s*#4f46e5/);
+    assert.match(css, /design-system\.css/);
+    const ds = readFileSync(join(ROOT, "js/css/design-system.css"), "utf8");
+    assert.match(ds, /--sc-teal:\s*#0f5c62/);
     const dash = readFileSync(join(ROOT, "dashboard.html"), "utf8");
     assert.doesNotMatch(dash, /<circle/i);
   });

@@ -3,6 +3,11 @@
  */
 
 export function nomePlanoPortal(protocol) {
+  if (typeof protocol === "string") {
+    const n = protocol.trim();
+    if (!n || /ia_preliminar/i.test(n)) return "";
+    return n.slice(0, 120);
+  }
   if (!protocol || typeof protocol !== "object") return "";
   const n = String(protocol.nome || protocol.name || protocol.title || "").trim();
   if (!n || /ia_preliminar/i.test(n)) return "";
@@ -64,6 +69,7 @@ export function buildPortalJornada({
   sessoes = [],
   hasSkincare = false,
   protocol = null,
+  planoNome = "",
   records = [],
 } = {}) {
   const hoje = String(today || "").slice(0, 10);
@@ -110,7 +116,7 @@ export function buildPortalJornada({
     hash: "analise-pele",
   });
 
-  const nomePlano = nomePlanoPortal(protocol);
+  const nomePlano = nomePlanoPortal(protocol) || nomePlanoPortal(planoNome);
   if (nomePlano) {
     steps.push({
       id: "plano",
@@ -186,4 +192,113 @@ export function buildPortalJornada({
 
 export function jornadaJsonProibido(steps) {
   return /ia_preliminar/i.test(JSON.stringify(steps || []));
+}
+
+const PRELIMINAR = "ia_" + "preliminar";
+
+export function textoPortalSeguro(s) {
+  const t = String(s ?? "");
+  if (t.toLowerCase().includes(PRELIMINAR)) return "";
+  return t;
+}
+
+export function dataHoraPortal(data, hora) {
+  const d = String(data || "").slice(0, 10);
+  const h = String(hora || "").slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return h || "";
+  const [y, m, day] = d.split("-");
+  const br = `${day}/${m}/${y}`;
+  return h ? `${br} às ${h}` : br;
+}
+
+function rotuloAcaoHash(hash) {
+  if (hash === "agenda") return "Ver agenda";
+  if (hash === "anamnese") return "Abrir anamnese";
+  if (hash === "analise-pele") return "Ver análise de pele";
+  if (hash === "completar-cadastro") return "Completar cadastro";
+  if (hash === "evolucao") return "Ver evolução";
+  return "Continuar";
+}
+
+/**
+ * Cartão do portal: próximo horário ou próximo passo.
+ * Não inclui rascunho de IA.
+ */
+export function cartaoProximoPortal({
+  today = "",
+  cadastroCompleto = false,
+  anamneses = [],
+  analises = [],
+  sessoes = [],
+} = {}) {
+  const hoje = String(today || "").slice(0, 10);
+  const futuras = [...(sessoes || [])]
+    .filter((s) => s && s.data && String(s.data).slice(0, 10) >= hoje)
+    .sort(
+      (a, b) =>
+        String(a.data).localeCompare(String(b.data)) ||
+        String(a.hora || "").localeCompare(String(b.hora || ""))
+    );
+  const proxima = futuras[0];
+  if (proxima) {
+    const proc = String(proxima.procedimento || proxima.name || "sessão").trim() || "sessão";
+    if (!textoPortalSeguro(proc)) {
+      return {
+        kicker: "Próximo horário",
+        titulo: dataHoraPortal(proxima.data, proxima.hora),
+        detalhe: "Sessão com a clínica",
+        acao: "Ver agenda",
+        hash: "agenda",
+        tipo: "horario",
+      };
+    }
+    return {
+      kicker: "Próximo horário",
+      titulo: dataHoraPortal(proxima.data, proxima.hora),
+      detalhe: proc,
+      acao: "Ver agenda",
+      hash: "agenda",
+      tipo: "horario",
+    };
+  }
+  const passo = proximoPassoJornada({
+    today: hoje,
+    cadastroCompleto,
+    anamneses,
+    analises,
+    sessoes,
+  });
+  return {
+    kicker: "Próximo passo",
+    titulo: passo.detalhe,
+    detalhe: "Só o que a clínica validou aparece aqui.",
+    acao: rotuloAcaoHash(passo.hash),
+    hash: passo.hash,
+    tipo: passo.estado || "pendente",
+  };
+}
+
+export function resumoSessoesPortal({ today = "", sessoes = [] } = {}) {
+  const hoje = String(today || "").slice(0, 10);
+  const lista = [...(sessoes || [])].filter((s) => s && s.data);
+  const futuras = lista.filter((s) => String(s.data).slice(0, 10) >= hoje);
+  const passadas = lista.filter((s) => String(s.data).slice(0, 10) < hoje);
+  if (!lista.length) {
+    return { futuras: 0, passadas: 0, texto: "Ainda sem sessões neste portal." };
+  }
+  if (futuras.length) {
+    return {
+      futuras: futuras.length,
+      passadas: passadas.length,
+      texto:
+        passadas.length
+          ? `${passadas.length} realizada(s) · ${futuras.length} à frente`
+          : `${futuras.length} sessão(ões) à frente`,
+    };
+  }
+  return {
+    futuras: 0,
+    passadas: passadas.length,
+    texto: `${passadas.length} sessão(ões) já realizadas.`,
+  };
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#16213e">
+<meta name="theme-color" content="#0f5c62">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SkinClinic">
@@ -15,7 +15,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=polish-9">
+<link rel="stylesheet" href="./js/css/style.css?v=destaque-mercado-1">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -44,56 +44,65 @@
 
     <nav class="sidebar-nav">
       <ul class="sidebar-menu">
-        <li><button type="button" class="sidebar-item active" data-view="dashboard" title="Hoje"><span class="sidebar-icon">📅</span><span class="sidebar-label">Hoje</span></button></li>
-        <li class="sidebar-cadastrar-wrap" id="cadastrarWrap">
-          <button type="button" class="sidebar-item sidebar-item-parent" id="btnCadastrar" data-cadastrar-parent aria-expanded="false" title="Cadastrar">
-            <span class="sidebar-icon sidebar-icon-user-plus" aria-hidden="true">
-              <span class="icon-user">👤</span>
-              <span class="icon-plus-badge">➕</span>
-            </span>
-            <span class="sidebar-label">Cadastrar</span>
-            <span class="sidebar-chevron" aria-hidden="true">▾</span>
-          </button>
-          <ul class="sidebar-submenu" id="cadastrarSubmenu">
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="clientes" data-cadastrar-child title="Clientes"><span class="sidebar-icon">👤</span><span class="sidebar-label">Clientes</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="team" data-cadastrar-child title="Equipe"><span class="sidebar-icon">👥</span><span class="sidebar-label">Equipe</span></button></li>
-          </ul>
-        </li>
+        <li class="sidebar-nav-label" aria-hidden="true">Operação</li>
+        <li><button type="button" class="sidebar-item active" data-view="dashboard" title="Hoje — o que precisa de atenção"><span class="sidebar-icon">◉</span><span class="sidebar-label">Hoje</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="clientes" title="Pacientes"><span class="sidebar-icon">👤</span><span class="sidebar-label">Pacientes</span></button></li>
         <li><button type="button" class="sidebar-item" data-view="agenda" title="Agenda"><span class="sidebar-icon">📅</span><span class="sidebar-label">Agenda</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="crm" title="Reativar inativos e lista de espera"><span class="sidebar-icon">💛</span><span class="sidebar-label">CRM</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="procedimento" title="Procedimentos e precificação"><span class="sidebar-icon">🩺</span><span class="sidebar-label">Procedimentos</span></button></li>
-        <li class="sidebar-financeiro-wrap" id="financeiroWrap">
-          <button type="button" class="sidebar-item sidebar-item-parent" id="btnFinanceiro" data-financeiro-parent aria-expanded="false" title="Financeiro">
-            <span class="sidebar-icon">💰</span>
-            <span class="sidebar-label">Financeiro</span>
-            <span class="sidebar-chevron" aria-hidden="true">▾</span>
-          </button>
-          <ul class="sidebar-submenu" id="financeiroSubmenu">
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="visao-geral" title="Visão geral"><span class="sidebar-icon">📊</span><span class="sidebar-label">Visão geral</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="fechamento" title="Fechamento do dia"><span class="sidebar-icon">🧾</span><span class="sidebar-label">Fechamento</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="comissoes" title="Comissões"><span class="sidebar-icon">💸</span><span class="sidebar-label">Comissões</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="contador" title="Pasta e CSV para o contador"><span class="sidebar-icon">📁</span><span class="sidebar-label">Contador</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="market-radar" title="Radar de mercado"><span class="sidebar-icon">📡</span><span class="sidebar-label">Radar de mercado</span></button></li>
-          </ul>
-        </li>
-        <li class="sidebar-divider"></li>
-        <li class="sidebar-marketing-wrap" id="marketingWrap">
-          <button type="button" class="sidebar-item sidebar-item-parent" id="btnMarketing" data-marketing-parent aria-expanded="false" title="Marketing">
-            <span class="sidebar-icon">📢</span><span class="sidebar-label">Marketing</span>
-            <span class="sidebar-chevron" aria-hidden="true">▾</span>
-          </button>
-          <ul class="sidebar-submenu" id="marketingSubmenu">
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="marketing" title="Sugestões e métricas"><span class="sidebar-icon">📢</span><span class="sidebar-label">Sugestões</span></button></li>
-            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="calendario-conteudo" title="Calendário de conteúdo"><span class="sidebar-icon">📆</span><span class="sidebar-label">Calendário</span></button></li>
-          </ul>
-        </li>
-        <li><button type="button" class="sidebar-item" data-view="estoque" title="Estoque"><span class="sidebar-icon">📦</span><span class="sidebar-label">Estoque</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="crm" title="Relacionamento: inativos e lista de espera"><span class="sidebar-icon">💛</span><span class="sidebar-label">Relacionamento</span></button></li>
+        <li class="sidebar-nav-label" aria-hidden="true">Clínica</li>
         <li id="menuWrapAnamnese" class="menu-item-hidden"><button type="button" class="sidebar-item" data-view="anamnese" title="Ficha de Anamnese"><span class="sidebar-icon">📋</span><span class="sidebar-label">Anamnese</span></button></li>
+        <li><button type="button" class="sidebar-item" data-view="protocolo" title="Protocolo"><span class="sidebar-icon">☰</span><span class="sidebar-label">Protocolo</span></button></li>
         <li><button type="button" class="sidebar-item" data-view="skincare" title="Skincare"><span class="sidebar-icon">✨</span><span class="sidebar-label">Skincare</span></button></li>
-        <li><button type="button" class="sidebar-item" data-view="protocolo" title="Protocolo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Protocolo</span></button></li>
-        <li class="sidebar-divider"></li>
-        <li><button type="button" class="sidebar-item" data-view="export" title="Exportar e importar dados" aria-label="Exportar e importar dados"><span class="sidebar-icon">📤</span><span class="sidebar-label">Exportar e importar</span></button></li>
+        <li class="sidebar-gestao-wrap" id="gestaoWrap">
+          <button type="button" class="sidebar-item sidebar-item-parent" id="btnGestao" aria-expanded="false" title="Gestão">
+            <span class="sidebar-icon">▣</span>
+            <span class="sidebar-label">Gestão</span>
+            <span class="sidebar-chevron" aria-hidden="true">▾</span>
+          </button>
+          <ul class="sidebar-submenu" id="gestaoSubmenu">
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="procedimento" title="Procedimentos e precificação"><span class="sidebar-icon">🩺</span><span class="sidebar-label">Procedimentos</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="estoque" title="Estoque"><span class="sidebar-icon">📦</span><span class="sidebar-label">Estoque</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="team" title="Equipe"><span class="sidebar-icon">👥</span><span class="sidebar-label">Equipe</span></button></li>
+            <li class="sidebar-financeiro-wrap" id="financeiroWrap">
+              <button type="button" class="sidebar-item sidebar-item-parent sidebar-subitem" id="btnFinanceiro" data-financeiro-parent aria-expanded="false" title="Financeiro">
+                <span class="sidebar-icon">💰</span>
+                <span class="sidebar-label">Financeiro</span>
+                <span class="sidebar-chevron" aria-hidden="true">▾</span>
+              </button>
+              <ul class="sidebar-submenu" id="financeiroSubmenu">
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="visao-geral" title="Visão geral"><span class="sidebar-icon">📊</span><span class="sidebar-label">Visão geral</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="fechamento" title="Fechamento do dia"><span class="sidebar-icon">🧾</span><span class="sidebar-label">Fechamento</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="comissoes" title="Comissões"><span class="sidebar-icon">💸</span><span class="sidebar-label">Comissões</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="contador" title="Pasta e CSV para o contador"><span class="sidebar-icon">📁</span><span class="sidebar-label">Contador</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="market-radar" title="Radar de mercado"><span class="sidebar-icon">📡</span><span class="sidebar-label">Radar de mercado</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="precificacao-taxas" title="Taxas da maquininha"><span class="sidebar-icon">%</span><span class="sidebar-label">Taxas</span></button></li>
+              </ul>
+            </li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="auditoria" title="Quem fez o quê: ações da equipe"><span class="sidebar-icon">📜</span><span class="sidebar-label">Auditoria</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="export" title="Exportar e importar dados" aria-label="Exportar e importar dados"><span class="sidebar-icon">📤</span><span class="sidebar-label">Exportar e importar</span></button></li>
+          </ul>
+        </li>
+        <li class="sidebar-inteligencia-wrap" id="inteligenciaWrap">
+          <button type="button" class="sidebar-item sidebar-item-parent" id="btnInteligencia" aria-expanded="false" title="Inteligência">
+            <span class="sidebar-icon">✦</span>
+            <span class="sidebar-label">Inteligência</span>
+            <span class="sidebar-chevron" aria-hidden="true">▾</span>
+          </button>
+          <ul class="sidebar-submenu" id="inteligenciaSubmenu">
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="copiloto" title="Copiloto"><span class="sidebar-icon">✦</span><span class="sidebar-label">Copiloto</span></button></li>
+            <li class="sidebar-marketing-wrap" id="marketingWrap">
+              <button type="button" class="sidebar-item sidebar-item-parent sidebar-subitem" id="btnMarketing" data-marketing-parent aria-expanded="false" title="Marketing">
+                <span class="sidebar-icon">📢</span><span class="sidebar-label">Marketing</span>
+                <span class="sidebar-chevron" aria-hidden="true">▾</span>
+              </button>
+              <ul class="sidebar-submenu" id="marketingSubmenu">
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="marketing" title="Sugestões e métricas"><span class="sidebar-icon">📢</span><span class="sidebar-label">Sugestões</span></button></li>
+                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="calendario-conteudo" title="Calendário de conteúdo"><span class="sidebar-icon">📆</span><span class="sidebar-label">Calendário</span></button></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
         <li class="admin-only"><button type="button" class="sidebar-item" data-view="master" title="Configurações da organização"><span class="sidebar-icon">⚙️</span><span class="sidebar-label">Configurações</span></button></li>
       </ul>
     </nav>
@@ -113,7 +122,7 @@
         <button type="button" class="sidebar-open-mobile" id="sidebarOpenMobile" aria-label="Abrir menu" title="Menu">☰</button>
         <div>
           <h1 id="mainHeaderTitle">SkinClinic</h1>
-          <p id="headerViewTitle">Sistema Inteligente</p>
+          <p id="headerViewTitle">Hoje</p>
         </div>
         <div class="main-header-actions">
           <button type="button" id="btnNotifBell" class="notif-bell" aria-label="Notificações" title="Se apareceu um número ali, vale a pena clicar.">
@@ -172,8 +181,8 @@
         <div id="setupProgressBar" class="setup-progress hidden" hidden></div>
         <div class="cockpit-head">
           <p class="cockpit-kicker">Hoje na clínica</p>
-          <h2 class="cockpit-title">O que olhar agora</h2>
-          <p class="cockpit-lead">Aqui está o que importa hoje na sua clínica. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
+          <h2 class="cockpit-title">O que precisa da sua atenção agora?</h2>
+          <p class="cockpit-lead">Agenda, pendências e oportunidades. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
         </div>
         <div class="cockpit-tabs" role="tablist" aria-label="Período do cockpit">
           <button type="button" class="cockpit-tab is-active" role="tab" aria-selected="true" data-cockpit-tab="hoje" id="cockpitTabHoje">Hoje</button>
@@ -270,7 +279,7 @@
       <section id="view-export" class="view hidden">
         <div class="view-header">
           <h2>Exportar e importar dados</h2>
-          <p class="view-lead">Exporte por tipo (CSV) ou use importação em lote para migrar clientes, procedimentos, financeiro e agenda. Para backup completo e restauração, use <a href="#" data-view="backup">Backup</a> no menu.</p>
+          <p class="view-lead">Traga a lista de outro app, de uma planilha ou do caderno (passe para o modelo). Envie <strong>.xlsx</strong> ou CSV, ou cole as células do Excel/Sheets. Você mapeia as colunas e confirma a prévia — nada grava na leitura. WhatsApp não sai daqui. Para backup completo, use <a href="#" data-view="backup">Backup</a>.</p>
         </div>
         <div class="export-import-grid">
           <div class="view-card export-block">
@@ -280,7 +289,8 @@
             <button type="button" id="btnExportBackupJson" class="btn-secondary" title="Arquivo único para restaurar depois">Backup completo</button>
           </div>
           <div class="view-card import-block">
-            <h3 class="view-card-title">Importar em lote (CSV)</h3>
+            <h3 class="view-card-title">Traga sua lista</h3>
+            <p class="view-hint">No Excel: envie o <strong>.xlsx</strong>, copie as células (com o cabeçalho) ou salve como CSV. Caderno: baixe o modelo e digite os nomes que mais vêm — sem foto mágica.</p>
             <label for="importTipo">Tipo de dados</label>
             <select id="importTipo">
               <option value="clientes">Clientes</option>
@@ -300,10 +310,13 @@
             </label>
             <div class="import-actions">
               <a href="#" id="btnDownloadTemplate" class="btn-secondary">Baixar modelo CSV</a>
-              <label for="importFile" class="sr-only">Selecionar arquivo CSV para importar</label>
-              <input type="file" id="importFile" accept=".csv,text/csv,application/csv" class="import-file" aria-label="Arquivo CSV para importar">
+              <label for="importFile" class="sr-only">Selecionar arquivo Excel ou CSV para importar</label>
+              <input type="file" id="importFile" accept=".xlsx,.csv,.txt,text/csv,application/csv,text/plain,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="import-file" aria-label="Arquivo Excel .xlsx, CSV ou texto da planilha">
               <button type="button" id="btnImportarLote" class="btn-primary" disabled>Importar (depois da prévia)</button>
             </div>
+            <label for="importColarTexto">Ou cole a planilha aqui (Excel / Google Sheets)</label>
+            <textarea id="importColarTexto" class="import-colar" rows="5" placeholder="Nome	WhatsApp	E-mail&#10;Maria Silva	11999999999	maria@email.com"></textarea>
+            <button type="button" id="btnImportColar" class="btn-secondary">Ler o que colei</button>
             <p class="view-hint">Nada é gravado até você conferir a prévia e clicar em Importar. Sem rollback automático: revise duplicados antes.</p>
             <div id="importResult" class="import-result hidden"></div>
           </div>
@@ -497,7 +510,7 @@
           <p id="teamLinkGerenciarWrap" class="view-team-gerenciar-wrap hidden"><a href="#" id="teamLinkGerenciar" class="btn-link">Gerenciar equipe (convidar, remover, procedimentos)</a> em Configurações.</p>
           <button type="button" id="btnInvite" class="btn-primary">+ Convidar usuário</button>
         </div>
-        <p class="view-lead view-team-google-hint">Conecte o Google de cada profissional para ver só o que está ocupado (sem o título dos compromissos) e, ao agendar na clínica, ocupar o horário dele com tempo de deslocamento. Quem já conectou antes precisa reconectar.</p>
+        <p class="view-lead view-team-google-hint">Convide pela Equipe (incluindo Administrador, se você for admin). Se a agenda mostrar só você, rode no Supabase o SQL <code>supabase-equipe-agenda-membros-colar.sql</code>. Google: a clínica vê ocupado/livre, sem o título dos compromissos pessoais.</p>
         <details class="team-google-config-details">
           <summary class="team-google-config-summary">Não consegue vincular? Verifique a configuração</summary>
           <ul class="team-google-config-list">
@@ -532,11 +545,12 @@
 
       <section id="view-clientes" class="view hidden">
         <div class="view-clientes-header">
-          <h2>Clientes</h2>
+          <h2>Pacientes</h2>
           <div class="view-clientes-actions">
-            <button type="button" id="btnNovoCliente" class="btn-primary">Adicionar cliente</button>
+            <button type="button" id="btnNovoCliente" class="btn-primary">Novo paciente</button>
+            <button type="button" id="btnTragaLista" class="btn-secondary" title="Planilha, CSV ou cole do Excel. Prévia antes de gravar.">Traga sua lista</button>
             <details class="clientes-import-details">
-              <summary class="btn-secondary clientes-import-summary" title="Usado no início para migrar muitos clientes de uma vez">Importar em lote</summary>
+              <summary class="btn-secondary clientes-import-summary" title="Atalho CSV — a prévia completa está em Traga sua lista">CSV rápido</summary>
               <div class="clientes-import-dropdown">
                 <input type="file" id="importClientesFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
                 <label class="import-opcao-inline" title="Desmarque para importar todas; duplicadas aparecerão como erro para revisar">
@@ -568,24 +582,24 @@
             <option value="arquivado">Arquivado</option>
           </select>
         </div>
-        <p class="view-hint">Digite <strong>orçamento</strong> para listar as propostas e abrir direto. Revenda / comprou / só orçamento você define no cadastro. Se o tipo não gravar, rode supabase/supabase-cliente-relacao-colar.sql.</p>
+        <p class="view-hint">Passe o mouse na linha para Ver, Agendar ou WhatsApp. Digite <strong>orçamento</strong> para listar propostas. Relação comercial (revenda / comprou / só orçamento) fica no cadastro.</p>
         <div id="clientesBuscaOrcamentos" class="clientes-busca-orcamentos hidden"></div>
         <div class="clientes-table-wrap">
           <table class="clientes-table" id="clientesTable">
             <thead>
               <tr>
-                <th>Nome</th>
+                <th>Paciente</th>
                 <th>Relação</th>
                 <th>Estado</th>
                 <th>Contato</th>
-                <th>Criação</th>
-                <th class="clientes-col-acoes">Ações</th>
+                <th>Desde</th>
+                <th class="clientes-col-acoes"> </th>
               </tr>
             </thead>
             <tbody id="listaClientes"></tbody>
           </table>
         </div>
-        <p id="clientesEmpty" class="clientes-empty hidden">Nenhum cliente encontrado.</p>
+        <p id="clientesEmpty" class="clientes-empty hidden">Nenhum paciente encontrado.</p>
       </section>
 
       <section id="view-cliente-perfil" class="view hidden">
@@ -613,10 +627,13 @@
               </select>
             </div>
             <div class="agenda-toolbar-actions">
-              <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
-              <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
-              <a href="#" id="btnModeloAgenda" class="agenda-toolbar-action" title="Modelo CSV">Modelo</a>
               <button type="button" id="btnAgendaListaEspera" class="agenda-toolbar-action" title="Lista de espera">Espera</button>
+              <details class="agenda-toolbar-mais">
+                <summary>CSV</summary>
+                <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
+                <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
+                <a href="#" id="btnModeloAgenda" class="agenda-toolbar-action" title="Modelo CSV">Modelo</a>
+              </details>
             </div>
           </header>
         <div class="agenda-layout">
@@ -630,7 +647,7 @@
             <p class="agenda-filtro-hint">Filtre o profissional no topo para ver só a grade dela e o ocupado da agenda pessoal (sem o conteúdo do Google).</p>
           </div>
           <div class="agenda-day-wrap">
-            <p class="agenda-week-hint">Clique num horário vazio para marcar. Clique no compromisso para abrir ficha, WhatsApp e baixa.</p>
+            <p class="agenda-week-hint">Com Todas no filtro, cada coluna é uma profissional do dia. Clique no vazio da coluna para marcar nela.</p>
             <div id="agendaWeekGrid" class="agenda-week" role="grid" aria-label="Agenda da semana"></div>
             <details class="agenda-day-aside" open>
               <summary class="agenda-day-title" id="agendaDayTitle">Dia selecionado</summary>
@@ -639,10 +656,10 @@
                 <h4 class="agenda-afazeres-title">Tarefas do dia (não ocupam horário)</h4>
                 <div id="listaAgendaAfazeres" class="lista-agenda-afazeres"></div>
               </div>
-              <div id="agendaAniversariantesWrap" class="agenda-aniversariantes-wrap">
-                <h3 class="agenda-aniversariantes-title">Aniversariantes da semana</h3>
+              <details class="agenda-aniversariantes-wrap" id="agendaAniversariantesWrap">
+                <summary class="agenda-aniversariantes-title">Aniversariantes da semana</summary>
                 <div id="agendaAniversariantesList" class="agenda-aniversariantes-list"></div>
-              </div>
+              </details>
             </details>
           </div>
         </div>
@@ -652,7 +669,7 @@
       <section id="view-procedimento" class="view hidden">
         <div class="view-procedimento-header">
           <h2>Procedimentos e precificação</h2>
-          <p class="view-lead" style="margin:0 0 0.75rem;">Cadastre serviços e valores. Use o bloco de apoio à precificação (IA) ao criar/editar; conecta agenda, estoque e finanças.</p>
+          <p class="view-lead" style="margin:0 0 0.75rem;">Cadastre serviços e valores. Ao criar/editar, o cartão junta custo, taxa da maquininha e a faixa de mercado <strong>com fonte</strong>. A IA explica; o preço só muda se você gravar.</p>
           <div class="view-procedimento-actions">
             <input type="file" id="importProcedimentosFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
             <label class="import-opcao-inline" title="Desmarque para importar todas; duplicados aparecerão como erro para revisar">
@@ -1158,7 +1175,8 @@
                 <option value="all">Todos</option>
                 <option value="financeiro">Financeiro</option>
                 <option value="cliente">Clientes / Edição</option>
-                <option value="procedimento">Procedimentos</option>
+                <option value="procedimento">Procedimentos / Aplicado</option>
+                <option value="plano">Planos terapêuticos</option>
                 <option value="agenda">Agenda</option>
                 <option value="equipe">Equipe</option>
                 <option value="estoque">Estoque</option>
@@ -1175,7 +1193,7 @@
             <button type="button" id="btnExportarAuditoriaCsv" class="btn-secondary btn-sm" title="Exportar logs filtrados em CSV">Exportar CSV</button>
           </div>
         </div>
-        <p class="view-lead">Registro de ações da equipe. No topo: P95 deste isolate, falha de login (sem e-mail) e último job de lembrete. Filtre por período, tipo ou itens pendentes de ok do gestor.</p>
+        <p class="view-lead">Quem fez o quê na clínica (caixa continua no Financeiro → Fechamento). No topo: P95, falha de login (sem e-mail) e último job. Filtre por período, tipo ou pendentes de ok. Master e gestor abrem daqui ou em Gestão.</p>
         <div id="opsSnapshot" class="ops-snapshot" aria-live="polite"></div>
         <div id="listaLogs" class="logs-list"></div>
         <div id="logsLoadMoreWrap" class="logs-load-more-wrap hidden">
@@ -1287,9 +1305,11 @@
           </div>
           <div class="view-card">
             <h3 class="view-card-title">Fila de contato</h3>
-            <p class="view-hint">Uma pessoa, um motivo, no máximo 15. Pacote e espera entram na frente. Sem envio em massa.</p>
+            <p class="view-hint">Uma pessoa, um motivo, no máximo 15. Pacote em aberto, plano encerrado e espera entram na frente. Sem envio em massa.</p>
             <div id="crmListaFila" class="crm-list"></div>
           </div>
+          <details class="crm-mais" id="crmMaisDetalhes">
+            <summary>Origem, régua, radar e fidelidade</summary>
           <div class="view-card">
             <h3 class="view-card-title">Origem dos leads</h3>
             <p class="view-hint">Conta quem já tem origem no prontuário. CAC só aparece se você informar o investimento do período. O sistema não inventa gasto.</p>
@@ -1309,6 +1329,7 @@
             <div class="crm-radar-filtros">
               <button type="button" class="crm-radar-chip is-active" data-radar="todos">Todos</button>
               <button type="button" class="crm-radar-chip" data-radar="pacote">Pacote</button>
+              <button type="button" class="crm-radar-chip" data-radar="plano_fim">Plano encerrado</button>
               <button type="button" class="crm-radar-chip" data-radar="nova_sem_2">Sem 2º</button>
               <button type="button" class="crm-radar-chip" data-radar="atrasada">Atrasada</button>
               <button type="button" class="crm-radar-chip" data-radar="sem_proxima">Sem próxima</button>
@@ -1338,6 +1359,7 @@
             <p class="view-hint" id="crmReviewUrlHint"></p>
             <button type="button" class="btn-secondary" id="crmBtnReviewLote">Pedir para quem mais veio</button>
           </div>
+          </details>
           <div class="view-card">
             <h3 class="view-card-title">Lista de espera</h3>
             <p class="view-hint">Quando a agenda lotar, a pessoa entra aqui. Ao abrir vaga, avise no WhatsApp. Precisa do SQL supabase-crm-waitlist.sql.</p>
@@ -1402,7 +1424,7 @@
         <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql. Foto do produto: supabase/supabase-produto-imagem-canal-colar.sql. Para mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
         <div class="view-card">
           <h3 class="view-card-title">Portfólio</h3>
-          <p class="view-hint">Fonte única: nome, foto, custo e preço de venda. Quantidade só na entrada. Preço para profissional só aparece se a clínica marcar revenda em Precificação.</p>
+          <p class="view-hint">Fonte única: nome, foto, custo e preço. Editar abre o cadastro. Quantidade entra aqui ou em Entrada. Foto usa o mesmo armazenamento das fotos de paciente (SQL supabase-produto-imagem-canal-colar.sql se a coluna faltar).</p>
           <div class="estoque-entrada-actions">
             <button type="button" id="btnEstoqueCadastrarProduto" class="btn-primary">Cadastrar produto</button>
           </div>
@@ -1486,7 +1508,7 @@
       <section id="view-skincare" class="view hidden">
         <div class="view-header">
           <h2>Skincare IA</h2>
-          <p class="view-lead">Carregue o contexto do cliente, preencha uma ficha rápida ou tire fotos em cabine; depois use os campos abaixo e gere a rotina.</p>
+          <p class="view-lead">Carregue o contexto do cliente, escolha as <strong>marcas da casa</strong> (portfólio), ficha rápida ou fotos em cabine; a IA rascunha a rotina. Você confirma e libera. Sem ranking de mercado.</p>
         </div>
         <div class="view-card">
         <div class="skincare-ia-actions">
@@ -1507,6 +1529,33 @@
           <div id="skincareFotosPreview" class="skincare-fotos-preview"></div>
         </div>
         <div id="skincareContextoLabel" class="skincare-ia-contexto-badge hidden" aria-live="polite"></div>
+        <div id="skincareMarcasCasa" class="skincare-marcas-casa" aria-live="polite"></div>
+        <div class="skincare-destaques-wrap">
+          <h3 class="skincare-destaques-title">O que o mercado destaca (com fonte)</h3>
+          <p class="view-hint">Não é ranking. Cada item precisa de fonte, data, método, confiança e amostra. A rotina continua priorizando marcas da casa; o destaque só entra se você marcar e confirmar.</p>
+          <div id="skincareDestaquesList" class="skincare-destaques-list-host" aria-live="polite"></div>
+          <form id="skincareDestaqueForm" class="skincare-destaque-form">
+            <label for="skincareDestaqueNome">Marca / produto</label>
+            <input type="text" id="skincareDestaqueNome" required maxlength="160" placeholder="Ex.: ISDIN Fusion Water">
+            <label for="skincareDestaquePorque">Por que está em evidência</label>
+            <input type="text" id="skincareDestaquePorque" required maxlength="400" placeholder="Ex.: filtro com evidência publicada em 2025">
+            <label for="skincareDestaqueFonte">Fonte</label>
+            <input type="text" id="skincareDestaqueFonte" required maxlength="200" placeholder="Ex.: consenso da SBP, estudo, pesquisa da clínica">
+            <label for="skincareDestaqueData">Data da referência</label>
+            <input type="date" id="skincareDestaqueData" required>
+            <label for="skincareDestaqueMetodo">Metodologia</label>
+            <input type="text" id="skincareDestaqueMetodo" required maxlength="200" placeholder="Ex.: revisão de bula / n clínicas ouvidas">
+            <label for="skincareDestaqueConf">Confiança</label>
+            <select id="skincareDestaqueConf" required>
+              <option value="media">média</option>
+              <option value="baixa">baixa</option>
+              <option value="alta">alta</option>
+            </select>
+            <label for="skincareDestaqueAmostra">Amostra (n)</label>
+            <input type="number" id="skincareDestaqueAmostra" required min="1" step="1" value="1">
+            <button type="submit" class="btn-secondary">Cadastrar destaque</button>
+          </form>
+        </div>
         <div class="skincare-ia-form">
           <div class="skincare-ia-field-block">
             <label for="skincareAnalise" class="skincare-ia-label">Análise / contexto (opcional)</label>
@@ -1638,8 +1687,13 @@
         <div id="anamneseContext" class="anamnese-context hidden"></div>
         <div class="anamnese-tabs" role="tablist" aria-label="Anamnese">
           <button type="button" class="anamnese-tab is-active" data-anamnese-tab="ficha" role="tab" aria-selected="true">Ficha</button>
-          <button type="button" class="anamnese-tab" data-anamnese-tab="historico" role="tab" aria-selected="false" id="btnAnamneseHistorico" disabled>Histórico</button>
-          <button type="button" class="anamnese-tab" data-anamnese-tab="comparativo" role="tab" aria-selected="false" id="btnAnamneseComparativo" disabled>Antes e depois</button>
+          <select id="anamneseMaisSelect" class="anamnese-tabs-mais" aria-label="Mais nesta ficha" disabled>
+            <option value="">Mais nesta ficha…</option>
+            <option value="historico">Histórico</option>
+            <option value="comparativo">Antes e depois</option>
+          </select>
+          <button type="button" class="anamnese-tab hidden" data-anamnese-tab="historico" role="tab" aria-selected="false" id="btnAnamneseHistorico" disabled>Histórico</button>
+          <button type="button" class="anamnese-tab hidden" data-anamnese-tab="comparativo" role="tab" aria-selected="false" id="btnAnamneseComparativo" disabled>Antes e depois</button>
         </div>
         <div id="anamneseFormWrap" class="anamnese-form-wrap hidden" data-anamnese-pane="ficha">
           <div class="anamnese-form-top">
@@ -1670,7 +1724,10 @@
                 <h3 class="anamnese-fotos-col-title">Antes do procedimento</h3>
                 <div class="anamnese-fotos-actions">
                   <input type="file" id="anamneseFotosAntes" accept="image/*" multiple aria-label="Fotos de antes">
-                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="antes">Tirar foto</button>
+                  <input type="file" id="anamneseFotosAntesCamUser" accept="image/*" capture="user" class="clientes-foto-input" aria-label="Câmera frontal antes">
+                  <input type="file" id="anamneseFotosAntesCamEnv" accept="image/*" capture="environment" class="clientes-foto-input" aria-label="Câmera traseira antes">
+                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="antes" data-facing="user">Câmera frontal</button>
+                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="antes" data-facing="environment">Câmera traseira</button>
                 </div>
                 <div id="anamneseFotosPreviewAntes" class="anamnese-fotos-preview"></div>
               </div>
@@ -1678,7 +1735,10 @@
                 <h3 class="anamnese-fotos-col-title">Depois do procedimento</h3>
                 <div class="anamnese-fotos-actions">
                   <input type="file" id="anamneseFotosDepois" accept="image/*" multiple aria-label="Fotos de depois">
-                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="depois">Tirar foto</button>
+                  <input type="file" id="anamneseFotosDepoisCamUser" accept="image/*" capture="user" class="clientes-foto-input" aria-label="Câmera frontal depois">
+                  <input type="file" id="anamneseFotosDepoisCamEnv" accept="image/*" capture="environment" class="clientes-foto-input" aria-label="Câmera traseira depois">
+                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="depois" data-facing="user">Câmera frontal</button>
+                  <button type="button" class="btn-secondary btn-anamnese-camera" data-momento="depois" data-facing="environment">Câmera traseira</button>
                 </div>
                 <div id="anamneseFotosPreviewDepois" class="anamnese-fotos-preview"></div>
               </div>
@@ -1852,7 +1912,7 @@
           <div class="master-settings-card" data-view="auditoria">
             <span class="master-settings-icon">📜</span>
             <h3>Auditoria</h3>
-            <p>Registro de ações da equipe na organização.</p>
+            <p>Quem alterou o quê. Também está em Gestão → Auditoria.</p>
             <button type="button" class="btn-secondary master-card-btn">Abrir</button>
           </div>
           <div class="master-settings-card" data-view="documentos-termos">
@@ -1981,7 +2041,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js"></script>
+<script type="module" src="./js/core/spa.js?v=destaque-mercado-1"></script>
 
 </body>
 </html>

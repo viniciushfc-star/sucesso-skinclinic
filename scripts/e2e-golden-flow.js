@@ -469,20 +469,29 @@ export async function runGoldenFlowE2E(env = process.env) {
         falhou(aplicadoP, error?.message || "aplicado não cruzou cliente/protocolo");
       } else {
         ids.aplicado = data.id;
-        const cons = await db
+        const viaTrigger = await db
           .from("estoque_consumo")
-          .insert({
-            org_id: orgId,
-            produto_nome: produto,
-            quantidade: 1,
-            agenda_id: ids.agenda,
-            protocolo_aplicado_id: ids.aplicado,
-            tipo: "estimado",
-            created_by: uid,
-          })
           .select("id")
-          .single();
-        if (!cons.error) ids.consumo = cons.data.id;
+          .eq("protocolo_aplicado_id", data.id)
+          .limit(1)
+          .maybeSingle();
+        if (viaTrigger.data?.id) ids.consumo = viaTrigger.data.id;
+        else {
+          const cons = await db
+            .from("estoque_consumo")
+            .insert({
+              org_id: orgId,
+              produto_nome: produto,
+              quantidade: 1,
+              agenda_id: ids.agenda,
+              protocolo_aplicado_id: ids.aplicado,
+              tipo: "estimado",
+              created_by: uid,
+            })
+            .select("id")
+            .single();
+          if (!cons.error) ids.consumo = cons.data.id;
+        }
         ok(
           aplicadoP,
           `${data.id} agenda=${data.agenda_id || "null"} consumo=${ids.consumo || "não gravou estoque_consumo"}`

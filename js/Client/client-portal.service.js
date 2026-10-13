@@ -73,6 +73,41 @@ export async function completeRegistration(token, payload) {
   return data;
 }
 
+function msgRpcPortal(err) {
+  const m = String(err?.message || err || "");
+  if (/nao conferem|não conferem/i.test(m)) return "E-mail ou senha não conferem.";
+  if (/mais de uma/i.test(m)) return "Este e-mail está em mais de uma clínica. Use o link que você recebeu.";
+  if (/e-mail no cadastro|email no cadastro/i.test(m)) return "Informe um e-mail no cadastro para criar a senha.";
+  if (/Senha precisa/i.test(m)) return "Senha precisa ter 8 a 72 caracteres, sem espaço.";
+  if (/Sessao invalida|Sessão inválida/i.test(m)) return "Sessão inválida ou expirada. Use o link da clínica.";
+  if (/does not exist|schema cache|42883/i.test(m)) {
+    return "A clínica ainda não ligou o login. Use o link enviado.";
+  }
+  return m || "Não foi possível entrar.";
+}
+
+/** Paciente define senha no portal (RPC). Não usa o Auth da equipe. */
+export async function setClientPortalPassword(token, password) {
+  if (!token) throw new Error("Sessão inválida. Acesse pelo link enviado.");
+  const { error } = await supabase.rpc("set_client_portal_password", {
+    p_token: token,
+    p_password: password,
+  });
+  if (error) throw new Error(msgRpcPortal(error));
+}
+
+/** Paciente entra com e-mail e senha. Devolve o mesmo tipo de token do link. */
+export async function loginClientPortal(email, password) {
+  const { data, error } = await supabase.rpc("login_client_portal", {
+    p_email: email,
+    p_password: password,
+  });
+  if (error) throw new Error(msgRpcPortal(error));
+  const token = Array.isArray(data) ? data[0]?.token : data?.token;
+  if (!token) throw new Error("E-mail ou senha não conferem.");
+  return String(token);
+}
+
 /**
  * Cliente assina apenas o termo de consentimento (link com ?mode=consent).
  * Exige nome por extenso para respaldo jurídico.

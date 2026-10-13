@@ -1,6 +1,9 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
+import { signedStorageUrl } from "../core/storage-url.js";
 import { custoUnitarioComFrete } from "../utils/estoque-revenda.js";
+import { isUnknownColumnError, stripUnknownColumn } from "../utils/supabase-unknown-col.js";
+import { userFacingError } from "../core/errors.js";
 
 function missingTable(error) {
   const msg = String(error?.message || "");
@@ -20,9 +23,15 @@ function money(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function missingOptionalCol(error, col) {
-  const msg = String(error?.message || "");
-  return new RegExp(col, "i").test(msg) || /schema cache|column/i.test(msg);
+function throwProdutoWrite(error) {
+  if (missingTable(error)) {
+    throw new Error("Rode o SQL supabase-estoque-portfolio-colar.sql no Supabase para cadastrar o portfólio.");
+  }
+  const code = String(error?.code || "");
+  if (code === "PGRST116") {
+    throw new Error("Não foi possível salvar o produto. Confira se você pertence a esta clínica.");
+  }
+  throw new Error(userFacingError(error, "Não foi possível salvar o produto."));
 }
 
 async function writeCatalogo(kind, row, filter) {
@@ -35,15 +44,16 @@ async function writeCatalogo(kind, row, filter) {
     if (filter?.id) q = q.eq("id", filter.id);
     return q.select().single();
   };
-  let { data, error } = await attempt(row);
-  for (const col of ["quantidade_minima", "imagem_url"]) {
-    if (error && missingOptionalCol(error, col) && Object.prototype.hasOwnProperty.call(row, col)) {
-      const copy = { ...row };
-      delete copy[col];
-      const retry = await attempt(copy);
-      data = retry.data;
-      error = retry.error;
-    }
+  let payload = { ...row };
+  let data;
+  let error;
+  for (let i = 0; i < 16; i++) {
+    ({ data, error } = await attempt(payload));
+    if (!error) return { data, error };
+    if (missingTable(error)) return { data, error };
+    const next = stripUnknownColumn(payload, error, { immutable: ["id", "org_id", "nome"] });
+    if (!next) return { data, error };
+    payload = next;
   }
   return { data, error };
 }
@@ -51,12 +61,21 @@ async function writeCatalogo(kind, row, filter) {
 export async function listProdutosCatalogo() {
   const orgId = getActiveOrg();
   if (!orgId) return [];
-  const { data, error } = await supabase
+  let q = supabase
     .from("estoque_produtos")
     .select("*")
     .eq("org_id", orgId)
-    .eq("ativo", true)
     .order("nome", { ascending: true });
+  let { data, error } = await q.eq("ativo", true);
+  if (error && isUnknownColumnError(error) && /ativo/i.test(String(error.message || ""))) {
+    const retry = await supabase
+      .from("estoque_produtos")
+      .select("*")
+      .eq("org_id", orgId)
+      .order("nome", { ascending: true });
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) {
     if (missingTable(error)) return [];
     throw error;
@@ -79,18 +98,19 @@ export async function upsertProdutoCatalogo(payload) {
     frete_padrao: money(payload.frete_padrao),
     validade_referencia: payload.validade_referencia || null,
     unidade: String(payload.unidade || "").trim() || null,
-    observacao: String(payload.observacao || "").trim() || null,
     quantidade_minima: money(payload.quantidade_minima),
     imagem_url: payload.imagem_url ? String(payload.imagem_url).trim() : payload.imagem_url === "" ? null : undefined,
     ativo: payload.ativo === false ? false : true,
     updated_at: new Date().toISOString(),
-    created_by: user?.id ?? null,
   };
+  if (payload.observacao != null && String(payload.observacao).trim()) {
+    row.observacao = String(payload.observacao).trim();
+  }
   if (row.imagem_url === undefined) delete row.imagem_url;
 
   if (payload.id) {
     const { data, error } = await writeCatalogo("update", row, { id: payload.id });
-    if (error) throw error;
+    if (error) throwProdutoWrite(error);
     return data;
   }
 
@@ -103,17 +123,13 @@ export async function upsertProdutoCatalogo(payload) {
 
   if (existing?.id) {
     const { data, error } = await writeCatalogo("update", row, { id: existing.id });
-    if (error) throw error;
+    if (error) throwProdutoWrite(error);
     return data;
   }
 
+  row.created_by = user?.id ?? null;
   const { data, error } = await writeCatalogo("insert", row);
-  if (error) {
-    if (missingTable(error)) {
-      throw new Error("Rode o SQL supabase-estoque-portfolio-colar.sql no Supabase para cadastrar o portfólio.");
-    }
-    throw error;
-  }
+  if (error) throwProdutoWrite(error);
   return data;
 }
 
@@ -155,6 +171,12 @@ export function custoMedioComFreteDasEntradas(entradas) {
   return out;
 }
 
+export async function resolveProdutoImagemUrl(stored) {
+  if (!stored) return null;
+  if (/^https?:\/\//i.test(String(stored))) return String(stored);
+  return signedStorageUrl("client-photos", stored);
+}
+
 export async function uploadProdutoImagem(file, produtoId) {
   const orgId = orgIdOrThrow();
   if (!file || !orgId) throw new Error("Arquivo de imagem inválido");
@@ -162,8 +184,7 @@ export async function uploadProdutoImagem(file, produtoId) {
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
   const safe = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext) ? ext : "jpg";
   const path = `${orgId}/produtos/${id}.${safe}`;
-  const { error } = await supabase.storage.from("org-logos").upload(path, file, { upsert: true });
+  const { error } = await supabase.storage.from("client-photos").upload(path, file, { upsert: true });
   if (error) throw error;
-  const { data } = supabase.storage.from("org-logos").getPublicUrl(path);
-  return data?.publicUrl || null;
+  return path;
 }

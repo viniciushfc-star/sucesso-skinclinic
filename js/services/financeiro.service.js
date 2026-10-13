@@ -1,5 +1,21 @@
 import { supabase } from "../core/supabase.js"
 import { withOrg } from "../core/org.js"
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js"
+import { userFacingError } from "../core/errors.js"
+
+/**
+ * Lançamento de entrada/saída. Tira colunas que o banco live ainda não tem
+ * (agenda_id, procedure_id, forma_pagamento, valor_recebido, categoria_saida).
+ */
+export async function createLancamento(payload) {
+  const { data, error } = await retryUnknownColumns(
+    payload,
+    (row) => supabase.from("financeiro").insert(row).select("id").single(),
+    { immutable: ["org_id", "tipo", "valor", "data"] }
+  )
+  if (error) throw new Error(userFacingError(error, "Não foi possível registrar no financeiro."))
+  return data
+}
 
 /**
  * Lista transações da organização (para resumo, lista e "por procedimento").

@@ -6,7 +6,7 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 import { listFuncoes, createRegistro } from "./anamnesis.service.js";
-import { conteudoAnamneseDaAnalise } from "../../lib/analise-pele-storage.js";
+import { conteudoAnamneseDaAnalise } from "../utils/analise-pele-storage.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();

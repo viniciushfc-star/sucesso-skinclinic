@@ -6,6 +6,12 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg, withOrg } from "../core/org.js";
 
+function missingProfProcTable(error) {
+  const msg = String(error?.message || "");
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205" || /professional_procedures|does not exist|schema cache/i.test(msg);
+}
+
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
   if (!orgId) throw new Error("Organização ativa não definida");
@@ -25,7 +31,10 @@ export async function getProcedureIdsByProfessional(userId) {
       .select("procedure_id")
       .eq("user_id", userId)
   );
-  if (error) throw error;
+  if (error) {
+    if (missingProfProcTable(error)) return [];
+    throw error;
+  }
   return (data ?? []).map((r) => r.procedure_id);
 }
 
@@ -79,7 +88,10 @@ export async function getProfessionalIdsWhoCanDoProcedure(procedureId) {
       .select("user_id")
       .eq("procedure_id", procedureId)
   );
-  if (error) throw error;
+  if (error) {
+    if (missingProfProcTable(error)) return null;
+    throw error;
+  }
   const userIds = [...new Set((data ?? []).map((r) => r.user_id))];
   // Se nenhum profissional tem esse procedimento cadastrado, considera que todos podem (comportamento antigo)
   const { data: allMembers } = await withOrg(

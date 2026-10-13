@@ -19,7 +19,8 @@ export function openModal(
  title,
  fields,
  onSubmit,
- onClose
+ onClose,
+ opts
 ){
 
  try{
@@ -27,9 +28,19 @@ export function openModal(
   currentOnClose = onClose || null
   modalTitle.innerText = title
   modalFields.innerHTML = fields
+  const card = modal?.querySelector(".modal-card")
+  if (card) {
+    card.classList.remove("modal-card--compare")
+    if (opts?.cardClass) card.classList.add(opts.cardClass)
+  }
 
   modal.classList.remove("hidden")
   if (modalForm) modalForm.noValidate = true
+  const submitBtn = modalForm?.querySelector('button[type="submit"]')
+  if (submitBtn) {
+    submitBtn.classList.toggle("hidden", !!opts?.hideSubmit)
+    submitBtn.textContent = opts?.submitLabel || "Salvar"
+  }
   // Modal não fecha ao clicar no fundo (apenas Cancelar ou Salvar), para não fechar por acidente (ex.: Nova sala)
   if (!modal._noOverlayClose) {
     modal._noOverlayClose = true
@@ -54,10 +65,15 @@ export function openModal(
 
 
 export function closeModal(){
- if (currentOnClose) {
-  currentOnClose()
-  currentOnClose = null
+ const cb = currentOnClose
+ currentOnClose = null
+ if (cb) cb()
+ const submitBtn = modalForm?.querySelector('button[type="submit"]')
+ if (submitBtn) {
+  submitBtn.classList.remove("hidden")
+  submitBtn.textContent = "Salvar"
  }
+ modal?.querySelector(".modal-card")?.classList.remove("modal-card--compare")
  modal.classList.add("hidden")
 }
 

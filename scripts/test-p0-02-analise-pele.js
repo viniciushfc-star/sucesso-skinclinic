@@ -85,4 +85,17 @@ describe("P0-02 grep no código", () => {
     assert.doesNotMatch(src, /return res\.status\(200\)\.json\([\s\S]{0,400}ia_preliminar/);
     assert.match(src, /status: "aguardando_validacao"/);
   });
+
+  it("views e service de pele não importam /lib (404 no browser)", () => {
+    const blocked = /from ["']\.\.\/\.\.\/lib\/analise-pele-storage/;
+    for (const rel of [
+      "js/views/skincare.views.js",
+      "js/views/analise-pele.views.js",
+      "js/services/analise-pele.service.js",
+    ]) {
+      const src = readFileSync(join(root, rel), "utf8");
+      assert.doesNotMatch(src, blocked, rel);
+      assert.match(src, /from ["']\.\.\/utils\/analise-pele-storage\.js["']/);
+    }
+  });
 });

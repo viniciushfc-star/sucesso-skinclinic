@@ -3,6 +3,7 @@ import { getActiveOrg, getOrgMembers, withOrg } from "../core/org.js";
 import { getAgendaConfig } from "./agenda-config.service.js";
 import { getProcedure } from "./procedimentos.service.js";
 import { getProfessionalIdsWhoCanDoProcedure } from "./professional-procedures.service.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
 import {
   DEFAULT_TRAVEL_MINUTES,
   conflitoExternoComDeslocamento,
@@ -51,6 +52,38 @@ export async function createAppointment({
 
  if(error) throw error;
  return row;
+}
+
+/**
+ * Vários horários na agenda canônica (aceite de orçamento). Não muda preço. Não envia WhatsApp.
+ */
+export async function createAgendaSlots(slots, { clientId, soldByUserId } = {}) {
+  const orgId = getOrgOrThrow();
+  if (!clientId) throw new Error("Cliente inválido");
+  const criados = [];
+  const extraSoldBy = soldByUserId || null;
+  for (const slot of slots || []) {
+    if (!slot?.data || !slot?.hora) continue;
+    const payload = {
+      org_id: orgId,
+      cliente_id: clientId,
+      data: slot.data,
+      hora: String(slot.hora).slice(0, 5),
+      procedimento: slot.procedimento || null,
+      duration_minutes: Number(slot.duration_minutes) || 60,
+    };
+    if (slot.procedure_id) payload.procedure_id = slot.procedure_id;
+    if (slot.user_id) payload.user_id = slot.user_id;
+    if (slot.sold_by_user_id || extraSoldBy) payload.sold_by_user_id = slot.sold_by_user_id || extraSoldBy;
+    const { data, error } = await retryUnknownColumns(
+      payload,
+      (row) => supabase.from("agenda").insert(row).select("id, data, hora").single(),
+      { immutable: ["org_id", "data", "hora"] }
+    );
+    if (error) throw error;
+    if (data) criados.push(data);
+  }
+  return criados;
 }
 
 /**
@@ -253,7 +286,7 @@ export async function getAgendaItemById(id) {
  * @returns {{ anterior: { data, hora, procedimento } | null, atual: { data, hora, procedimento }, proximo: { data, hora, procedimento } | null }}
  */
 export async function getClientAgendaResumo(clientId, currentAgendaId) {
-  if (!clientId) return { anterior: null, atual: null, proximo: null };
+  if (!clientId) return { anterior: null, atual: null, proximo: null, temFuturo: false };
   const orgId = getOrgOrThrow();
   const { data: rows, error } = await withOrg(
     supabase
@@ -263,13 +296,16 @@ export async function getClientAgendaResumo(clientId, currentAgendaId) {
       .order("data", { ascending: true })
       .order("hora", { ascending: true })
   );
-  if (error || !rows || rows.length === 0) return { anterior: null, atual: null, proximo: null };
+  if (error || !rows || rows.length === 0) return { anterior: null, atual: null, proximo: null, temFuturo: false };
   const idx = rows.findIndex((r) => r.id === currentAgendaId);
   const format = (r) => (r ? { data: r.data, hora: r.hora || "", procedimento: r.procedimento || "—" } : null);
   const atual = idx >= 0 ? format(rows[idx]) : format(rows[0]);
   const anterior = idx > 0 ? format(rows[idx - 1]) : null;
   const proximo = idx >= 0 && idx < rows.length - 1 ? format(rows[idx + 1]) : null;
-  return { anterior, atual, proximo };
+  const d = new Date();
+  const hoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const temFuturo = rows.some((r) => String(r.data || "").slice(0, 10) >= hoje && r.id !== currentAgendaId);
+  return { anterior, atual, proximo, temFuturo };
 }
 
 /**

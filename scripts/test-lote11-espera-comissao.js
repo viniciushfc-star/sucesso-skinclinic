@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { waitingMinutes, salaEsperaStatus } from "../js/utils/sala-espera.js";
+import { waitingMinutes, salaEsperaStatus, proximaAcaoDoHorario } from "../js/utils/sala-espera.js";
 import { agruparComissoes, comissaoDeReceita, previstoVsRealizado } from "../js/utils/comissao-apuracao.js";
 import { SETUP_STEP_IDS, SETUP_STEP_MINUTES } from "../js/utils/golden-flow.js";
 import { pontoStatus } from "../js/utils/injetaveis-mapas.js";
@@ -19,6 +19,19 @@ describe("sala de espera, comissão, injetáveis, primeiro dia", () => {
     assert.equal(waitingMinutes(t0.toISOString(), t1.toISOString(), t2), 18);
     assert.equal(salaEsperaStatus({ arrived_at: t0.toISOString() }, t1).key, "sala");
     assert.equal(salaEsperaStatus({ arrived_at: t0.toISOString(), started_at: t1.toISOString() }, t2).key, "atendimento");
+  });
+
+  it("painel do horário tem uma próxima ação, sem WhatsApp automático", () => {
+    assert.equal(proximaAcaoDoHorario({ item_type: "appointment" }).primary, "chegou");
+    assert.equal(proximaAcaoDoHorario({ arrived_at: "2026-09-25T12:00:00Z" }).primary, "atendimento");
+    assert.equal(proximaAcaoDoHorario({ arrived_at: "2026-09-25T12:00:00Z", started_at: "2026-09-25T12:10:00Z" }).primary, "baixa");
+    assert.equal(proximaAcaoDoHorario({ arrived_at: "2026-09-25T12:00:00Z" }, { temBaixa: true }).primary, null);
+    assert.equal(proximaAcaoDoHorario({ item_type: "event" }).primary, null);
+    const agenda = readFileSync(join(ROOT, "js/views/agenda.views.js"), "utf8");
+    assert.match(agenda, /proximaAcaoDoHorario/);
+    assert.match(agenda, /agenda-panel__proxima/);
+    assert.match(agenda, /Outras ações/);
+    assert.doesNotMatch(agenda, /whatsapp-send|enviarWhatsApp/i);
   });
 
   it("comissão é cálculo, não pagamento", () => {

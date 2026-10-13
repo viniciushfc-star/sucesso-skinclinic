@@ -99,7 +99,7 @@ export async function registerEmail(name, cpf, email, password) {
         email: String(email).trim(),
         password,
         options: {
-          data: { name: String(name).trim(), cpf: String(cpf).trim() },
+          data: { name: String(name).trim(), cpf: String(cpf).replace(/\D/g, "") },
           emailRedirectTo: origin ? `${origin}/auth-callback.html` : undefined,
         }
       })

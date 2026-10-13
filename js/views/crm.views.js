@@ -58,6 +58,7 @@ function clinicName(profile) {
 
 const RADAR_LABEL = {
   pacote: "Pacote",
+  plano_fim: "Plano encerrado",
   nova_sem_2: "Sem 2º",
   atrasada: "Atrasada",
   sem_proxima: "Sem próxima",
@@ -230,7 +231,7 @@ export async function init() {
             <div><strong>${escapeHtml(c.name)}</strong> <span class="crm-radar-tag">${escapeHtml(tag)}</span><br>
             <span class="view-hint">${escapeHtml(c.motivo)} · WhatsApp na fila acima</span></div>
             <div class="crm-row-actions">
-              <button type="button" class="btn-secondary btn-sm crm-agendar" data-id="${c.id}">Agendar</button>
+              <button type="button" class="btn-primary btn-sm crm-agendar" data-id="${c.id}">Agendar</button>
             </div>
           </div>`;
       })
@@ -584,4 +585,14 @@ export async function init() {
   }
 
   await Promise.all([loadRadar(), loadInativos(), loadFidelidade(), loadAniversario(), loadEspera(), loadDesfechos(), loadOrigens(), loadSilencios()]);
+
+  const section = sessionStorage.getItem("crm_open_section");
+  sessionStorage.removeItem("crm_open_section");
+  if (section === "radar") {
+    const det = document.getElementById("crmMaisDetalhes");
+    if (det) det.open = true;
+    document.getElementById("crmListaRadar")?.scrollIntoView({ block: "start" });
+  } else if (section === "espera") {
+    document.getElementById("crmListaEspera")?.scrollIntoView({ block: "start" });
+  }
 }

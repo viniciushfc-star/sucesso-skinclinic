@@ -9,12 +9,16 @@ import { audit } from "../services/audit.service.js";
 import { getClientById, getClientes } from "../services/clientes.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listAnalisesPeleByClient } from "../services/analise-pele.service.js";
-import { analisesPeleParaSkincare } from "../../lib/analise-pele-storage.js";
+import { analisesPeleParaSkincare } from "../utils/analise-pele-storage.js";
 import { getSkincareRotinaByClient, upsertSkincareRotina } from "../services/skincare-rotina.service.js";
 import { createAfazer } from "../services/afazeres.service.js";
 import { supabase } from "../core/supabase.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
+import { listProdutosCatalogo } from "../services/estoque-produtos.service.js";
+import { agruparMarcasCasa, filtrarMarcasSelecionadas, htmlMarcasCasa } from "../utils/marcas-casa.js";
+import { htmlDestaquesMercado, payloadDestaquesParaIa } from "../utils/skincare-mercado.js";
+import { createSkincareMercado, listSkincareMercado } from "../services/skincare-mercado.service.js";
 
 const btnGerarSkincare = document.getElementById("btnGerarSkincare");
 const resultadoSkincare = document.getElementById("resultadoSkincare");
@@ -118,6 +122,8 @@ export async function init() {
   bindPesquisarCliente();
   bindFichaRapida();
   bindFotosCabine();
+  await bindMarcasCasa();
+  await bindDestaquesMercado();
 }
 
 function escapeHtml(s) {
@@ -125,6 +131,77 @@ function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s;
   return div.innerHTML;
+}
+
+async function bindMarcasCasa() {
+  const host = document.getElementById("skincareMarcasCasa");
+  if (!host) return;
+  let produtos = [];
+  try {
+    produtos = await listProdutosCatalogo();
+  } catch (_) {
+    produtos = [];
+  }
+  const grupos = agruparMarcasCasa(produtos);
+  host._grupos = grupos;
+  host.innerHTML = htmlMarcasCasa(grupos, grupos.map((g) => g.marca));
+}
+
+async function bindDestaquesMercado() {
+  const host = document.getElementById("skincareDestaquesList");
+  const form = document.getElementById("skincareDestaqueForm");
+  if (!host) return;
+
+  async function refresh() {
+    try {
+      const rows = await listSkincareMercado();
+      host._rows = rows;
+      host.innerHTML = htmlDestaquesMercado(rows);
+    } catch (e) {
+      host._rows = [];
+      host.innerHTML = htmlDestaquesMercado([], { sqlAusente: e?.code === "SQL_AUSENTE" });
+    }
+  }
+
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await createSkincareMercado({
+          marca_produto: document.getElementById("skincareDestaqueNome")?.value,
+          porque: document.getElementById("skincareDestaquePorque")?.value,
+          fonte: document.getElementById("skincareDestaqueFonte")?.value,
+          data_ref: document.getElementById("skincareDestaqueData")?.value,
+          metodologia: document.getElementById("skincareDestaqueMetodo")?.value,
+          confianca: document.getElementById("skincareDestaqueConf")?.value,
+          amostra: document.getElementById("skincareDestaqueAmostra")?.value,
+        });
+        form.reset();
+        toast("Destaque salvo. Só entra na IA se a fonte estiver completa e você deixar marcado.");
+        await refresh();
+      } catch (err) {
+        toast(err?.message || "Não foi possível salvar o destaque.");
+      }
+    };
+  }
+  await refresh();
+}
+
+function destaquesMercadoSelecionados() {
+  const host = document.getElementById("skincareDestaquesList");
+  const rows = host?._rows || [];
+  const ids = new Set(
+    [...(host?.querySelectorAll("input[data-destaque-id]:checked") || [])].map((el) => el.getAttribute("data-destaque-id"))
+  );
+  if (!ids.size) return payloadDestaquesParaIa([]);
+  return payloadDestaquesParaIa(rows.filter((r) => ids.has(String(r.id))));
+}
+
+function marcasCasaSelecionadas() {
+  const host = document.getElementById("skincareMarcasCasa");
+  if (!host) return [];
+  const nomes = [...host.querySelectorAll("input[data-marca]:checked")].map((el) => el.getAttribute("data-marca"));
+  return filtrarMarcasSelecionadas(host._grupos || [], nomes);
 }
 
 function bindPesquisarCliente() {
@@ -327,7 +404,12 @@ function bindGerar() {
   btnGerarSkincare.onclick = async () => {
     const analiseAtual = safeJsonOrText(textareaAnalise?.value);
     const protocoloAtual = safeJsonOrText(textareaProtocolo?.value);
-    const payload = { analise: analiseAtual, protocolo: protocoloAtual };
+    const payload = {
+      analise: analiseAtual,
+      protocolo: protocoloAtual,
+      marcas_casa: marcasCasaSelecionadas(),
+      destaques_mercado: destaquesMercadoSelecionados(),
+    };
 
     if (skincareFotosCabine.length > 0) {
       const fotosBase64 = await Promise.all(skincareFotosCabine.map(async (url) => {

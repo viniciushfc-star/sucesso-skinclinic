@@ -2,6 +2,7 @@
  * CEP e foto do cadastro da pessoa (não da ficha clínica).
  */
 import { buscarCep, maskCepInput, fillAddressFields } from "./cep.service.js";
+import { getCameraStream } from "./camera.js";
 
 export function htmlEnderecoCliente(prefix, c = {}) {
   const v = (k) => String(c[k] || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -97,30 +98,38 @@ export function waitVideoReady(video, ms = 10000) {
   });
 }
 
-export async function startCadastroCamera(videoEl, areaEl) {
+export async function startCadastroCamera(videoEl, areaEl, facing = "user") {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("no-api");
   }
   if (areaEl) areaEl.classList.remove("hidden");
-  const tries = [
-    { video: { facingMode: { ideal: "user" } } },
-    { video: true },
-  ];
-  let lastErr;
-  for (const constraints of tries) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      videoEl.srcObject = stream;
-      videoEl.setAttribute("playsinline", "true");
-      videoEl.muted = true;
-      await videoEl.play().catch(() => {});
-      await waitVideoReady(videoEl);
-      return stream;
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr || new Error("camera");
+  const stream = await getCameraStream(facing);
+  videoEl.srcObject = stream;
+  videoEl.setAttribute("playsinline", "true");
+  videoEl.muted = true;
+  await videoEl.play().catch(() => {});
+  await waitVideoReady(videoEl);
+  return stream;
+}
+
+export function initialsFromName(name) {
+  return (name || "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => (w[0] || "").toUpperCase())
+    .join("") || "?";
+}
+
+/** Iniciais ficam visíveis até a foto carregar de verdade (URL morta ou 1px não esconde o nome). */
+export function htmlClientAvatar(url, name, wrapClass = "") {
+  const initials = initialsFromName(name).replace(/</g, "&lt;");
+  const src = String(url || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const wrap = ["clientes-avatar-wrap", wrapClass].filter(Boolean).join(" ");
+  const img = src
+    ? `<img class="clientes-avatar" src="${src}" alt="" loading="lazy" onload="if(this.naturalWidth<8){this.style.display='none';this.nextElementSibling&&this.nextElementSibling.classList.remove('hidden')}else{this.nextElementSibling&&this.nextElementSibling.classList.add('hidden')}" onerror="this.style.display='none';this.nextElementSibling&&this.nextElementSibling.classList.remove('hidden')">`
+    : "";
+  return `<span class="${wrap}">${img}<span class="clientes-avatar-initials">${initials}</span></span>`;
 }
 
 export function htmlFotoCadastro(ids, { existingUrl = "" } = {}) {
@@ -132,16 +141,18 @@ export function htmlFotoCadastro(ids, { existingUrl = "" } = {}) {
     <div class="clientes-foto-wrap">
       <input type="file" id="${ids.file}" accept="image/jpeg,image/png,image/webp,image/gif,image/*" class="clientes-foto-input">
       <input type="file" id="${ids.cameraFile}" accept="image/*" capture="user" class="clientes-foto-input">
+      <input type="file" id="${ids.cameraFileEnv}" accept="image/*" capture="environment" class="clientes-foto-input">
       <div class="clientes-foto-buttons">
         <button type="button" class="clientes-foto-btn" id="${ids.btnEscolher}">Escolher arquivo</button>
-        <button type="button" class="clientes-foto-btn clientes-foto-btn-camera" id="${ids.btnTirar}">Tirar foto</button>
+        <button type="button" class="clientes-foto-btn clientes-foto-btn-camera" id="${ids.btnTirar}">Câmera frontal</button>
+        <button type="button" class="clientes-foto-btn clientes-foto-btn-camera" id="${ids.btnTirarEnv}">Câmera traseira</button>
       </div>
       <div class="clientes-camera-area hidden" id="${ids.area}">
         <video id="${ids.video}" class="clientes-camera-video" autoplay playsinline muted></video>
         <button type="button" class="clientes-foto-btn clientes-foto-btn-capture" id="${ids.btnCapturar}">Capturar foto</button>
       </div>
       <div class="clientes-foto-preview" id="${ids.preview}">${preview}</div>
-      <p class="form-hint">Cole uma foto do WhatsApp com Ctrl+V (ou Cmd+V). No celular, use “Tirar foto”.</p>
+      <p class="form-hint">Frontal para o rosto; traseira para o corpo ou a embalagem. Cole do WhatsApp com Ctrl+V.</p>
     </div>
   `;
 }
@@ -150,8 +161,10 @@ export function captureIds(prefix) {
   return {
     file: `${prefix}Photo`,
     cameraFile: `${prefix}PhotoCamera`,
+    cameraFileEnv: `${prefix}PhotoCameraEnv`,
     btnEscolher: `${prefix}BtnEscolherFoto`,
     btnTirar: `${prefix}BtnTirarFoto`,
+    btnTirarEnv: `${prefix}BtnTirarFotoEnv`,
     btnCapturar: `${prefix}BtnCapturarFoto`,
     area: `${prefix}CameraArea`,
     video: `${prefix}CameraVideo`,
@@ -217,8 +230,10 @@ export async function downloadImageUrl(url, filename) {
 export function wireFotoCadastro(ids, state, toast) {
   const photoInput = document.getElementById(ids.file);
   const cameraFile = document.getElementById(ids.cameraFile);
+  const cameraFileEnv = document.getElementById(ids.cameraFileEnv);
   const btnFoto = document.getElementById(ids.btnEscolher);
   const btnTirar = document.getElementById(ids.btnTirar);
+  const btnTirarEnv = document.getElementById(ids.btnTirarEnv);
   const btnCapturar = document.getElementById(ids.btnCapturar);
   const preview = document.getElementById(ids.preview);
   const cameraArea = document.getElementById(ids.area);
@@ -282,45 +297,46 @@ export function wireFotoCadastro(ids, state, toast) {
     });
   }
 
-  if (cameraFile) {
-    cameraFile.addEventListener("change", (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      state.dataUrl = null;
-      state.blob = file;
-      fechar();
-      showFilePreview(file);
-    });
-  }
+  const onCameraFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    state.dataUrl = null;
+    state.blob = file;
+    fechar();
+    showFilePreview(file);
+  };
+  cameraFile?.addEventListener("change", onCameraFile);
+  cameraFileEnv?.addEventListener("change", onCameraFile);
 
-  if (btnTirar) {
-    btnTirar.addEventListener("click", async () => {
-      if (isTouchCameraDevice() && cameraFile) {
-        cameraFile.click();
+  const abrirCamera = async (facing) => {
+    const native = facing === "environment" ? cameraFileEnv : cameraFile;
+    if (isTouchCameraDevice() && native) {
+      native.click();
+      return;
+    }
+    if (!videoEl || !cameraArea) {
+      native?.click();
+      return;
+    }
+    try {
+      fechar();
+      cameraArea.classList.remove("hidden");
+      document.querySelector(".clientes-foto-wrap")?.classList.remove("is-capturing");
+      if (preview) preview.innerHTML = "";
+      if (photoInput) photoInput.value = "";
+      state.stream = await startCadastroCamera(videoEl, cameraArea, facing);
+      requestAnimationFrame(() => btnCapturar?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    } catch (err) {
+      console.warn("[Cadastro] Câmera:", err);
+      if (native) {
+        native.click();
         return;
       }
-      if (!videoEl || !cameraArea) {
-        if (cameraFile) cameraFile.click();
-        return;
-      }
-      try {
-        fechar();
-        cameraArea.classList.remove("hidden");
-        document.querySelector(".clientes-foto-wrap")?.classList.remove("is-capturing");
-        if (preview) preview.innerHTML = "";
-        if (photoInput) photoInput.value = "";
-        state.stream = await startCadastroCamera(videoEl, cameraArea);
-        requestAnimationFrame(() => btnCapturar?.scrollIntoView({ behavior: "smooth", block: "center" }));
-      } catch (err) {
-        console.warn("[Cadastro] Câmera:", err);
-        if (cameraFile) {
-          cameraFile.click();
-          return;
-        }
-        toast("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
-      }
-    });
-  }
+      toast("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
+    }
+  };
+  btnTirar?.addEventListener("click", () => abrirCamera("user"));
+  btnTirarEnv?.addEventListener("click", () => abrirCamera("environment"));
 
   if (btnCapturar) {
     btnCapturar.addEventListener("click", () => {
@@ -369,7 +385,9 @@ export function wireFotoCadastro(ids, state, toast) {
 export async function photoFileFromCadastro(ids, state) {
   const fromInput = document.getElementById(ids.file)?.files?.[0];
   const fromCameraInput = document.getElementById(ids.cameraFile)?.files?.[0];
+  const fromCameraEnv = document.getElementById(ids.cameraFileEnv)?.files?.[0];
   if (fromCameraInput) return fromCameraInput;
+  if (fromCameraEnv) return fromCameraEnv;
   if (fromInput) return fromInput;
   if (state.blob && state.blob.size > 0) {
     return state.blob instanceof File

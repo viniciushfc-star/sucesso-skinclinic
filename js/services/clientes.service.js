@@ -6,6 +6,8 @@ import { getCache, setCache } from "../utils/cache.js";
 import { getLimits } from "./limits.service.js";
 import { signedStorageUrl, withSignedField, withSignedFields } from "../core/storage-url.js";
 import { normalizeRelacaoComercial } from "../utils/cliente-relacao.js";
+import { stripUnknownColumn } from "../utils/supabase-unknown-col.js";
+import { userFacingError } from "../core/errors.js";
 
 /* =========================
    HELPERS
@@ -369,14 +371,14 @@ export async function createClient({
   }
 
   let attempt = { ...row };
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 16; i++) {
     const { data, error } = await supabase.from("clients").insert(attempt).select().single();
     if (!error) {
       setCache(getCacheKey(orgId), null);
       return data;
     }
-    const next = stripUnknownClientCols(attempt, error.message);
-    if (!next) throw error;
+    const next = stripClientAttempt(attempt, error);
+    if (!next) throwClientWrite(error, "Não foi possível salvar o cliente");
     attempt = next;
   }
   throw new Error("Não foi possível salvar o cliente");
@@ -422,12 +424,26 @@ function stripUnknownClientCols(row, message) {
   return changed ? next : null;
 }
 
+function stripClientAttempt(attempt, error) {
+  const parsed = stripUnknownColumn(attempt, error, { immutable: ["id", "org_id", "name"] });
+  if (parsed) return parsed;
+  return stripUnknownClientCols(attempt, error?.message);
+}
+
+function throwClientWrite(error, fallback) {
+  const code = String(error?.code || "");
+  if (code === "PGRST116") {
+    throw new Error("Não foi possível salvar o cliente. Confira se você tem permissão nesta clínica.");
+  }
+  throw new Error(userFacingError(error, fallback));
+}
+
 export async function updateClient(clientId, updates) {
   if (!clientId) throw new Error("Cliente inválido");
   const orgId = getOrgOrThrow();
 
   let attempt = { ...updates, updated_at: new Date().toISOString() };
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 16; i++) {
     const { data, error } = await supabase
       .from("clients")
       .update(attempt)
@@ -439,9 +455,9 @@ export async function updateClient(clientId, updates) {
       setCache(getCacheKey(orgId), null);
       return data;
     }
-    const next = stripUnknownClientCols(attempt, error.message);
-    if (!next) throw error;
-    attempt = { ...next, updated_at: new Date().toISOString() };
+    const next = stripClientAttempt(attempt, error);
+    if (!next) throwClientWrite(error, "Não foi possível atualizar o cliente");
+    attempt = next;
   }
   throw new Error("Não foi possível atualizar o cliente");
 }

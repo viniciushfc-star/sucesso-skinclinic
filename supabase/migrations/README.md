@@ -4,3 +4,5 @@
 -- 20260914120000_p0_rls_isolamento.sql  — isolamento membership / financeiro / convite
 -- 20260914153000_p1_portal_ia_calendar.sql — RPC portal, calendário, ai_usage_events
 -- 20260920120000_p0_tenant_portal_storage.sql — whatsapp_logs RLS, fotos privadas, hash do token do portal
+-- 20261008120000_fase0_create_clinic.sql — RPC create_clinic + RLS dono criar clínica (colar: supabase-fase0-criar-clinica-colar.sql)
+-- 20261009120000_fase0_protocolo_consumo.sql — trigger aplicado → estoque_consumo (colar: supabase-fase0-protocolo-consumo-colar.sql)

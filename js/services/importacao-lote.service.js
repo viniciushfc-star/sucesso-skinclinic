@@ -14,6 +14,7 @@ import { createProcedure, listProcedures } from "./procedimentos.service.js";
 import { parseValor, parseData } from "./importacao-bancaria.service.js";
 import { inferirCategoriaSaida } from "../utils/categoria-financeiro.js";
 import { financeFingerprint, agendaFingerprint } from "../utils/backup-restore.js";
+import { parsePlanilhaTexto } from "../utils/import-mapa.js";
 
 function getOrgOrThrow() {
   const orgId = getActiveOrg();
@@ -26,32 +27,20 @@ function getOrgOrThrow() {
  * Separador: ; ou ,
  */
 function parseCSV(texto) {
-  const lines = texto
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return [];
-
-  const sep = lines[0].includes(";") ? ";" : ",";
-  const rawHeaders = lines[0].split(sep).map((h) => h.replace(/^"|"$/g, "").trim());
-  const headers = rawHeaders.map((h) =>
-    h
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .replace(/\s+/g, "_")
-  );
-
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split(sep).map((p) => p.replace(/^"|"$/g, "").trim());
+  const { headers, rows } = parsePlanilhaTexto(texto);
+  if (!headers.length) return [];
+  return rows.map((row) => {
     const obj = {};
-    headers.forEach((h, j) => {
-      obj[h] = parts[j] ?? "";
+    headers.forEach((h) => {
+      const key = String(h || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/\s+/g, "_");
+      obj[key] = row[h] ?? "";
     });
-    rows.push(obj);
-  }
-  return rows;
+    return obj;
+  });
 }
 
 /** Coluna flexível: aceita vários nomes (ex.: nome, name, cliente) */
@@ -389,17 +378,19 @@ export async function importarAgenda(rows) {
  * opts.pularDuplicados: para clientes/procedimentos, true = pular duplicados; false = importar todas (duplicados viram erro para revisar).
  */
 export async function importarLote(tipo, fileOrText, opts = {}) {
-  const text =
-    typeof fileOrText === "string"
-      ? fileOrText
-      : await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result);
-          r.onerror = rej;
-          r.readAsText(fileOrText, "UTF-8");
-        });
-
-  const rows = parseCSV(text);
+  let rows = Array.isArray(opts.rows) ? opts.rows : null;
+  if (!rows) {
+    const text =
+      typeof fileOrText === "string"
+        ? fileOrText
+        : await new Promise((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => res(r.result);
+            r.onerror = rej;
+            r.readAsText(fileOrText, "UTF-8");
+          });
+    rows = parseCSV(text);
+  }
   if (rows.length === 0) throw new Error("Nenhuma linha válida no CSV");
   if (rows.length > MAX_IMPORT_ROWS) throw new Error("Máximo " + MAX_IMPORT_ROWS + " linhas por vez. Divida o arquivo e importe em partes.");
 

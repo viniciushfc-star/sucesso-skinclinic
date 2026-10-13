@@ -3,6 +3,8 @@ import { getActiveOrg, withOrg } from "../core/org.js";
 import { getClientes } from "./clientes.service.js";
 import { listPacotesByOrg } from "./pacotes.service.js";
 import { getTodayLocal } from "./metrics.service.js";
+import { isUnknownColumnError } from "../utils/supabase-unknown-col.js";
+import { classificarSinalRadar } from "../utils/crm-fila.js";
 
 function daysBetween(isoDate, today = new Date()) {
   if (!isoDate) return Infinity;
@@ -25,13 +27,24 @@ export async function getClientVisitStats() {
   const orgId = getActiveOrg();
   if (!orgId) return { byClient: {}, rows: [] };
 
-  const { data, error } = await withOrg(
+  let { data, error } = await withOrg(
     supabase
       .from("agenda")
       .select("cliente_id, data, cancelled_at")
       .order("data", { ascending: false })
       .limit(8000)
   );
+  if (error && isUnknownColumnError(error) && /cancelled_at/i.test(String(error.message || ""))) {
+    const retry = await withOrg(
+      supabase
+        .from("agenda")
+        .select("cliente_id, data")
+        .order("data", { ascending: false })
+        .limit(8000)
+    );
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
 
   const byClient = {};
@@ -56,9 +69,16 @@ export async function getClientVisitStats() {
 
 async function clientIdsComAgendaFutura() {
   const hoje = getTodayLocal();
-  const { data, error } = await withOrg(
+  let { data, error } = await withOrg(
     supabase.from("agenda").select("cliente_id, cancelled_at, data").gte("data", hoje).limit(4000)
   );
+  if (error && isUnknownColumnError(error) && /cancelled_at/i.test(String(error.message || ""))) {
+    const retry = await withOrg(
+      supabase.from("agenda").select("cliente_id, data").gte("data", hoje).limit(4000)
+    );
+    data = retry.data;
+    error = retry.error;
+  }
   const set = new Set();
   if (error) return set;
   for (const row of data ?? []) {
@@ -79,17 +99,23 @@ export async function getRadarRetorno(opts = {}) {
   const future = await clientIdsComAgendaFutura();
   let pacotes = [];
   try {
-    pacotes = await listPacotesByOrg({ only_with_balance: true });
+    pacotes = await listPacotesByOrg();
   } catch (_) {
     pacotes = [];
   }
   const packByClient = new Map();
   for (const p of pacotes) {
-    const rest = Math.max(0, (p.total_sessoes ?? 0) - (p.sessoes_utilizadas ?? 0));
-    if (rest <= 0) continue;
-    const prev = packByClient.get(p.client_id) || { rest: 0, nome: p.nome_pacote };
+    const total = Number(p.total_sessoes) || 0;
+    const used = Number(p.sessoes_utilizadas) || 0;
+    const rest = Math.max(0, total - used);
+    const prev = packByClient.get(p.client_id) || { rest: 0, ended: false, nome: p.nome_pacote };
     prev.rest += rest;
-    prev.nome = p.nome_pacote || prev.nome;
+    if (total > 0 && used >= total) {
+      prev.ended = true;
+      prev.nome = p.nome_pacote || prev.nome;
+    } else if (rest > 0) {
+      prev.nome = p.nome_pacote || prev.nome;
+    }
     packByClient.set(p.client_id, prev);
   }
 
@@ -105,36 +131,19 @@ export async function getRadarRetorno(opts = {}) {
     const pack = packByClient.get(c.id);
     const visits = stats.visits || 0;
 
-    let sinal = null;
-    let motivo = "";
-    let acao = "Entrar em contato";
-
-    if (pack && pack.rest > 0 && !hasFuture) {
-      sinal = "pacote";
-      motivo = `Pacote ativo com ${pack.rest} sessão(ões) e sem próximo horário.`;
-      acao = "Agendar retorno";
-    } else if (visits === 1 && !hasFuture && Number.isFinite(idle) && idle >= 14) {
-      sinal = "nova_sem_2";
-      motivo = `Veio 1 vez (em ${stats.lastDate || "—"}) e não tem 2º atendimento.`;
-      acao = "Agendar retorno";
-    } else if (
-      visits >= 3 &&
-      stats.medianGap &&
-      !hasFuture &&
-      Number.isFinite(idle) &&
-      idle > Math.max(14, stats.medianGap * 1.25)
-    ) {
-      sinal = "atrasada";
-      motivo = `Ritmo pessoal ~${Math.round(stats.medianGap)} dia(s); última visita há ${idle} dia(s).`;
-      acao = "Agendar retorno";
-    } else if (visits >= 1 && !hasFuture && Number.isFinite(idle) && idle < minDays) {
-      sinal = "sem_proxima";
-      motivo = "Já veio e não há sessão futura na agenda.";
-      acao = "Agendar retorno";
-    } else if (Number.isFinite(idle) && idle >= minDays) {
-      sinal = "inativa";
-      motivo = `Sem visita há ${idle} dia(s) (limiar ${minDays}).`;
-      acao = "Entrar em contato";
+    const classificado = classificarSinalRadar({
+      visits,
+      idleDays: idle,
+      hasFuture,
+      packRest: pack?.rest || 0,
+      packEnded: !!(pack?.ended && !(pack?.rest > 0)),
+      packNome: pack?.nome || "",
+      medianGap: stats.medianGap,
+      minDaysInativa: minDays,
+    });
+    let { sinal, motivo, acao } = classificado;
+    if (sinal === "nova_sem_2" && stats.lastDate) {
+      motivo = `Veio 1 vez (em ${stats.lastDate}) e não tem 2º atendimento.`;
     }
 
     if (!sinal) continue;
@@ -151,7 +160,7 @@ export async function getRadarRetorno(opts = {}) {
     });
   }
 
-  const ordem = { pacote: 0, nova_sem_2: 1, atrasada: 2, sem_proxima: 3, inativa: 4 };
+  const ordem = { pacote: 0, plano_fim: 1, nova_sem_2: 2, atrasada: 3, sem_proxima: 4, inativa: 5 };
   out.sort((a, b) => (ordem[a.sinal] ?? 9) - (ordem[b.sinal] ?? 9) || b.idleDays - a.idleDays);
   return out;
 }

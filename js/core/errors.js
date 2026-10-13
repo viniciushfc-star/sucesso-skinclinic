@@ -46,8 +46,17 @@ export function userFacingError(err, fallback = "Não foi possível concluir. Te
   if (code === "42501" || s.includes("row-level security") || s.includes("rls")) {
     return "O banco recusou a operação (permissão). Confirme que está logado e que o SQL de isolamento foi aplicado."
   }
+  if (code === "PGRST116" || s.includes("cannot coerce the result to a single json object")) {
+    return "Nada foi salvo. Confira se você tem permissão de editar nesta clínica."
+  }
   if (code === "23505" || s.includes("duplicate")) {
     return "Já existe um registro com esses dados."
+  }
+  if (code === "23514" || s.includes("check constraint")) {
+    if (s.includes("role")) {
+      return "O banco ainda não aceita a função Profissional ou Recepção. Rode o SQL supabase-fase0-equipe-fotos-convite-colar.sql."
+    }
+    return "O banco recusou um valor deste formulário."
   }
   if (s.includes("does not provide an export") || s.includes("failed to resolve module")) {
     return "A página quebrou ao carregar (módulo ausente). Recarregue com Ctrl+F5; se persistir, o deploy está incompleto."

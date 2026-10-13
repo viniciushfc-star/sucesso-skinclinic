@@ -10,7 +10,7 @@ from "../ui/toast.js"
 import { gerarPdf }
 from "../utils/pdf.js"
 
-import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo, getFaturamentoPorUsuario, getReceitaPorProcedimento } from "../services/financeiro.service.js"
+import { getFinanceiro, deleteFinanceiro, getPrevistoReceitaFromAgenda, getDrePeriodo, getFaturamentoPorUsuario, getReceitaPorProcedimento, createLancamento } from "../services/financeiro.service.js"
 import { getPainelRateio } from "../services/rateio.service.js"
 import { listComissoesPeriodo } from "../services/comissoes.service.js"
 import { getTodayLocal } from "../services/metrics.service.js"
@@ -28,6 +28,7 @@ import {
 } from "../utils/caixa-fechamento.js"
 
 import { audit, getMargemEmRisco } from "../services/audit.service.js"
+import { htmlCardMargemRisco } from "../utils/margem-risco.js"
 
 import { getRole } from "../services/permissions.service.js"
 import { checkPermission } from "../core/permissions.js"
@@ -348,9 +349,9 @@ async function renderComissoesPanel() {
     }
     const total = porProfissional.reduce((s, r) => s + r.comissao, 0)
     const totalAberto = porProfissional.reduce((s, r) => s + (r.aberto || 0), 0)
-    listEl.innerHTML = `<table class="precificacao-tabela" aria-label="Comissões por profissional"><thead><tr><th>Profissional</th><th>Baixas</th><th>Recebido</th><th>Em aberto</th><th>Comissão no recebido</th><th>Comissão no cobrado</th></tr></thead><tbody>${
-      porProfissional.map((r) => `<tr><td>${escapeHtml(nameById[r.userId] || r.userId)}</td><td>${r.atendimentos}</td><td>${brl(r.receita)}</td><td>${brl(r.aberto || 0)}</td><td>${brl(r.comissao)}</td><td>${brl(r.comissaoPrevista != null ? r.comissaoPrevista : r.comissao)}</td></tr>`).join("")
-    }</tbody></table><p class="view-hint">Total no recebido: <strong>${brl(total)}</strong>${totalAberto > 0.009 ? ` · em aberto ${brl(totalAberto)}` : ""}. Lance a saída no Financeiro se for pagar. O sistema não paga sozinho.</p>`
+    listEl.innerHTML = `<table class="precificacao-tabela" aria-label="Comissões por profissional"><thead><tr><th>Profissional</th><th>Aplicou</th><th>Recebido aplicando</th><th>Comissão aplicar</th><th>Vendeu</th><th>Receita que fechou</th></tr></thead><tbody>${
+      porProfissional.map((r) => `<tr><td>${escapeHtml(nameById[r.userId] || r.userId)}</td><td>${r.atendimentos}</td><td>${brl(r.receita)}</td><td>${brl(r.comissao)}</td><td>${r.fechou || 0}</td><td>${brl(r.receitaFechada || 0)}</td></tr>`).join("")
+    }</tbody></table><p class="view-hint">Aplicar = profissional do horário. Vendeu = quem fechou (campo Quem vendeu). Sem esse campo, os dois coincidem. Comissão no recebido (quem aplica): <strong>${brl(total)}</strong>${totalAberto > 0.009 ? ` · em aberto ${brl(totalAberto)}` : ""}. O sistema não paga sozinho.</p>`
   } catch (err) {
     console.warn("[COMISSOES]", err)
     listEl.innerHTML = `<p class="view-hint">${escapeHtml(err?.message || "Não foi possível apurar.")}</p>`
@@ -654,20 +655,7 @@ async function renderCardMargemRisco(containerId) {
       return;
     }
     el.classList.remove("hidden");
-    const uniqueProducts = [...new Set(list.map((x) => x.produto_nome))];
-    const procNames = [...new Set(list.flatMap((x) => (x.procedimentos || []).map((p) => p.procedure_name).filter(Boolean)))];
-    const procsLine = procNames.slice(0, 6).join(", ") + (procNames.length > 6 ? "…" : "");
-    el.innerHTML = `
-      <div class="card-margem-risco__inner">
-        <span class="card-margem-risco__icon" aria-hidden="true">⚠️</span>
-        <div class="card-margem-risco__text">
-          <strong>Margem em risco:</strong> ${uniqueProducts.length} produto(s) com aumento de custo recente (≥15%).
-          ${procsLine ? `Procedimentos que usam esses produtos: ${escapeHtml(procsLine)}. ` : ""}
-          Revise precificação ou fornecedor. O sistema não altera preço sozinho.
-        </div>
-        <a href="#auditoria" class="btn-secondary btn-sm card-margem-risco__link">Ver na Auditoria</a>
-      </div>
-    `;
+    el.innerHTML = htmlCardMargemRisco(list);
   } catch (_) {
     el.classList.add("hidden");
     el.innerHTML = "";
@@ -769,7 +757,6 @@ export async function renderFinanceiro(){
       `
     }
 
-    const hoje = getTodayLocal()
     const end30 = new Date(now)
     end30.setDate(end30.getDate() + 30)
     const end30Str = end30.toISOString().slice(0, 10)
@@ -1713,8 +1700,9 @@ async function submitEditConta(id) {
         org_id: getActiveOrg(),
       }
       if (categoriaSaida) payload.categoria_saida = categoriaSaida
-      const { error } = await supabase.from("financeiro").insert(payload)
-      if (error) {
+      try {
+        await createLancamento(payload)
+      } catch (error) {
         console.warn("[FINANCEIRO] Falha ao criar saída da conta paga:", error)
         toast("Conta marcada como paga, mas a saída no financeiro não foi registrada.")
       }

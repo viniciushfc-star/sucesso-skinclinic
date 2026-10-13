@@ -4,6 +4,7 @@ import { toast } from "../ui/toast.js";
 import { checkPermission } from "../core/permissions.js";
 import { redirect } from "../core/base-path.js";
 import { apiFetch } from "../core/api-fetch.js";
+import { resumoMetadataAuditoria } from "../utils/audit-resumo.js";
 
 const PAGE_SIZE = 30;
 const auditLogsState = { allRows: [], offset: 0, hasMore: false };
@@ -146,8 +147,7 @@ export async function renderLogs() {
     q = withOrg(q);
 
     if (filterType !== "all" && filterType !== "outros") {
-      const pattern = getActionPatternForType(filterType);
-      if (pattern) q = q.ilike("action", pattern);
+      q = applyActionTypeFilter(q, filterType);
     }
 
     if (filterPeriod === "7") {
@@ -175,6 +175,9 @@ export async function renderLogs() {
     if (filterAck === "pending") {
       rows = rows.filter((l) => !l.acknowledged_at);
     }
+    if (filterType === "outros") {
+      rows = rows.filter((l) => isAcaoOutros(l.action));
+    }
 
     const emptyMsg = rows.length === 0
       ? (filterAck === "pending" ? "Nenhum item pendente de ok." : filterPeriod !== "all" ? "Nenhum registro no período." : "Nenhum registro de auditoria ainda.")
@@ -187,6 +190,7 @@ export async function renderLogs() {
             ? "Cliente: " + escapeHtml(l.metadata?.client_name || l.record_id || "—") + " (completou cadastro)"
             : escapeHtml(l.user_email || "sistema");
           const severity = getSeverity(l);
+          const detalhe = resumoMetadataAuditoria(l.metadata);
           const isStarred = !!l.starred_at;
           const okLine = l.acknowledged_at
             ? `<div class="logs-item-ok">✓ Ok por ${escapeHtml(l.acknowledged_by_email || "gestor")} em ${new Date(l.acknowledged_at).toLocaleString("pt-BR")}</div>`
@@ -212,6 +216,7 @@ export async function renderLogs() {
       <span class="logs-item-meta"><strong>Tabela:</strong> ${escapeHtml(l.table_name || "—")}</span>
       <span class="logs-item-meta"><strong>Registro:</strong> ${escapeHtml(l.record_id || "—")}</span>
       <span class="logs-item-date">${new Date(l.created_at).toLocaleString("pt-BR")}</span>
+      ${detalhe ? `<span class="logs-item-detail">${escapeHtml(detalhe)}</span>` : ""}
       ${okLine}
     </div>
   </div>`;
@@ -381,6 +386,7 @@ function getSeverity(l) {
     action.includes("financeiro") ||
     perm.startsWith("financeiro:") ||
     action.includes("protocolo") ||
+    action.includes("plano.") ||
     action.includes("estoque") ||
     action.includes("agenda.")
   ) {
@@ -390,17 +396,26 @@ function getSeverity(l) {
   return "low";
 }
 
-/** Retorna padrão para .ilike("action", pattern) conforme o tipo selecionado (financeiro, cliente, etc.). */
-function getActionPatternForType(type) {
+function applyActionTypeFilter(q, type) {
+  if (type === "procedimento") {
+    return q.or("action.ilike.%procedimento%,action.ilike.%protocolo%");
+  }
   const map = {
     financeiro: "%financeiro%",
     cliente: "%cliente%",
-    procedimento: "%procedimento%",
+    plano: "%plano%",
     agenda: "%agenda%",
     equipe: "%team%",
     estoque: "%estoque%",
   };
-  return map[type] || null;
+  const pattern = map[type];
+  return pattern ? q.ilike("action", pattern) : q;
+}
+
+const TIPOS_CONHECIDOS = /financeiro|cliente|procedimento|protocolo|plano\.|agenda\.|team\.|estoque/;
+
+function isAcaoOutros(action) {
+  return !TIPOS_CONHECIDOS.test(String(action || "").toLowerCase());
 }
 
 function escapeHtml(s) {

@@ -31,7 +31,7 @@ describe("obs saude p95 login job", () => {
     const route = readFileSync(join(ROOT, "routes/obs-login-fail.js"), "utf8");
     const ops = readFileSync(join(ROOT, "routes/ops-summary.js"), "utf8");
     assert.match(view, /latencia/);
-    assert.match(html, /P95 deste isolate/);
+    assert.match(view, /neste isolate/);
     assert.match(auth, /obs-login-fail/);
     assert.doesNotMatch(auth, /obs-login-fail.*email/);
     assert.match(cron, /job_run/);

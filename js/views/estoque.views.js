@@ -13,10 +13,11 @@ import { getActiveOrg } from "../core/org.js"
 import { toast } from "../ui/toast.js"
 import { openModal, closeModal } from "../ui/modal.js"
 import { createAvaliacao } from "../services/produto-avaliacoes.service.js"
-import { listProdutosCatalogo, upsertProdutoCatalogo, uploadProdutoImagem } from "../services/estoque-produtos.service.js"
+import { listProdutosCatalogo, upsertProdutoCatalogo, uploadProdutoImagem, resolveProdutoImagemUrl } from "../services/estoque-produtos.service.js"
 import { alertaValidade, montarRevenda } from "../utils/estoque-revenda.js"
 import { alertaMinimo, capitalEstoque } from "../utils/estoque-lotes.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
+import { fileFromClipboardEvent } from "../utils/cliente-cadastro.js"
 
 let canalVenda = { vende_para_cliente: true, vende_para_profissional: false }
 
@@ -99,7 +100,15 @@ async function renderCatalogo() {
   const hintEl = document.getElementById("estoquePortfolioSqlHint")
   if (!listEl) return
   try {
-    const items = await listProdutosCatalogo()
+    const [items, resumo] = await Promise.all([
+      listProdutosCatalogo(),
+      getResumoPorProduto().catch(() => []),
+    ])
+    const saldoPorNome = {}
+    for (const r of resumo) {
+      const n = String(r.produto_nome || "").trim().toLowerCase()
+      if (n) saldoPorNome[n] = r.saldo_estimado
+    }
     if (hintEl) hintEl.classList.add("hidden")
     if (!items.length) {
       listEl.innerHTML = ""
@@ -107,7 +116,7 @@ async function renderCatalogo() {
       return
     }
     if (emptyEl) emptyEl.classList.add("hidden")
-    listEl.innerHTML = items.map((p) => {
+    const cards = await Promise.all(items.map(async (p) => {
       const alerta = alertaValidade(p.validade_referencia)
       const badge = alerta ? `<span class="estoque-validade-badge estoque-validade-badge--${alerta.nivel}">${escapeHtml(alerta.label)}</span>` : ""
       const validade = p.validade_referencia
@@ -119,10 +128,13 @@ async function renderCatalogo() {
       const precoCli = canalVenda.vende_para_cliente !== false
         ? `<span>Cliente: ${fmtBrl(p.preco_cliente)}</span>`
         : ""
+      const img = await resolveProdutoImagemUrl(p.imagem_url)
+      const saldo = saldoPorNome[String(p.nome || "").trim().toLowerCase()]
+      const saldoTxt = saldo != null ? `<p class="estoque-catalogo-meta">Em estoque (estimado): ${Number(saldo).toFixed(2)}</p>` : ""
       return `
         <div class="estoque-catalogo-card">
           <div class="estoque-catalogo-main">
-            ${produtoThumb(p.imagem_url, p.nome)}
+            ${produtoThumb(img, p.nome)}
             <div class="estoque-catalogo-body">
               <div class="estoque-catalogo-head">
                 <strong>${escapeHtml(p.nome)}</strong>
@@ -135,16 +147,18 @@ async function renderCatalogo() {
                 <span>Frete típico: ${fmtBrl(p.frete_padrao)}</span>
               </div>
               <p class="estoque-catalogo-meta">Validade ref.: ${validade}</p>
+              ${saldoTxt}
             </div>
           </div>
           <button type="button" class="btn-secondary estoque-btn-editar-produto" data-id="${escapeAttr(p.id)}">Editar</button>
         </div>
       `
-    }).join("")
+    }))
+    listEl.innerHTML = cards.join("")
     listEl.querySelectorAll(".estoque-btn-editar-produto").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id")
-        const row = items.find((x) => x.id === id)
+        const row = items.find((x) => String(x.id) === String(id))
         if (row) openCadastroProduto(row)
       })
     })
@@ -811,10 +825,11 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
   )
 }
 
-function openCadastroProduto(existente = null) {
+async function openCadastroProduto(existente = null) {
   const p = existente || {}
-  const thumb = p.imagem_url
-    ? `<img src="${escapeAttr(p.imagem_url)}" alt="" class="estoque-produto-thumb estoque-produto-thumb--lg">`
+  const imgSrc = await resolveProdutoImagemUrl(p.imagem_url)
+  const thumb = imgSrc
+    ? `<img src="${escapeAttr(imgSrc)}" alt="" class="estoque-produto-thumb estoque-produto-thumb--lg">`
     : `<span class="estoque-produto-thumb estoque-produto-thumb--empty estoque-produto-thumb--lg" aria-hidden="true"></span>`
   const campoPro = canalVenda.vende_para_profissional
     ? `<label>Valor para a profissional</label>
@@ -825,12 +840,20 @@ function openCadastroProduto(existente = null) {
     <input type="number" id="estoqueCatCli" step="0.01" min="0" value="${p.preco_cliente ?? ""}" placeholder="R$">`
     : `<input type="hidden" id="estoqueCatCli" value="${p.preco_cliente ?? ""}">`
   const fields = `
-    <p class="estoque-ocr-hint">Só o nome é obrigatório. Quantidade entra depois, quando o produto chegar no estoque.</p>
-    <div class="estoque-cat-foto">
+    <p class="estoque-ocr-hint">Só o nome é obrigatório. Foto opcional. Quantidade abaixo registra uma entrada agora (o saldo não se edita “no ar”).</p>
+    <div class="estoque-cat-foto" id="estoqueCatFotoWrap" tabindex="0">
       ${thumb}
       <div>
         <label for="estoqueCatFoto">Foto do produto (opcional)</label>
-        <input type="file" id="estoqueCatFoto" accept="image/jpeg,image/png,image/webp,image/gif">
+        <input type="file" id="estoqueCatFoto" accept="image/jpeg,image/png,image/webp,image/gif" class="clientes-foto-input">
+        <input type="file" id="estoqueCatFotoCamUser" accept="image/*" capture="user" class="clientes-foto-input" aria-label="Câmera frontal do produto">
+        <input type="file" id="estoqueCatFotoCamEnv" accept="image/*" capture="environment" class="clientes-foto-input" aria-label="Câmera traseira do produto">
+        <div class="clientes-foto-buttons">
+          <button type="button" class="btn-secondary btn-sm" id="estoqueCatFotoBtn">Escolher arquivo</button>
+          <button type="button" class="btn-secondary btn-sm clientes-foto-btn-camera" id="estoqueCatFotoCamUserBtn">Câmera frontal</button>
+          <button type="button" class="btn-secondary btn-sm clientes-foto-btn-camera" id="estoqueCatFotoCamEnvBtn">Câmera traseira</button>
+        </div>
+        <p class="form-hint">Frontal ou traseira. Cole a foto da embalagem com Ctrl+V.</p>
       </div>
     </div>
     <label>Nome do produto</label>
@@ -847,7 +870,29 @@ function openCadastroProduto(existente = null) {
     <input type="text" id="estoqueCatUnidade" value="${escapeHtml(p.unidade || "")}" placeholder="un, ml, cx">
     <label>Quantidade mínima (alerta, opcional)</label>
     <input type="number" id="estoqueCatMinimo" step="0.01" min="0" value="${p.quantidade_minima ?? ""}" placeholder="Não trava atendimento">
+    <label>Dar entrada agora (quantidade, opcional)</label>
+    <input type="number" id="estoqueCatQtyNow" step="0.01" min="0" placeholder="Ex.: 10">
   `
+  let pastedProdutoFoto = null
+  const onProdutoPaste = (e) => {
+    const file = fileFromClipboardEvent(e)
+    if (!file) return
+    e.preventDefault()
+    pastedProdutoFoto = file
+    const wrap = document.getElementById("estoqueCatFotoWrap")
+    const img = wrap?.querySelector("img.estoque-produto-thumb") || wrap?.querySelector("img")
+    const previewUrl = URL.createObjectURL(file)
+    if (img) img.src = previewUrl
+    else if (wrap) {
+      const empty = wrap.querySelector(".estoque-produto-thumb--empty")
+      const next = document.createElement("img")
+      next.src = previewUrl
+      next.alt = ""
+      next.className = "estoque-produto-thumb estoque-produto-thumb--lg"
+      empty?.replaceWith(next)
+    }
+    toast("Foto colada no produto.")
+  }
   openModal(
     existente ? "Editar produto do portfólio" : "Cadastrar produto no portfólio",
     fields,
@@ -870,13 +915,24 @@ function openCadastroProduto(existente = null) {
           quantidade_minima: document.getElementById("estoqueCatMinimo")?.value,
         })
         const foto = document.getElementById("estoqueCatFoto")?.files?.[0]
+          || document.getElementById("estoqueCatFotoCamUser")?.files?.[0]
+          || document.getElementById("estoqueCatFotoCamEnv")?.files?.[0]
+          || pastedProdutoFoto
         if (foto && saved?.id) {
           try {
             const url = await uploadProdutoImagem(foto, saved.id)
             if (url) await upsertProdutoCatalogo({ id: saved.id, nome, imagem_url: url })
           } catch (imgErr) {
-            toast("Produto salvo, mas a foto não subiu. Confira o bucket org-logos.")
+            toast("Produto salvo, mas a foto não subiu. Confira o bucket client-photos e o SQL da coluna imagem_url.")
           }
+        }
+        const qtyNow = Number(document.getElementById("estoqueCatQtyNow")?.value)
+        if (Number.isFinite(qtyNow) && qtyNow > 0) {
+          await createEntrada({
+            produto_nome: nome,
+            quantidade: qtyNow,
+            valor_unitario: document.getElementById("estoqueCatCusto")?.value,
+          })
         }
         closeModal()
         toast(existente ? "Produto atualizado." : "Produto cadastrado no portfólio. Use Entrada quando chegar estoque.")
@@ -886,11 +942,32 @@ function openCadastroProduto(existente = null) {
         await renderLotes()
         await renderProximosVencer()
       } catch (e) {
-        toast(e.message || "Erro ao salvar produto.")
+        toast(e?.message || "Erro ao salvar produto.")
       }
     },
-    null
+    () => document.removeEventListener("paste", onProdutoPaste)
   )
+  document.addEventListener("paste", onProdutoPaste)
+  document.getElementById("estoqueCatFotoBtn")?.addEventListener("click", () => {
+    document.getElementById("estoqueCatFoto")?.click()
+  })
+  document.getElementById("estoqueCatFotoCamUserBtn")?.addEventListener("click", () => {
+    document.getElementById("estoqueCatFotoCamUser")?.click()
+  })
+  document.getElementById("estoqueCatFotoCamEnvBtn")?.addEventListener("click", () => {
+    document.getElementById("estoqueCatFotoCamEnv")?.click()
+  })
+  const showLocalThumb = (file) => {
+    if (!file) return
+    pastedProdutoFoto = file
+    const wrap = document.getElementById("estoqueCatFotoWrap")
+    const img = wrap?.querySelector("img")
+    const url = URL.createObjectURL(file)
+    if (img) img.src = url
+  }
+  document.getElementById("estoqueCatFoto")?.addEventListener("change", (e) => showLocalThumb(e.target.files?.[0]))
+  document.getElementById("estoqueCatFotoCamUser")?.addEventListener("change", (e) => showLocalThumb(e.target.files?.[0]))
+  document.getElementById("estoqueCatFotoCamEnv")?.addEventListener("change", (e) => showLocalThumb(e.target.files?.[0]))
 }
 
 function openEntradaManual() {

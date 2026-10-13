@@ -2,14 +2,14 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#16213e">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0f5c62">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
   <title>SkinClinic</title>
-  <link rel="stylesheet" href="./js/css/style.css?v=polish-4">
+  <link rel="stylesheet" href="./js/css/style.css?v=login-mobile-1">
 </head>
-<body>
+<body class="login-page">
 
 <div id="view-select-org" class="view hidden">
   <h2>Escolha a clínica</h2>
@@ -29,25 +29,31 @@
 
 <form id="loginForm">
 
+  <div class="field">
   <label class="field-label" for="email">Email</label>
   <input 
     type="email" 
     id="email" 
-    placeholder="Digite seu email" 
+    placeholder="seu@email.com" 
     required
     autocomplete="username"
+    enterkeyhint="next"
   >
+  </div>
 
+  <div class="field">
   <label class="field-label" for="password">Senha</label>
   <div class="input-password-wrap">
     <input 
       type="password" 
       id="password" 
-      placeholder="Digite sua senha" 
+      placeholder="Sua senha" 
       required
       autocomplete="current-password"
+      enterkeyhint="done"
     >
     <button type="button" class="input-password-toggle" id="togglePasswordLogin" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+  </div>
   </div>
 
   <button type="submit">
@@ -82,48 +88,73 @@
 
   <form id="registerForm">
 
-  <input 
-    type="text" 
-    id="name"
-    placeholder="Nome completo"
-    required
-  >
-
-  <input 
-    type="email" 
-    id="registerEmail"
-    placeholder="Email"
-    required
-  >
-
-  <input 
-    type="text" 
-    id="cpf"
-    placeholder="CPF"
-    required
-  >
-
-  <div class="input-password-wrap">
+  <div class="field">
+    <label class="field-label" for="name">Nome completo</label>
     <input 
-      type="password" 
-      id="registerPassword"
-      placeholder="Senha (mín. 6 caracteres)"
+      type="text" 
+      id="name"
+      placeholder="Como você se chama"
       required
-      minlength="6"
-      autocomplete="new-password"
+      autocomplete="name"
+      enterkeyhint="next"
     >
-    <button type="button" class="input-password-toggle" id="togglePasswordRegister" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
   </div>
 
-  <div class="input-password-wrap">
+  <div class="field">
+    <label class="field-label" for="registerEmail">Email</label>
     <input 
-      type="password" 
-      id="confirmPassword"
-      placeholder="Confirmar senha"
+      type="email" 
+      id="registerEmail"
+      placeholder="seu@email.com"
       required
-      autocomplete="new-password"
+      autocomplete="email"
+      enterkeyhint="next"
     >
-    <button type="button" class="input-password-toggle" id="togglePasswordConfirm" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+  </div>
+
+  <div class="field">
+    <label class="field-label" for="cpf">CPF</label>
+    <input 
+      type="text" 
+      id="cpf"
+      placeholder="000.000.000-00"
+      required
+      inputmode="numeric"
+      maxlength="14"
+      autocomplete="off"
+      enterkeyhint="next"
+    >
+  </div>
+
+  <div class="field">
+    <label class="field-label" for="registerPassword">Senha</label>
+    <div class="input-password-wrap">
+      <input 
+        type="password" 
+        id="registerPassword"
+        placeholder="Mínimo 6 caracteres"
+        required
+        minlength="6"
+        autocomplete="new-password"
+        enterkeyhint="next"
+      >
+      <button type="button" class="input-password-toggle" id="togglePasswordRegister" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="field-label" for="confirmPassword">Confirmar senha</label>
+    <div class="input-password-wrap">
+      <input 
+        type="password" 
+        id="confirmPassword"
+        placeholder="Repita a senha"
+        required
+        autocomplete="new-password"
+        enterkeyhint="done"
+      >
+      <button type="button" class="input-password-toggle" id="togglePasswordConfirm" aria-label="Mostrar senha" title="Mostrar senha">👁</button>
+    </div>
   </div>
 
   <button type="submit">
@@ -191,8 +222,8 @@
 
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/views/login.views.js"></script>
-<script type="module" src="./js/core/spa.js"></script>
+<script type="module" src="./js/views/login.views.js?v=login-mobile-1"></script>
+<script type="module" src="./js/core/spa.js?v=login-mobile-1"></script>
 
 </body>
 </html>

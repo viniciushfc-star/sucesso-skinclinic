@@ -5,6 +5,13 @@
 
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
+import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
+
+function missingSkincareTable(error) {
+  const msg = String(error?.message || "");
+  const code = String(error?.code || "");
+  return code === "42P01" || code === "PGRST205" || /skincare_rotinas|does not exist|schema cache/i.test(msg);
+}
 
 function getOrgId() {
   const orgId = getActiveOrg();
@@ -25,7 +32,10 @@ export async function getSkincareRotinaByClient(clientId) {
     .eq("org_id", orgId)
     .eq("client_id", clientId)
     .maybeSingle();
-  if (error) throw error;
+  if (error) {
+    if (missingSkincareTable(error)) return null;
+    throw error;
+  }
   return data;
 }
 
@@ -52,22 +62,32 @@ export async function upsertSkincareRotina(clientId, payload) {
       updated_at: now,
       ...(liberar ? { liberado_em: now } : {}),
     };
-    const { error } = await supabase
-      .from("skincare_rotinas")
-      .update(update)
-      .eq("id", existing.id);
+    const { error } = await retryUnknownColumns(
+      update,
+      (row) => supabase.from("skincare_rotinas").update(row).eq("id", existing.id),
+      { immutable: ["conteudo"] }
+    );
     if (error) throw error;
     return;
   }
 
-  const { error } = await supabase.from("skincare_rotinas").insert({
-    org_id: orgId,
-    client_id: clientId,
-    conteudo: conteudo.trim() || "",
-    liberado_em: liberar ? now : null,
-    updated_at: now,
-  });
-  if (error) throw error;
+  const { error } = await retryUnknownColumns(
+    {
+      org_id: orgId,
+      client_id: clientId,
+      conteudo: conteudo.trim() || "",
+      liberado_em: liberar ? now : null,
+      updated_at: now,
+    },
+    (row) => supabase.from("skincare_rotinas").insert(row),
+    { immutable: ["org_id", "client_id", "conteudo"] }
+  );
+  if (error) {
+    if (missingSkincareTable(error)) {
+      throw new Error("Rode o SQL supabase-fase0-crm-salas-plano-colar.sql para gravar a rotina de skincare.");
+    }
+    throw error;
+  }
 }
 
 /**

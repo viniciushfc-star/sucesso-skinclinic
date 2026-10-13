@@ -36,6 +36,52 @@ export function deveGerarPacotesNoAceite(status) {
   return true;
 }
 
+/**
+ * Sessões do pacote aceito para a agenda. Sem preço. Sem WhatsApp.
+ */
+export function sessoesDoPacoteParaAgenda(pacote, procedure = {}) {
+  const n = Math.max(1, Number(pacote?.total_sessoes) || 1);
+  const nome = String(procedure?.name || procedure?.nome || pacote?.nome_pacote || "").trim() || "Sessão";
+  const duration = Number(procedure?.duration_minutes) || 60;
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    out.push({
+      procedure_id: pacote?.procedure_id || procedure?.id || null,
+      procedimento: nome,
+      duration_minutes: duration,
+      pacote_id: pacote?.id || null,
+      sessao: i + 1,
+      sessoes: n,
+    });
+  }
+  return out;
+}
+
+export function slotsAgendaDoAceite({
+  packages = [],
+  procedures = [],
+  startDate,
+  startTime,
+  intervalDays = 7,
+  onlyFirst = true,
+} = {}) {
+  const byId = {};
+  for (const p of procedures || []) byId[p.id] = p;
+  const sessoes = [];
+  for (const pk of packages || []) {
+    sessoes.push(...sessoesDoPacoteParaAgenda(pk, byId[pk.procedure_id] || {}));
+  }
+  const use = onlyFirst ? sessoes.slice(0, 1) : sessoes;
+  const hora = String(startTime || "09:00").slice(0, 5);
+  return use
+    .map((s, i) => ({
+      ...s,
+      data: addDaysIso(startDate, i * (Number(intervalDays) || 7)),
+      hora,
+    }))
+    .filter((s) => s.data && s.hora);
+}
+
 export function sugerirPacoteNaAgenda(procedureId, pacotes = []) {
   const list = Array.isArray(pacotes) ? pacotes : [];
   if (!list.length) return null;
