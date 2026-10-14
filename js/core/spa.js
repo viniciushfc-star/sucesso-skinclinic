@@ -38,7 +38,7 @@ const VIEW_TITLES = {
   pagamento: "Pagamento pelo app",
   "documentos-termos": "Documentos e termos",
   "modelos-mensagem": "Modelos de mensagem",
-  "para-clinicas": "Para clínicas",
+  "para-clinicas": "Central de ajuda",
 };
 
 /* =========================
@@ -597,7 +597,7 @@ async function initMenuAnamneseVisibility() {
 let navGen = 0;
 
 async function importViewFile(file) {
-  const href = `../views/${file}?v=import-ritmo-1`;
+  const href = `../views/${file}?v=clinica-ux-1`;
   try {
     return await import(href);
   } catch (err) {
@@ -915,7 +915,7 @@ function setActive(view) {
     }
   }
 
-  const gestaoViews = ["procedimento", "estoque", "team", "export", "financeiro", "market-radar", "precificacao-taxas"];
+  const gestaoViews = ["procedimento", "estoque", "team", "export", "financeiro", "market-radar", "precificacao-taxas", "auditoria"];
   const intelViews = ["copiloto", "marketing", "calendario-conteudo"];
   const gestaoSub = document.getElementById("gestaoSubmenu");
   const btnGestao = document.getElementById("btnGestao");

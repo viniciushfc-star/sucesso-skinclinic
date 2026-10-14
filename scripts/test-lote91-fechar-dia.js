@@ -79,6 +79,6 @@ describe("Lote 91 fechar o dia", () => {
     assert.match(cock, /montarFecharDia/);
     assert.match(cock, /pendentesLembrete/);
     const spa = readFileSync(join(ROOT, "js/core/spa.js"), "utf8");
-    assert.match(spa, /import-ritmo-1/);
+    assert.match(spa, /clinica-ux-1/);
   });
 });

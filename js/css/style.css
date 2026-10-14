@@ -200,13 +200,36 @@ a{
  FORM
 ===================== */
 
-input,button,select,textarea{
+input,select,textarea{
  width:100%;
  padding:12px 14px;
  margin:10px 0;
  border-radius:var(--sc-radius-sm);
  border:1px solid var(--sc-line);
  font-size:0.95rem;
+}
+button{
+ padding:12px 14px;
+ margin:10px 0;
+ border-radius:var(--sc-radius-sm);
+ border:1px solid var(--sc-line);
+ font-size:0.95rem;
+}
+/* Login / onboarding: botão ocupa o card. No app, o botão cabe no texto — senão toda tela vira coluna. */
+body:not(:has(.app-wrapper)):not(.portal-app) button{
+ width:100%;
+}
+body:has(.app-wrapper) button{
+ width:auto;
+ margin:0;
+}
+body:has(.app-wrapper) .sidebar-item{
+ width:calc(100% - 1.1rem);
+}
+body:has(.app-wrapper) .financeiro-main-tab,
+body:has(.app-wrapper) .cockpit-tab{
+ width:auto;
+ flex:1 1 auto;
 }
 
 input,select,textarea{
@@ -3690,6 +3713,62 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
 .team-indice-table th{ background:#f8fafc; color:#475569; font-weight:600; }
 .team-indice-empty{ margin:0; padding:0.75rem; color:#64748b; font-size:0.9rem; }
 .team-indice-empty code{ background:#f1f5f9; padding:2px 6px; border-radius:4px; }
+.gestao-abas{ margin-top:0.25rem; }
+.gestao-abas-nav{
+  display:flex;
+  flex-direction:row;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:0.35rem;
+  margin:0 0 1rem;
+}
+.gestao-abas-tab{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:auto;
+  flex:0 0 auto;
+  margin:0;
+  padding:0.4rem 0.9rem;
+  border:1px solid var(--sc-line, #e4dfd6);
+  background:#fff;
+  color:#334155;
+  border-radius:999px;
+  cursor:pointer;
+  font:inherit;
+  font-size:0.9rem;
+  font-weight:600;
+}
+.gestao-abas-tab:hover{ background:var(--sc-paper, #f8fafc); }
+.gestao-abas-tab.is-active{
+  background:var(--sc-teal, #0f766e);
+  color:#fff;
+  border-color:var(--sc-teal, #0f766e);
+}
+.estoque-header{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:0.75rem;
+}
+.estoque-toolbar{ display:flex; flex-wrap:wrap; gap:0.5rem; flex-shrink:0; }
+.estoque-toolbar .btn-primary,
+.estoque-toolbar .btn-secondary,
+.view-team-header .btn-primary{
+  width:auto;
+  margin:0;
+}
+.view-sql-details{
+  margin:0 0 1rem;
+  padding:0.65rem 0.9rem;
+  border:1px solid var(--sc-line, #e4dfd6);
+  border-radius:10px;
+  background:#fff;
+  font-size:0.85rem;
+  color:#64748b;
+}
+.view-sql-details summary{ cursor:pointer; font-weight:600; color:#475569; }
 .team-desempenho-wrap{ margin-bottom:1.25rem; }
 .team-desempenho-wrap .view-hint{ margin-top:0.5rem; }
 .table-team-desempenho{ width:100%; border-collapse:collapse; font-size:0.9rem; }

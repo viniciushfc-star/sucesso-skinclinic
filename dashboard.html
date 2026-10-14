@@ -15,7 +15,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=import-ritmo-1">
+<link rel="stylesheet" href="./js/css/style.css?v=clinica-ux-1">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -75,10 +75,10 @@
                 <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="comissoes" title="Comissões"><span class="sidebar-icon">💸</span><span class="sidebar-label">Comissões</span></button></li>
                 <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="contador" title="Pasta e CSV para o contador"><span class="sidebar-icon">📁</span><span class="sidebar-label">Contador</span></button></li>
                 <li><button type="button" class="sidebar-item sidebar-subitem" data-view="financeiro" data-financeiro-tab="custo-fixo" title="Custo fixo"><span class="sidebar-icon">📋</span><span class="sidebar-label">Custo fixo</span></button></li>
-                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="market-radar" title="Radar de mercado"><span class="sidebar-icon">📡</span><span class="sidebar-label">Radar de mercado</span></button></li>
-                <li><button type="button" class="sidebar-item sidebar-subitem" data-view="precificacao-taxas" title="Taxas da maquininha"><span class="sidebar-icon">%</span><span class="sidebar-label">Taxas</span></button></li>
               </ul>
             </li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="market-radar" title="Radar de mercado"><span class="sidebar-icon">📡</span><span class="sidebar-label">Radar de mercado</span></button></li>
+            <li><button type="button" class="sidebar-item sidebar-subitem" data-view="precificacao-taxas" title="Taxas da maquininha"><span class="sidebar-icon">%</span><span class="sidebar-label">Taxas</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="auditoria" title="Quem fez o quê: ações da equipe"><span class="sidebar-icon">📜</span><span class="sidebar-label">Auditoria</span></button></li>
             <li><button type="button" class="sidebar-item sidebar-subitem" data-view="export" title="Exportar e importar dados" aria-label="Exportar e importar dados"><span class="sidebar-icon">📤</span><span class="sidebar-label">Exportar e importar</span></button></li>
           </ul>
@@ -394,7 +394,11 @@
         </div>
         <div class="empresa-card" id="empresaLinkAgendaCard">
           <h3 class="empresa-card-title">Link para o cliente agendar sozinho</h3>
-          <p class="view-hint">Mande no Instagram, WhatsApp Status ou bio. A pessoa escolhe horário sem precisar de cadastro prévio. Rode o SQL <code>supabase-agenda-publica.sql</code> no Supabase uma vez.</p>
+          <p class="view-hint">Mande no Instagram, WhatsApp Status ou bio. A pessoa escolhe horário sem cadastro prévio.</p>
+          <details class="view-sql-details">
+            <summary>O link não abre a agenda pública?</summary>
+            <p class="view-hint">Cole no Supabase, se o toast pedir: <code>supabase-agenda-publica.sql</code>.</p>
+          </details>
           <input type="text" id="empresaLinkAgenda" readonly>
           <button type="button" class="btn-primary" id="empresaBtnCopiarAgenda">Copiar link</button>
           <button type="button" class="btn-secondary" id="empresaBtnWhatsAgenda">Mandar no WhatsApp</button>
@@ -514,40 +518,56 @@
 
       <section id="view-team" class="view hidden">
         <div class="view-team-header">
-          <h2>Equipe</h2>
+          <div>
+            <h2>Equipe</h2>
+            <p class="view-lead view-team-google-hint">Cadastre pelo e-mail. Profissional só entra na agenda depois de aceitar. Google mostra ocupado/livre, sem o título dos compromissos pessoais.</p>
+          </div>
           <p id="teamLinkGerenciarWrap" class="view-team-gerenciar-wrap hidden"><a href="#" id="teamLinkGerenciar" class="btn-link">Gerenciar equipe (convidar, remover, procedimentos)</a> em Configurações.</p>
-          <button type="button" id="btnInvite" class="btn-primary">+ Convidar usuário</button>
+          <button type="button" id="btnInvite" class="btn-primary">Cadastrar profissional</button>
         </div>
-        <p class="view-lead view-team-google-hint">Convide pela Equipe (incluindo Administrador, se você for admin). Se a agenda mostrar só você, rode no Supabase o SQL <code>supabase-equipe-agenda-membros-colar.sql</code>. Google: a clínica vê ocupado/livre, sem o título dos compromissos pessoais.</p>
         <details class="team-google-config-details">
-          <summary class="team-google-config-summary">Não consegue vincular? Verifique a configuração</summary>
+          <summary class="team-google-config-summary">Agenda lista só você, ou o Google não vincula?</summary>
+          <p class="view-hint">Se a pessoa já aceitou e não aparece na agenda, cole no Supabase o arquivo <code>supabase-equipe-agenda-membros-colar.sql</code>.</p>
           <ul class="team-google-config-list">
             <li><strong>Servidor:</strong> no <code>.env</code> defina <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> e <code>BASE_URL</code> (ex.: <code>http://localhost:3000</code>).</li>
             <li><strong>Google Cloud:</strong> Credenciais → OAuth 2.0 → URIs de redirecionamento → adicione <code>[BASE_URL]/api/google-calendar/callback</code> (ex.: <code>http://localhost:3000/api/google-calendar/callback</code>).</li>
             <li><strong>Supabase:</strong> rode o script <code>supabase-google-calendar-connections.sql</code> para criar a tabela.</li>
           </ul>
         </details>
-        <div id="teamDesempenhoWrap" class="view-card team-desempenho-wrap">
-          <h3 class="view-card-title">Desempenho por profissional</h3>
-          <p class="view-hint">Faturamento (entradas com baixa na agenda) e tarefas concluídas no período.</p>
-          <div id="listaTeamDesempenho" class="lista-team-desempenho"></div>
-        </div>
-        <div id="listaTeam"></div>
-        <div id="teamPaymentWrap" class="view-card team-payment-wrap hidden">
-          <h3 class="view-card-title team-payment-title">Como cada membro da equipe é pago</h3>
-          <p class="view-hint team-payment-hint">Defina o modelo de pagamento de cada pessoa (salário fixo, comissão, diária ou combinado). Os valores servem só para sua análise; o sistema não processa pagamentos.</p>
-          <div id="listaTeamPayment" class="lista-team-payment"></div>
-        </div>
-        <div id="teamAfazeresWrap" class="view-card team-afazeres-wrap">
-          <h3 class="view-card-title team-afazeres-title">Afazeres</h3>
-          <p class="view-hint team-afazeres-hint">Tarefas com responsável e prazo; não ocupam a agenda de atendimento.</p>
-          <button type="button" id="btnNovoAfazer" class="btn-secondary">+ Novo afazer</button>
-          <div id="listaAfazeres" class="lista-afazeres"></div>
-        </div>
-        <div id="teamIndiceCuidadoWrap" class="view-card team-indice-cuidado-wrap">
-          <h3 class="view-card-title team-indice-cuidado-title">Índice de cuidado</h3>
-          <p class="view-hint team-indice-cuidado-hint">Avaliações de produtos pelos profissionais; referência para bonificação e engajamento.</p>
-          <div id="listaIndiceCuidado" class="lista-indice-cuidado"></div>
+        <div class="gestao-abas" id="teamAbas">
+          <div class="gestao-abas-nav" role="tablist" aria-label="Seções da equipe">
+            <button type="button" class="gestao-abas-tab is-active" role="tab" aria-selected="true" data-gestao-tab="pessoas">Pessoas</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="pagamento">Como paga</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="tarefas">Tarefas</button>
+          </div>
+          <div data-gestao-pane="pessoas">
+            <div id="listaTeam"></div>
+            <div id="teamDesempenhoWrap" class="view-card team-desempenho-wrap">
+              <h3 class="view-card-title">Desempenho por profissional</h3>
+              <p class="view-hint">Faturamento (entradas com baixa na agenda) e tarefas concluídas no período.</p>
+              <div id="listaTeamDesempenho" class="lista-team-desempenho"></div>
+            </div>
+            <div id="teamIndiceCuidadoWrap" class="view-card team-indice-cuidado-wrap">
+              <h3 class="view-card-title team-indice-cuidado-title">Índice de cuidado</h3>
+              <p class="view-hint team-indice-cuidado-hint">Avaliações de produtos pelos profissionais; referência para bonificação e engajamento.</p>
+              <div id="listaIndiceCuidado" class="lista-indice-cuidado"></div>
+            </div>
+          </div>
+          <div data-gestao-pane="pagamento" class="hidden">
+            <div id="teamPaymentWrap" class="view-card team-payment-wrap hidden">
+              <h3 class="view-card-title team-payment-title">Como cada membro da equipe é pago</h3>
+              <p class="view-hint team-payment-hint">Defina o modelo de pagamento de cada pessoa (salário fixo, comissão, diária ou combinado). Os valores servem só para sua análise; o sistema não processa pagamentos.</p>
+              <div id="listaTeamPayment" class="lista-team-payment"></div>
+            </div>
+          </div>
+          <div data-gestao-pane="tarefas" class="hidden">
+            <div id="teamAfazeresWrap" class="view-card team-afazeres-wrap">
+              <h3 class="view-card-title team-afazeres-title">Afazeres</h3>
+              <p class="view-hint team-afazeres-hint">Tarefas com responsável e prazo; não ocupam a agenda de atendimento.</p>
+              <button type="button" id="btnNovoAfazer" class="btn-secondary">+ Novo afazer</button>
+              <div id="listaAfazeres" class="lista-afazeres"></div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1256,8 +1276,8 @@
 
       <section id="view-copiloto" class="view hidden">
         <div class="view-header">
-          <h2>Copiloto do Negócio</h2>
-          <p class="view-lead">A Consultora responde com o número que está no sistema e a fonte. Se não houver fonte, fica “não informado” — a IA não inventa. Não muda preço e não manda WhatsApp.</p>
+          <h2>Copiloto</h2>
+          <p class="view-lead">Pergunte pelos números da casa. A resposta traz a fonte; se não houver, fica “não informado”. Não muda preço e não manda WhatsApp.</p>
         </div>
         <div class="view-card">
           <div class="view-field">
@@ -1272,8 +1292,8 @@
 
       <section id="view-marketing" class="view hidden">
         <div class="view-header">
-          <h2>Copilot de Marketing</h2>
-          <p class="view-lead">O radar do CRM vira campanha com objetivo, métrica e risco. Conteúdo com IA é opcional e não dispara sozinho. Sem Market Radar (sem fonte de concorrente).</p>
+          <h2>Marketing</h2>
+          <p class="view-lead">O radar vira campanha com objetivo, métrica e risco. Conteúdo com IA é opcional e não dispara sozinho. Sem fonte, não inventa concorrente.</p>
         </div>
         <div class="view-card">
           <h3 class="view-card-title">Campanhas sugeridas</h3>
@@ -1309,8 +1329,8 @@
       <section id="view-crm" class="view hidden">
         <div id="crmRoot">
           <div class="view-header">
-            <h2>CRM e fidelidade</h2>
-            <p class="view-lead">Radar vira fila de contato. WhatsApp é um clique por pessoa — o sistema não dispara sozinho. Origem do lead fica no prontuário, sem crm2. Silêncio humano para o WhatsApp.</p>
+            <h2>Relacionamento</h2>
+            <p class="view-lead">Fila de quem precisa de um toque. WhatsApp é um clique por pessoa — o sistema não dispara sozinho. Origem do lead fica no prontuário.</p>
           </div>
           <div class="view-card">
             <h3 class="view-card-title">Fila de contato</h3>
@@ -1371,7 +1391,11 @@
           </details>
           <div class="view-card">
             <h3 class="view-card-title">Lista de espera</h3>
-            <p class="view-hint">Quando a agenda lotar, a pessoa entra aqui. Ao abrir vaga a agenda sugere o encaixe; WhatsApp só no clique. Se a lista não gravar, cole supabase-fase0-waitlist-colar.sql no Supabase.</p>
+            <p class="view-hint">Quando a agenda lotar, a pessoa entra aqui. Ao abrir vaga a agenda sugere o encaixe; WhatsApp só no clique.</p>
+            <details class="view-sql-details">
+              <summary>A lista não gravou?</summary>
+              <p class="view-hint">Cole no Supabase, se o toast pedir: supabase-fase0-waitlist-colar.sql.</p>
+            </details>
             <form id="crmFormEspera" class="crm-form-espera">
               <label for="crmEsperaCliente">Cliente cadastrado</label>
               <select id="crmEsperaCliente"></select>
@@ -1426,78 +1450,103 @@
       </section>
 
       <section id="view-estoque" class="view hidden">
-        <div class="view-header">
-          <h2>Estoque</h2>
-          <p class="view-lead">Cadastre o produto uma vez no portfólio (com foto, se quiser). Foto de nota ou caderno: a leitura sugere, você <strong>Revisa</strong> e só então confirma a entrada. Nada grava sozinho.</p>
-        </div>
-        <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql. Foto do produto: supabase/supabase-produto-imagem-canal-colar.sql. Para mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
-        <div class="view-card">
-          <h3 class="view-card-title">Portfólio</h3>
-          <p class="view-hint">Fonte única: nome, foto, custo e preço. Editar abre o cadastro. Quantidade entra aqui ou em Entrada. Foto usa o mesmo armazenamento das fotos de paciente (SQL supabase-produto-imagem-canal-colar.sql se a coluna faltar).</p>
-          <div class="estoque-entrada-actions">
+        <div class="view-header estoque-header">
+          <div>
+            <h2>Estoque</h2>
+            <p class="view-lead">Cadastre o produto uma vez. Quando a caixa chegar, leia a nota ou dê entrada. A leitura sugere; você <strong>Revisa</strong> e confirma. Nada grava sozinho.</p>
+          </div>
+          <div class="estoque-toolbar">
             <button type="button" id="btnEstoqueCadastrarProduto" class="btn-primary">Cadastrar produto</button>
-          </div>
-          <div id="estoqueCatalogoList" class="estoque-catalogo-list"></div>
-          <p id="estoqueCatalogoEmpty" class="estoque-empty hidden">Nenhum produto no portfólio ainda.</p>
-        </div>
-        <div class="view-card" id="estoqueRevendaCard">
-          <h3 class="view-card-title">O que mais sai</h3>
-          <p class="view-hint">Ranking de saídas e lucro estimado. Preços ficam no portfólio, não se repetem aqui.</p>
-          <div id="estoqueRevendaGrafico" class="estoque-revenda-grafico"></div>
-          <div id="estoqueRevendaTabela" class="estoque-revenda-tabela"></div>
-        </div>
-        <div class="view-card">
-          <h3 class="view-card-title">Entrada de estoque</h3>
-          <p class="view-hint">Use estes botões só quando o produto chegou. Informe o frete da compra se quiser incluir no investimento.</p>
-          <div class="estoque-entrada-actions">
-            <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">📷 Ler nota ou caderno</button>
-            <button type="button" id="btnEstoqueColarTexto" class="btn-secondary">Colar texto da nota</button>
-            <button type="button" id="btnEstoqueImportarNota" class="btn-secondary">📄 Importar nota (XML)</button>
-            <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">Entrada no estoque</button>
+            <button type="button" id="btnEstoqueIrEntrada" class="btn-secondary">Chegou produto</button>
           </div>
         </div>
-        <div class="view-card estoque-acuracia-wrap" id="estoqueAcuraciaWrap">
-          <h3 class="view-card-title">Indicador de acurácia (previsto vs real)</h3>
-          <p class="view-hint estoque-acuracia-hint">Compare consumo previsto (protocolo) com o real que você registrar. Meta sugerida: 85%.</p>
-          <div class="estoque-acuracia-periodo">
-            <label for="estoqueAcuraciaPeriodo">Período</label>
-            <select id="estoqueAcuraciaPeriodo">
-              <option value="7">Últimos 7 dias</option>
-              <option value="30" selected>Últimos 30 dias</option>
-              <option value="90">Últimos 90 dias</option>
-            </select>
-            <button type="button" id="btnEstoqueRegistrarReal" class="btn-secondary">Registrar consumo real</button>
+        <details id="estoquePortfolioSqlHint" class="view-sql-details">
+          <summary>Cadastro ou foto falhou?</summary>
+          <p class="view-hint">Cole no Supabase, se o toast pedir: supabase/supabase-estoque-portfolio-colar.sql. Foto: supabase/supabase-produto-imagem-canal-colar.sql. Mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
+        </details>
+        <div class="gestao-abas" id="estoqueAbas">
+          <div class="gestao-abas-nav" role="tablist" aria-label="Seções do estoque">
+            <button type="button" class="gestao-abas-tab is-active" role="tab" aria-selected="true" data-gestao-tab="saldo">Saldo</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="portfolio">Portfólio</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="entrada">Chegou</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="lotes">Lotes</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="acerto">Acerto</button>
           </div>
-          <div id="estoqueAcuraciaCard" class="estoque-acuracia-card"></div>
-          <div id="estoqueAcuraciaTabela" class="estoque-acuracia-tabela"></div>
-        </div>
-        <div class="view-card estoque-resumo-wrap" id="estoqueResumoWrap">
-          <h3 class="view-card-title">Resumo por produto</h3>
-          <div id="estoqueResumo" class="estoque-resumo"></div>
-        </div>
-        <div class="view-card">
-          <h3 class="view-card-title">Lotes, perdas e conferência</h3>
-          <p class="view-hint">Saldo por lote é referência. Perda e inventário não travam atendimento. Se a contagem for maior que o sistema, registre uma entrada — o sistema não inventa estoque.</p>
-          <div id="estoqueCapitalHint" class="view-hint"></div>
-          <div id="estoqueLotesList" class="estoque-resumo"></div>
-          <div class="estoque-entrada-actions">
-            <button type="button" id="btnEstoquePerda" class="btn-secondary">Registrar perda</button>
-            <button type="button" id="btnEstoqueInventario" class="btn-secondary">Conferir inventário</button>
+          <div data-gestao-pane="saldo">
+            <div class="view-card estoque-resumo-wrap" id="estoqueResumoWrap">
+              <h3 class="view-card-title">Quanto tem</h3>
+              <div id="estoqueResumo" class="estoque-resumo"></div>
+            </div>
+            <div class="view-card estoque-proximos-vencer-wrap" id="estoqueProximosVencerWrap">
+              <h3 class="view-card-title">Próximo a vencer</h3>
+              <p class="view-hint estoque-proximos-vencer-hint">Vencidos ou com menos de 1 ano. Priorize uso ou campanha.</p>
+              <div id="estoqueProximosVencerList" class="estoque-proximos-vencer-list"></div>
+            </div>
+            <div class="view-card" id="estoqueRevendaCard">
+              <h3 class="view-card-title">O que mais sai</h3>
+              <p class="view-hint">Ranking de saídas e lucro estimado. Preço fica no portfólio.</p>
+              <div id="estoqueRevendaGrafico" class="estoque-revenda-grafico"></div>
+              <div id="estoqueRevendaTabela" class="estoque-revenda-tabela"></div>
+            </div>
           </div>
-        </div>
-        <div class="view-card estoque-proximos-vencer-wrap" id="estoqueProximosVencerWrap">
-          <h3 class="view-card-title">Próximo a vencer</h3>
-          <p class="view-hint estoque-proximos-vencer-hint">Produtos vencidos ou com menos de 1 ano para vencer. Use para priorizar uso ou campanha.</p>
-          <div id="estoqueProximosVencerList" class="estoque-proximos-vencer-list"></div>
-        </div>
-        <div class="view-card">
-          <h3 class="view-card-title">Últimas entradas</h3>
-          <div id="listaEstoqueEntradas" class="lista-estoque-entradas"></div>
-          <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Cadastre no portfólio e use Entrada no estoque quando a caixa chegar.</p>
-        </div>
-        <div class="view-card estoque-analise-wrap">
-          <button type="button" id="btnAnalisarEstoque" class="btn-secondary">Analisar estoque (sugestões IA)</button>
-          <pre id="resultadoEstoque" class="estoque-resultado hidden"></pre>
+          <div data-gestao-pane="portfolio" class="hidden">
+            <div class="view-card">
+              <h3 class="view-card-title">Portfólio</h3>
+              <p class="view-hint">Nome, foto, custo e preço. Quantidade só na entrada, quando a caixa chega.</p>
+              <div id="estoqueCatalogoList" class="estoque-catalogo-list"></div>
+              <p id="estoqueCatalogoEmpty" class="estoque-empty hidden">Nenhum produto no portfólio ainda. Use Cadastrar produto.</p>
+            </div>
+          </div>
+          <div data-gestao-pane="entrada" class="hidden">
+            <div class="view-card">
+              <h3 class="view-card-title">Produto chegou</h3>
+              <p class="view-hint">Nota, caderno ou XML: a leitura sugere, você revisa. Frete entra no investimento se você informar.</p>
+              <div class="estoque-entrada-actions">
+                <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">Ler nota ou caderno</button>
+                <button type="button" id="btnEstoqueColarTexto" class="btn-secondary">Colar texto da nota</button>
+                <button type="button" id="btnEstoqueImportarNota" class="btn-secondary">Importar XML</button>
+                <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">Entrada no estoque</button>
+              </div>
+            </div>
+            <div class="view-card">
+              <h3 class="view-card-title">Últimas entradas</h3>
+              <div id="listaEstoqueEntradas" class="lista-estoque-entradas"></div>
+              <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Cadastre no portfólio e registre quando a caixa chegar.</p>
+            </div>
+          </div>
+          <div data-gestao-pane="lotes" class="hidden">
+            <div class="view-card">
+              <h3 class="view-card-title">Lotes, perdas e conferência</h3>
+              <p class="view-hint">Saldo por lote é referência. Perda e inventário não travam atendimento. Se a contagem for maior, registre uma entrada — o sistema não inventa estoque.</p>
+              <div id="estoqueCapitalHint" class="view-hint"></div>
+              <div id="estoqueLotesList" class="estoque-resumo"></div>
+              <div class="estoque-entrada-actions">
+                <button type="button" id="btnEstoquePerda" class="btn-secondary">Registrar perda</button>
+                <button type="button" id="btnEstoqueInventario" class="btn-secondary">Conferir inventário</button>
+              </div>
+            </div>
+          </div>
+          <div data-gestao-pane="acerto" class="hidden">
+            <div class="view-card estoque-acuracia-wrap" id="estoqueAcuraciaWrap">
+              <h3 class="view-card-title">Previsto vs real</h3>
+              <p class="view-hint estoque-acuracia-hint">Compare o protocolo com o que você registrar. Meta sugerida: 85%.</p>
+              <div class="estoque-acuracia-periodo">
+                <label for="estoqueAcuraciaPeriodo">Período</label>
+                <select id="estoqueAcuraciaPeriodo">
+                  <option value="7">Últimos 7 dias</option>
+                  <option value="30" selected>Últimos 30 dias</option>
+                  <option value="90">Últimos 90 dias</option>
+                </select>
+                <button type="button" id="btnEstoqueRegistrarReal" class="btn-secondary">Registrar consumo real</button>
+              </div>
+              <div id="estoqueAcuraciaCard" class="estoque-acuracia-card"></div>
+              <div id="estoqueAcuraciaTabela" class="estoque-acuracia-tabela"></div>
+            </div>
+            <div class="view-card estoque-analise-wrap">
+              <button type="button" id="btnAnalisarEstoque" class="btn-secondary">Pedir sugestão (IA explica, não decide)</button>
+              <pre id="resultadoEstoque" class="estoque-resultado hidden"></pre>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1516,8 +1565,8 @@
 
       <section id="view-skincare" class="view hidden">
         <div class="view-header">
-          <h2>Skincare IA</h2>
-          <p class="view-lead">Carregue o contexto do cliente, escolha as <strong>marcas da casa</strong> (portfólio), ficha rápida ou fotos em cabine; a IA rascunha a rotina. Você confirma e libera. Sem ranking de mercado.</p>
+          <h2>Skincare</h2>
+          <p class="view-lead">Contexto do paciente e marcas da casa. A IA rascunha a rotina; você confirma e libera. Sem ranking de mercado.</p>
         </div>
         <div class="view-card">
         <div class="skincare-ia-actions">
@@ -1657,12 +1706,13 @@
 
       <section id="view-protocolo" class="view hidden">
         <div class="view-header">
-          <h2 class="protocolo-ia-title">Protocolo IA <span class="info-icon" title="Use os campos abaixo ou o resultado da Análise de Pele (view Pele) como entrada. Idade e fototipo melhoram a sugestão." aria-label="Informação">ℹ️</span></h2>
+          <h2 class="protocolo-ia-title">Protocolo</h2>
+          <p class="view-lead">Descreva o caso ou cole o resumo da análise de pele. A IA sugere o método; você confirma. Idade e fototipo melhoram a sugestão.</p>
         </div>
         <div class="view-card">
         <div class="protocolo-ia-form">
-          <label for="protocoloAnalise" class="protocolo-ia-label">Análise <span class="info-icon" title="Cole o resultado da view Análise de Pele (JSON) ou descreva o caso em texto livre." aria-label="Informação">ℹ️</span></label>
-          <textarea id="protocoloAnalise" class="protocolo-ia-textarea" rows="5" placeholder="Resultado da Análise de Pele (JSON) ou descrição do caso"></textarea>
+          <label for="protocoloAnalise" class="protocolo-ia-label">Caso ou análise de pele</label>
+          <textarea id="protocoloAnalise" class="protocolo-ia-textarea" rows="5" placeholder="Queixa, pele, o que já foi feito — ou o resumo da análise"></textarea>
           <div class="protocolo-ia-row">
             <div class="protocolo-ia-field">
               <label for="protocoloIdade">Idade</label>
@@ -1974,9 +2024,13 @@
             </div>
           </div>
         </div>
+      </section>
+
       <section id="view-pagamento" class="view hidden">
-        <h2>Pagamento pelo app</h2>
-        <p class="view-lead">Parceria com maquininhas: ofertas promocionais para quem usa o app. Mercado 1% por parcela; a taxa de uso no SkinClinic é menor. O preço da clínica não muda sozinho.</p>
+        <div class="view-header">
+          <h2>Pagamento pelo app</h2>
+          <p class="view-lead">Parceria com maquininhas: ofertas promocionais para quem usa o app. Mercado 1% por parcela; a taxa de uso no SkinClinic é menor. O preço da clínica não muda sozinho.</p>
+        </div>
         <div id="pagamentoContent"></div>
       </section>
     </main>
@@ -2023,20 +2077,6 @@
       <button type="button" class="btn-secondary" id="modalCancel">Cancelar</button>
     </form>
   </div>
-  <!-- Form de convite não usado aqui: convite é feito pelo modal em Equipe > Convidar usuário -->
-  <form id="inviteForm" class="hidden" aria-hidden="true">
-    <label for="inviteEmail" class="sr-only">E-mail do usuário</label>
-    <input id="inviteEmail" type="email" placeholder="Email do usuário" required aria-label="E-mail do usuário" />
-    <label for="inviteRole" class="sr-only">Função</label>
-    <select id="inviteRole" aria-label="Função do usuário">
-      <option value="recepcao">Recepção</option>
-      <option value="profissional">Profissional</option>
-      <option value="funcionario">Acesso limitado</option>
-      <option value="gestor">Gestor</option>
-    </select>
-    <button type="submit">Convidar</button>
-  </form>
-  <script type="module" src="./js/views/invite-user.views.js"></script>
 </div>
 
 <!-- MODAL DE CONFIRMAÇÃO (ex.: sair) -->
@@ -2052,7 +2092,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=import-ritmo-1"></script>
+<script type="module" src="./js/core/spa.js?v=clinica-ux-1"></script>
 
 </body>
 </html>

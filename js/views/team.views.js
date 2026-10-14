@@ -23,6 +23,7 @@ import {
   disconnectCalendar,
 } from "../services/google-calendar.service.js"
 import { navigate } from "../core/spa.js"
+import { bindGestaoAbas } from "../utils/gestao-abas.js"
 
 function openProfissionalPerfil(userId) {
   if (!userId) return
@@ -60,6 +61,7 @@ export async function init() {
   }
 
   bindUI()
+  bindGestaoAbas(document.getElementById("teamAbas"), "team_open_tab", "pessoas")
   toggleTeamManageUI()
   checkGoogleCalendarCallback()
   await renderTeam()
@@ -482,22 +484,24 @@ function removeUser(
 function openInvite(){
 
  openModal(
-  "Convidar usuário",
+  "Cadastrar profissional",
   `
-   <label for="inviteEmail">E-mail do convidado</label>
+   <label for="inviteEmail">E-mail da pessoa</label>
    <input id="inviteEmail" type="email" placeholder="email@exemplo.com">
-   <p class="form-hint">O convite será enviado para este e-mail; a pessoa usará esse mesmo e-mail para entrar na clínica.</p>
+   <p class="form-hint">O convite vai para este e-mail. É o mesmo que ela usa para entrar.</p>
    <label for="inviteRole">Função</label>
    <select id="inviteRole">
-    <option value="profissional">Profissional (aparece na agenda)</option>
+    <option value="profissional">Profissional (aparece na agenda depois de aceitar)</option>
     <option value="recepcao">Recepção</option>
     <option value="master">Administrador</option>
     <option value="staff">Acesso limitado</option>
     <option value="viewer">Visualização</option>
    </select>
-   <p class="form-hint">Administrador: mesmo acesso que você. A profissional só entra na agenda depois de aceitar o convite. Se a agenda mostrar só “Administrador”, rode no Supabase o SQL supabase-equipe-agenda-membros-colar.sql.</p>
+   <p class="form-hint">Administrador tem o mesmo acesso que você. Profissional só entra na grade da agenda depois de aceitar.</p>
   `,
-  sendInvite
+  sendInvite,
+  null,
+  { submitLabel: "Enviar convite" }
  )
 }
 
@@ -507,8 +511,9 @@ function openInvite(){
 ===================== */
 
 async function sendInvite() {
-  const emailInput = document.getElementById("inviteEmail");
-  const roleInput = document.getElementById("inviteRole");
+  const host = document.getElementById("modalFields") || document;
+  const emailInput = host.querySelector("#inviteEmail");
+  const roleInput = host.querySelector("#inviteRole");
   if (!emailInput?.value?.trim()) {
     toast("Informe o e-mail");
     return;
@@ -531,11 +536,11 @@ async function sendInvite() {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       console.warn("[TEAM] E-mail não enviado:", json?.error || res.status);
-      toast("Convite registrado. E-mail de confirmação não foi enviado (verifique RESEND_API_KEY no servidor).");
+      toast("Convite registrado. O e-mail de confirmação não saiu; avise a pessoa ou tente de novo.");
     } else if (json.sent) {
-      toast("Convite enviado! O funcionário receberá um e-mail com o link para aceitar.");
+      toast("Convite enviado. A pessoa recebe o e-mail com o link para aceitar.");
     } else {
-      toast("Convite registrado. Configure RESEND_API_KEY no servidor para enviar o e-mail ao funcionário.");
+      toast("Convite registrado. O e-mail ainda não saiu; avise a pessoa pelo WhatsApp com o link de aceitar.");
     }
     closeModal();
     renderTeam();

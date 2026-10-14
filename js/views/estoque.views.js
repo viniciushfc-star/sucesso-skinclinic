@@ -19,10 +19,15 @@ import { alertaValidade, montarRevenda } from "../utils/estoque-revenda.js"
 import { alertaMinimo, capitalEstoque } from "../utils/estoque-lotes.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { fileFromClipboardEvent } from "../utils/cliente-cadastro.js"
+import { bindGestaoAbas } from "../utils/gestao-abas.js"
+
+let showEstoqueAba = () => {}
 
 let canalVenda = { vende_para_cliente: true, vende_para_profissional: false }
 
 export async function init() {
+  const abas = document.getElementById("estoqueAbas")
+  showEstoqueAba = bindGestaoAbas(abas, "estoque_open_tab", "saldo")
   bindUI()
   const profile = await getOrganizationProfile().catch(() => null)
   canalVenda = {
@@ -53,7 +58,12 @@ function bindUI() {
     btnImportar.onclick = () => openEntradaXml()
   }
   if (btnManual) btnManual.onclick = () => openEntradaManual()
-  if (btnCatalogo) btnCatalogo.onclick = () => openCadastroProduto()
+  if (btnCatalogo) btnCatalogo.onclick = () => {
+    showEstoqueAba("portfolio")
+    openCadastroProduto()
+  }
+  const btnIrEntrada = document.getElementById("btnEstoqueIrEntrada")
+  if (btnIrEntrada) btnIrEntrada.onclick = () => showEstoqueAba("entrada")
 
   const periodoAcuracia = document.getElementById("estoqueAcuraciaPeriodo")
   if (periodoAcuracia) periodoAcuracia.addEventListener("change", () => renderAcuracia())

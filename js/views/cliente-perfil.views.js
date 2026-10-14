@@ -536,7 +536,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
           ${rotinaLiberada ? `<p class="skincare-rotina-liberada">Liberada no portal em ${formatDateTime(skincareRotina?.liberado_em)}</p>` : ""}
           ${canEdit ? `
             <div class="skincare-rotina-actions skincare-rotina-actions--top">
-              <button type="button" class="btn-secondary" id="btnGerarRotinaIA" title="Abre a tela Skincare IA com dados deste cliente e da anamnese já preenchidos">Gerar rotina com IA</button>
+              <button type="button" class="btn-secondary" id="btnGerarRotinaIA" title="Abre Skincare com os dados deste paciente e da anamnese">Gerar rotina com IA</button>
             </div>
             <textarea id="skincareRotinaConteudo" rows="12" placeholder="Ex.: Manhã: limpeza, vitamina C, hidratante, protetor. Noite: limpeza, retinol, hidratante. Orientações: evitar sol forte...">${escapeHtml(rotinaConteudo)}</textarea>
             <div class="skincare-rotina-actions">
