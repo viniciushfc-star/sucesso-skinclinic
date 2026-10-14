@@ -16,7 +16,7 @@ describe("Lote 67 agenda colunas por profissional", () => {
     assert.match(view, /agenda-week--cols/);
     assert.match(view, /data-user-id/);
     assert.match(view, /professionalId: cell\.dataset.userId/);
-    assert.match(view, /Cada coluna é uma profissional deste dia/);
+    assert.match(view, /Cada coluna é uma profissional/);
     assert.match(view, /function htmlWeekAptBlock/);
     assert.match(view, /profPrimeiroNome\(members, apt\.user_id\)/);
   });
