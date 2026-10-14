@@ -24,7 +24,7 @@ describe("Lote 97 UX do Estoque", () => {
     assert.match(trecho, /<details class="view-card" id="estoqueRevendaCard"/);
     assert.match(trecho, /estoque-entrada-mais/);
     assert.match(trecho, /id="estoqueResumoEmpty"/);
-    assert.match(src("js/core/spa.js"), /estoque-ux-1/);
+    assert.match(src("js/core/spa.js"), /produto-posse-1/);
   });
 
   it("filtra por nome e não esconde saldo vazio", () => {

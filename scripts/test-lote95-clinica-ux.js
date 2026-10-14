@@ -44,6 +44,6 @@ describe("Lote 95 UX de todos os módulos", () => {
     assert.doesNotMatch(skin, /Skincare IA/);
     const emp = html.slice(html.indexOf('id="view-empresa"'), html.indexOf('id="view-team"'));
     assert.match(emp, /view-sql-details/);
-    assert.match(src("js/core/spa.js"), /estoque-ux-1/);
+    assert.match(src("js/core/spa.js"), /produto-posse-1/);
   });
 });

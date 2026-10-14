@@ -43,7 +43,7 @@ describe("Lote 93 import com ritual", () => {
     const html = readFileSync(join(ROOT, "dashboard.html"), "utf8");
     assert.match(html, /id="importRitmo"/);
     const spa = readFileSync(join(ROOT, "js/core/spa.js"), "utf8");
-    assert.match(spa, /estoque-ux-1/);
+    assert.match(spa, /produto-posse-1/);
     assert.doesNotMatch(ag, /view-atendimentos|#atendimentos/);
   });
 });

@@ -26,7 +26,7 @@ import { listProdutosCatalogo } from "../services/estoque-produtos.service.js";
 import { sendWhatsapp } from "../services/whatsapp.service.js";
 import { getOrganizationProfile } from "../services/organization-profile.service.js";
 import { getTaxas, getTaxaForParcelas, calcularLiquido } from "../services/precificacao-taxas.service.js";
-import { formatOrcamentoMensagem, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado, payloadOrcamentoVisto, idsOrcamentosVistos, contarPacotesPorOrcamento } from "../utils/orcamento.js";
+import { formatOrcamentoMensagem, htmlPropostaOrcamento, totalOrcamento, brl, statusOrcamentoLabel, linhaTotal, statusEfetivoOrcamento, isOrcamentoExpirado, payloadOrcamentoVisto, idsOrcamentosVistos, contarPacotesPorOrcamento, soProdutoOrcamento } from "../utils/orcamento.js";
 import { resumoMargemOrcamento, maxParcelasPreservandoLucro, custoUnitarioServico, textoParcelasSemJuros } from "../utils/orcamento-margem.js";
 import { custoCatalogoComFrete } from "../utils/estoque-revenda.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
@@ -53,6 +53,7 @@ import { openModal, closeModal, openConfirmModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
 import { relacaoComercialLabel } from "../utils/cliente-relacao.js";
+import { normalizePosse, labelPosse, eRepresentacao } from "../utils/produto-posse.js";
 import { bindCpfMask, bindPhoneMask } from "../utils/input-masks.js";
 import {
   htmlEnderecoCliente,
@@ -582,7 +583,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
 
       <div id="tabOrcamentos" class="tab-pane hidden">
         <div class="cliente-orcamentos">
-          <p class="client-hint">Monte a proposta, envie no WhatsApp (um paciente por vez) e, se fechar, grave no cadastro. Não altera o preço do catálogo.</p>
+          <p class="client-hint">Pode ser só produto. Abra <strong>Proposta</strong> para imprimir ou PDF e envie no WhatsApp um paciente por vez. Não altera o preço do catálogo.</p>
           ${canEdit ? `<button type="button" class="btn-primary" id="btnNovoOrcamento">+ Novo orçamento</button>` : ""}
           <ul id="clienteOrcamentosList" class="cliente-orcamentos-list">
             ${renderOrcamentosList(orcamentos, canEdit, { events, pacotes, taxas: taxasOrg })}
@@ -1293,18 +1294,21 @@ function renderOrcamentosList(orcamentos, canEdit, extra = {}) {
       visto: vistos.has(o.id),
       packagesCount: pkgMap[o.id] || 0,
     });
+    const propostaBtn = `<button type="button" class="btn-secondary btn-sm orcamento-proposta" data-id="${escapeHtml(o.id)}">Proposta</button>`;
     const acoes = canEdit && efetivo !== "aceito" && efetivo !== "recusado" && efetivo !== "expirado" && efetivo !== "convertido"
       ? `${efetivo === "enviado" ? `<button type="button" class="btn-secondary btn-sm orcamento-visto" data-id="${escapeHtml(o.id)}">Marcou como visto</button>` : ""}
+         ${propostaBtn}
          <button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
          <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
          <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
       : efetivo === "expirado"
-        ? `<span class="cliente-orcamento-expirado-hint">Venceu. Monte outro orçamento.</span>`
+        ? `${propostaBtn}<span class="cliente-orcamento-expirado-hint">Venceu. Monte outro orçamento.</span>`
         : efetivo === "visualizado"
-          ? `<button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
+          ? `${propostaBtn}
+         <button type="button" class="btn-secondary btn-sm orcamento-enviar" data-id="${escapeHtml(o.id)}">Enviar WhatsApp</button>
          <button type="button" class="btn-primary btn-sm orcamento-aceitar" data-id="${escapeHtml(o.id)}">Fechou</button>
          <button type="button" class="btn-secondary btn-sm orcamento-recusar" data-id="${escapeHtml(o.id)}">Recusou</button>`
-        : "";
+        : propostaBtn;
     return `<li class="cliente-orcamento-item cliente-orcamento-item--${escapeHtml(efetivo)}" data-id="${escapeHtml(o.id)}">
       <span class="cliente-orcamento-status">${escapeHtml(statusOrcamentoLabel(efetivo))}</span>
       <span class="cliente-orcamento-total">${brl(total)}</span>
@@ -1389,7 +1393,12 @@ async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custo
       ? Number(p.preco_profissional)
       : (p.preco_cliente != null ? Number(p.preco_cliente) : 0);
     const cost = custoCatalogoComFrete(p.custo_pago, p.frete_padrao);
-    return `<option value="${escapeHtml(p.id)}" data-kind="produto" data-name="${escapeHtml(p.nome)}" data-price="${price || 0}" data-cost="${cost ?? ""}">${escapeHtml(p.nome)}${price ? " — " + brl(price) : ""}</option>`;
+    const posse = normalizePosse(p.posse);
+    const marca = String(p.marca_representada || "").trim();
+    const posseTxt = eRepresentacao(posse)
+      ? ` · ${labelPosse(posse)}${marca ? " · " + marca : ""}`
+      : "";
+    return `<option value="${escapeHtml(p.id)}" data-kind="produto" data-name="${escapeHtml(p.nome)}" data-price="${price || 0}" data-cost="${cost ?? ""}" data-posse="${escapeHtml(posse)}" data-marca="${escapeHtml(marca)}">${escapeHtml(p.nome)}${price ? " — " + brl(price) : ""}${posseTxt}</option>`;
   }).join("");
   const validade = new Date();
   validade.setDate(validade.getDate() + 15);
@@ -1404,27 +1413,25 @@ async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custo
   openModal(
     "Novo orçamento",
     `
-    <p class="client-hint">Monte serviço e produto no mesmo orçamento. Embaixo do total aparece até quantas vezes <strong>sem juros para o cliente</strong> ainda é saudável (insumos + comissão + taxa da maquininha). Só a equipe vê. O sistema não muda o preço.</p>
-    <fieldset class="orcamento-kind">
-      <legend>Tipo da linha</legend>
-      <label><input type="radio" name="orcamentoKind" value="servico" checked> Serviço</label>
-      <label><input type="radio" name="orcamentoKind" value="produto"> Produto</label>
-    </fieldset>
-    <div id="orcamentoBlocoServico">
-      <label for="orcamentoProc">Procedimento</label>
-      <select id="orcamentoProc"><option value="">— Selecione —</option>${opts}</select>
+    <p class="client-hint">Pode ser <strong>só produto</strong>, só serviço ou os dois. Custo e parcela saudável ficam só para a equipe. O sistema não muda o preço.</p>
+    <div class="orcamento-add-grid">
+      <div>
+        <label for="orcamentoProc">Serviço</label>
+        <select id="orcamentoProc"><option value="">— Selecione —</option>${opts}</select>
+        <button type="button" class="btn-secondary" id="orcamentoAddServico">Adicionar serviço</button>
+      </div>
+      <div>
+        <label for="orcamentoProd">Produto</label>
+        <select id="orcamentoProd"><option value="">— Selecione —</option>${optsProd}</select>
+        <button type="button" class="btn-secondary" id="orcamentoAddLinha">Adicionar produto</button>
+      </div>
     </div>
-    <div id="orcamentoBlocoProduto" class="hidden">
-      <label for="orcamentoProd">Produto do portfólio</label>
-      <select id="orcamentoProd"><option value="">— Selecione —</option>${optsProd}</select>
-    </div>
-    <label for="orcamentoQty">Quantidade / sessões</label>
+    <label for="orcamentoQty">Quantidade</label>
     <input type="number" id="orcamentoQty" min="1" step="1" value="1">
     <label for="orcamentoPreco">Valor unitário (R$)</label>
     <input type="number" id="orcamentoPreco" min="0" step="0.01" value="0">
     <label for="orcamentoNomeLivre">Ou descreva o item</label>
-    <input type="text" id="orcamentoNomeLivre" placeholder="Ex.: Harmonização — 2ml">
-    <button type="button" class="btn-secondary" id="orcamentoAddLinha">Adicionar à proposta</button>
+    <input type="text" id="orcamentoNomeLivre" placeholder="Ex.: Sérum clareador 30ml">
     <ul id="orcamentoLinhas" class="cliente-orcamento-linhas"></ul>
     <div id="orcamentoTotal" class="cliente-orcamento-total-preview">Total: ${brl(0)}</div>
     <label for="orcamentoValid">Válido até</label>
@@ -1465,12 +1472,6 @@ async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custo
       }
     }
   );
-  const syncKind = () => {
-    const kind = document.querySelector("input[name=orcamentoKind]:checked")?.value || "servico";
-    document.getElementById("orcamentoBlocoServico")?.classList.toggle("hidden", kind !== "servico");
-    document.getElementById("orcamentoBlocoProduto")?.classList.toggle("hidden", kind !== "produto");
-  };
-  document.querySelectorAll("input[name=orcamentoKind]").forEach((el) => el.addEventListener("change", syncKind));
   const fillFromSelect = (sel) => {
     const opt = sel?.selectedOptions?.[0];
     const preco = document.getElementById("orcamentoPreco");
@@ -1478,8 +1479,7 @@ async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custo
   };
   document.getElementById("orcamentoProc")?.addEventListener("change", (e) => fillFromSelect(e.target));
   document.getElementById("orcamentoProd")?.addEventListener("change", (e) => fillFromSelect(e.target));
-  document.getElementById("orcamentoAddLinha")?.addEventListener("click", () => {
-    const kind = document.querySelector("input[name=orcamentoKind]:checked")?.value || "servico";
+  const addLinha = (kind) => {
     const sel = kind === "produto" ? document.getElementById("orcamentoProd") : document.getElementById("orcamentoProc");
     const opt = sel?.selectedOptions?.[0];
     const livre = document.getElementById("orcamentoNomeLivre")?.value?.trim() || "";
@@ -1487,7 +1487,7 @@ async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custo
     const qty = Number(document.getElementById("orcamentoQty")?.value) || 1;
     const unit_price = Number(document.getElementById("orcamentoPreco")?.value) || 0;
     if (!name) {
-      toast(kind === "produto" ? "Escolha um produto ou descreva o item." : "Escolha um procedimento ou descreva o item.");
+      toast(kind === "produto" ? "Escolha um produto ou descreva o item." : "Escolha um serviço ou descreva o item.");
       return;
     }
     const costRaw = opt?.dataset.cost;
@@ -1501,11 +1501,15 @@ async function bindOrcamentoModal(client, procs, catalogo, taxas, profile, custo
       unit_price,
       sessions: kind === "servico" ? qty : 1,
       unit_cost: Number.isFinite(unit_cost) ? unit_cost : null,
+      posse: kind === "produto" ? normalizePosse(opt?.dataset.posse) : undefined,
+      marca_representada: kind === "produto" ? (opt?.dataset.marca || "") : "",
     });
     if (sel) sel.value = "";
     const livreEl = document.getElementById("orcamentoNomeLivre");
     if (livreEl) livreEl.value = "";
-  });
+  };
+  document.getElementById("orcamentoAddLinha")?.addEventListener("click", () => addLinha("produto"));
+  document.getElementById("orcamentoAddServico")?.addEventListener("click", () => addLinha("servico"));
   orcamentoTaxasCtx = { taxas, margemAlvo, maxFixo };
 }
 
@@ -1523,6 +1527,8 @@ function readOrcamentoLinhas() {
       unit_price: Number(li.dataset.price) || 0,
       sessions: Number(li.dataset.sessions) || Number(li.dataset.qty) || 1,
       unit_cost: Number.isFinite(unit_cost) ? unit_cost : null,
+      posse: li.dataset.kind === "produto" ? normalizePosse(li.dataset.posse) : undefined,
+      marca_representada: li.dataset.marca || "",
     });
   });
   return items;
@@ -1540,7 +1546,11 @@ function pushOrcamentoLinha(item) {
   li.dataset.price = String(item.unit_price);
   li.dataset.sessions = String(item.sessions || item.qty);
   li.dataset.cost = item.unit_cost == null ? "" : String(item.unit_cost);
-  const tipo = item.kind === "produto" ? "Produto" : "Serviço";
+  li.dataset.posse = item.kind === "produto" ? normalizePosse(item.posse) : "";
+  li.dataset.marca = item.marca_representada || "";
+  const tipo = item.kind === "produto"
+    ? (eRepresentacao(item.posse) ? `Produto · ${labelPosse(item.posse)}` : "Produto da clínica")
+    : "Serviço";
   li.innerHTML = `<span>${escapeHtml(tipo)} · ${escapeHtml(item.name)} × ${item.qty} — ${brl(linhaTotal(item))}</span> <button type="button" class="btn-sm" aria-label="Remover">×</button>`;
   li.querySelector("button")?.addEventListener("click", () => {
     li.remove();
@@ -1637,7 +1647,36 @@ function oferecerAgendaAposAceite(client, packages, proceduresList) {
   );
 }
 
+function abrirPropostaOrcamento(client, row) {
+  void (async () => {
+    const profile = await getOrganizationProfile().catch(() => ({}));
+    const win = window.open("", "_blank");
+    if (!win) {
+      toast("Permita pop-ups para abrir a proposta.");
+      return;
+    }
+    win.document.write(htmlPropostaOrcamento({
+      nomeClinica: profile?.name,
+      logoUrl: profile?.logo_url,
+      endereco: profile?.endereco,
+      telefone: profile?.telefone,
+      nomeCliente: client?.name,
+      items: row.items,
+      notes: row.notes,
+      validUntil: row.valid_until,
+    }));
+    win.document.close();
+  })();
+}
+
 function bindOrcamentoCardActions(client, orcamentos, proceduresList = []) {
+  document.querySelectorAll(".orcamento-proposta").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
+      if (!row) return;
+      abrirPropostaOrcamento(client, row);
+    });
+  });
   document.querySelectorAll(".orcamento-visto").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const row = (orcamentos || []).find((o) => o.id === btn.dataset.id);
@@ -1687,9 +1726,12 @@ function bindOrcamentoCardActions(client, orcamentos, proceduresList = []) {
         toast("Este orçamento venceu. Monte outro; o catálogo não muda sozinho.");
         return;
       }
+      const soProduto = soProdutoOrcamento(row.items);
       openConfirmModal(
         "Fechou o orçamento?",
-        "Ele fica no cadastro e vira pacote de sessões (se houver quantidade). O preço do catálogo não muda.",
+        soProduto
+          ? "Ele fica no cadastro. Produto não vira sessão na agenda. O preço do catálogo não muda."
+          : "Ele fica no cadastro e vira pacote de sessões (se houver quantidade). O preço do catálogo não muda.",
         () => {
           void (async () => {
             try {
@@ -1712,7 +1754,11 @@ function bindOrcamentoCardActions(client, orcamentos, proceduresList = []) {
                   permissionUsed: "clientes:manage",
                   metadata: { client_id: client.id, total: totalOrcamento(items) },
                 }).catch(() => {});
-                toast("Orçamento no paciente. Pacotes na aba Pacotes.");
+                toast(
+                  pkgs.length
+                    ? "Orçamento no paciente. Pacotes na aba Pacotes."
+                    : "Orçamento no paciente. Produto não vira sessão na agenda."
+                );
               }
               if (pkgs.length) {
                 oferecerAgendaAposAceite(client, pkgs, proceduresList);

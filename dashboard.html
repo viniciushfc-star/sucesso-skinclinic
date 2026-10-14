@@ -15,7 +15,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=estoque-ux-1">
+<link rel="stylesheet" href="./js/css/style.css?v=produto-posse-1">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -1462,9 +1462,14 @@
         </div>
         <label class="sr-only" for="estoqueBusca">Buscar produto</label>
         <input type="search" id="estoqueBusca" class="estoque-busca" placeholder="Buscar produto…" autocomplete="off">
+        <div class="estoque-posse-filtros" role="group" aria-label="Da clínica ou representação">
+          <button type="button" class="gestao-abas-tab is-active" data-estoque-posse-filtro="todos" aria-pressed="true">Todos</button>
+          <button type="button" class="gestao-abas-tab" data-estoque-posse-filtro="clinica" aria-pressed="false">Da clínica</button>
+          <button type="button" class="gestao-abas-tab" data-estoque-posse-filtro="representacao" aria-pressed="false">Representação</button>
+        </div>
         <details id="estoquePortfolioSqlHint" class="view-sql-details">
           <summary>Cadastro ou foto falhou?</summary>
-          <p class="view-hint">Cole no Supabase, se o toast pedir: supabase/supabase-estoque-portfolio-colar.sql. Foto: supabase/supabase-produto-imagem-canal-colar.sql. Mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
+          <p class="view-hint">Cole no Supabase, se o toast pedir: supabase/supabase-estoque-portfolio-colar.sql. Foto: supabase/supabase-produto-imagem-canal-colar.sql. Mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql. Clínica vs representação: supabase/supabase-produto-posse-colar.sql.</p>
         </details>
         <div class="gestao-abas" id="estoqueAbas">
           <div class="gestao-abas-nav" role="tablist" aria-label="Seções do estoque">
@@ -2100,7 +2105,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=estoque-ux-1"></script>
+<script type="module" src="./js/core/spa.js?v=produto-posse-1"></script>
 
 </body>
 </html>

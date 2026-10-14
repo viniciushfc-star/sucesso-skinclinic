@@ -20,6 +20,18 @@ import { alertaMinimo, capitalEstoque } from "../utils/estoque-lotes.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { fileFromClipboardEvent } from "../utils/cliente-cadastro.js"
 import { bindGestaoAbas } from "../utils/gestao-abas.js"
+import { normalizePosse, labelPosse, eRepresentacao } from "../utils/produto-posse.js"
+
+let posseFiltro = "todos"
+
+function catalogoPorNome(catalogo) {
+  return Object.fromEntries((catalogo || []).map((p) => [String(p.nome || "").trim().toLowerCase(), p]))
+}
+
+function posseDoCatalogo(byNome, nome) {
+  const p = byNome[String(nome || "").trim().toLowerCase()]
+  return normalizePosse(p?.posse)
+}
 
 let showEstoqueAba = () => {}
 
@@ -69,6 +81,19 @@ function bindUI() {
     busca.dataset.bound = "1"
     busca.addEventListener("input", () => filtrarEstoque(busca.value))
   }
+  document.querySelectorAll("[data-estoque-posse-filtro]").forEach((btn) => {
+    if (btn.dataset.bound) return
+    btn.dataset.bound = "1"
+    btn.addEventListener("click", () => {
+      posseFiltro = btn.getAttribute("data-estoque-posse-filtro") || "todos"
+      document.querySelectorAll("[data-estoque-posse-filtro]").forEach((b) => {
+        const on = b.getAttribute("data-estoque-posse-filtro") === posseFiltro
+        b.classList.toggle("is-active", on)
+        b.setAttribute("aria-pressed", String(on))
+      })
+      filtrarEstoque(document.getElementById("estoqueBusca")?.value)
+    })
+  })
 
   const periodoAcuracia = document.getElementById("estoqueAcuraciaPeriodo")
   if (periodoAcuracia) periodoAcuracia.addEventListener("change", () => renderAcuracia())
@@ -113,8 +138,10 @@ function bindUI() {
 function filtrarEstoque(q) {
   const n = String(q || "").trim().toLowerCase()
   document.querySelectorAll("[data-estoque-nome]").forEach((el) => {
-    const ok = !n || String(el.getAttribute("data-estoque-nome") || "").includes(n)
-    el.classList.toggle("hidden", !ok)
+    const okNome = !n || String(el.getAttribute("data-estoque-nome") || "").includes(n)
+    const posse = el.getAttribute("data-estoque-posse") || "clinica"
+    const okPosse = posseFiltro === "todos" || posse === posseFiltro
+    el.classList.toggle("hidden", !(okNome && okPosse))
   })
 }
 
@@ -143,6 +170,8 @@ async function renderCatalogo() {
     const cards = await Promise.all(items.map(async (p) => {
       const alerta = alertaValidade(p.validade_referencia)
       const badge = alerta ? `<span class="estoque-validade-badge estoque-validade-badge--${alerta.nivel}">${escapeHtml(alerta.label)}</span>` : ""
+      const posse = normalizePosse(p.posse)
+      const posseBadge = `<span class="estoque-posse-badge estoque-posse-badge--${posse}">${escapeHtml(labelPosse(posse))}${eRepresentacao(posse) && p.marca_representada ? " · " + escapeHtml(p.marca_representada) : ""}</span>`
       const validade = p.validade_referencia
         ? new Date(p.validade_referencia + "T12:00:00").toLocaleDateString("pt-BR")
         : "—"
@@ -156,13 +185,14 @@ async function renderCatalogo() {
       const saldo = saldoPorNome[String(p.nome || "").trim().toLowerCase()]
       const saldoTxt = saldo != null ? `<p class="estoque-catalogo-meta">Em estoque (estimado): ${Number(saldo).toFixed(2)}</p>` : ""
       return `
-        <div class="estoque-catalogo-card" data-estoque-nome="${escapeAttr(String(p.nome || "").toLowerCase())}">
+        <div class="estoque-catalogo-card" data-estoque-nome="${escapeAttr(String(p.nome || "").toLowerCase())}" data-estoque-posse="${escapeAttr(posse)}">
           <div class="estoque-catalogo-main">
             ${produtoThumb(img, p.nome)}
             <div class="estoque-catalogo-body">
               <div class="estoque-catalogo-head">
                 <strong>${escapeHtml(p.nome)}</strong>
                 ${badge}
+                ${posseBadge}
               </div>
               <div class="estoque-catalogo-precos">
                 <span>Pago: ${fmtBrl(p.custo_pago)}</span>
@@ -279,19 +309,21 @@ async function renderList() {
   if (!listEl) return
 
   try {
-    const items = await listEntradas(50)
+    const [items, catalogo] = await Promise.all([listEntradas(50), listProdutosCatalogo().catch(() => [])])
     if (items.length === 0) {
       listEl.innerHTML = ""
       if (emptyEl) emptyEl.classList.remove("hidden")
       return
     }
     if (emptyEl) emptyEl.classList.add("hidden")
+    const byNome = catalogoPorNome(catalogo)
     listEl.innerHTML = items.map((e) => {
       const data = e.data_entrada ? new Date(e.data_entrada).toLocaleDateString("pt-BR") : "—"
       const total = e.valor_total != null ? `R$ ${Number(e.valor_total).toFixed(2)}` : "—"
       const origem = e.origem === "ocr" ? "Nota fiscal" : e.origem === "xml" ? "XML" : "Manual"
+      const posse = posseDoCatalogo(byNome, e.produto_nome)
       return `
-        <div class="estoque-entrada-card" data-estoque-nome="${escapeAttr(String(e.produto_nome || "").toLowerCase())}">
+        <div class="estoque-entrada-card" data-estoque-nome="${escapeAttr(String(e.produto_nome || "").toLowerCase())}" data-estoque-posse="${escapeAttr(posse)}">
           <span class="estoque-entrada-produto">${escapeHtml(e.produto_nome || "")}</span>
           <span class="estoque-entrada-qty">${Number(e.quantidade)}</span>
           <span class="estoque-entrada-total">${total}</span>
@@ -323,6 +355,8 @@ async function renderProximosVencer() {
       return
     }
     wrap.classList.remove("hidden")
+    const catalogo = await listProdutosCatalogo().catch(() => [])
+    const byNome = catalogoPorNome(catalogo)
     const html = await Promise.all(
       itens.map(async (r) => {
         const alerta = alertaValidade(r.data_validade)
@@ -333,8 +367,9 @@ async function renderProximosVencer() {
           : "<span class=\"estoque-proximos-vencer-sem-proc\">Nenhum procedimento vinculado ao nome deste produto.</span>"
         const cls = alerta?.nivel === "vencido" ? "estoque-proximos-vencer-item estoque-validade-vencido" : "estoque-proximos-vencer-item"
         const badge = alerta ? `<span class="estoque-validade-badge estoque-validade-badge--${alerta.nivel}">${escapeHtml(alerta.label)}</span>` : ""
+        const posse = posseDoCatalogo(byNome, r.produto_nome)
         return `
-          <div class="${cls}" data-estoque-nome="${escapeAttr(String(r.produto_nome || "").toLowerCase())}">
+          <div class="${cls}" data-estoque-nome="${escapeAttr(String(r.produto_nome || "").toLowerCase())}" data-estoque-posse="${escapeAttr(posse)}">
             <span class="estoque-proximos-vencer-produto">${escapeHtml(r.produto_nome)} ${badge}</span>
             <span class="estoque-proximos-vencer-validade">Vence: ${dataFormatada}</span>
             ${r.quantidade ? `<span class="estoque-proximos-vencer-qty">${r.quantidade} un.</span>` : ""}
@@ -369,7 +404,7 @@ async function renderResumo() {
     }
     emptyEl?.classList.add("hidden")
     const catalogo = await listProdutosCatalogo().catch(() => [])
-    const byNome = Object.fromEntries((catalogo || []).map((p) => [String(p.nome || "").toLowerCase(), p]))
+    const byNome = catalogoPorNome(catalogo)
     wrap?.classList.remove("hidden")
     const rankAlerta = (r) => {
       const a = alertaMinimo(r.saldo_estimado, r.minimo)
@@ -381,14 +416,16 @@ async function renderResumo() {
     el.innerHTML = ordered.map((r) => {
       const saldo = Number(r.saldo_estimado).toFixed(2)
       const prod = escapeHtml(r.produto_nome)
-      const cat = byNome[String(r.produto_nome || "").toLowerCase()]
+      const cat = byNome[String(r.produto_nome || "").trim().toLowerCase()]
+      const posse = normalizePosse(cat?.posse)
+      const posseTxt = `<span class="estoque-posse-badge estoque-posse-badge--${posse}">${escapeHtml(labelPosse(posse))}</span>`
       const semSaldo = Number(r.entrada_qty) === 0 ? `<span class="estoque-resumo-portfolio">Só no cadastro</span>` : ""
       const minAlert = alertaMinimo(r.saldo_estimado, r.minimo)
       const minTxt = minAlert ? `<span class="estoque-validade-badge estoque-validade-badge--${minAlert.nivel === "abaixo" ? "vencido" : "menos_1_ano"}">${escapeHtml(minAlert.label)}</span>` : (r.minimo != null && Number(r.minimo) > 0 ? `<span class="view-hint">Mínimo ${Number(r.minimo)}</span>` : "")
       return `
-        <div class="estoque-resumo-card" data-estoque-nome="${escapeAttr(String(r.produto_nome || "").toLowerCase())}">
+        <div class="estoque-resumo-card" data-estoque-nome="${escapeAttr(String(r.produto_nome || "").toLowerCase())}" data-estoque-posse="${escapeAttr(posse)}">
           ${produtoThumb(cat?.imagem_url, r.produto_nome)}
-          <span class="estoque-resumo-produto">${prod} ${minTxt} ${semSaldo}</span>
+          <span class="estoque-resumo-produto">${prod} ${posseTxt} ${minTxt} ${semSaldo}</span>
           <span class="estoque-resumo-saldo">${saldo}</span>
           <button type="button" class="estoque-btn-avaliar" data-produto="${escapeAttr(r.produto_nome)}" title="Avaliar este produto (nota e comentário)">Avaliar</button>
         </div>
@@ -413,21 +450,31 @@ async function renderLotes() {
   const capEl = document.getElementById("estoqueCapitalHint")
   if (!listEl) return
   try {
-    const [lotes, resumo] = await Promise.all([getLotesComSaldo(), getResumoPorProduto()])
-    const cap = capitalEstoque(
-      (resumo || []).map((r) => ({
-        saldo: r.saldo_estimado,
-        custo_medio: r.custo_medio,
-        minimo: r.minimo,
-      }))
-    )
+    const [lotes, resumo, catalogo] = await Promise.all([
+      getLotesComSaldo(),
+      getResumoPorProduto(),
+      listProdutosCatalogo().catch(() => []),
+    ])
+    const byNome = catalogoPorNome(catalogo)
+    const linhasClin = []
+    const linhasRep = []
+    for (const r of resumo || []) {
+      const linha = { saldo: r.saldo_estimado, custo_medio: r.custo_medio, minimo: r.minimo }
+      if (eRepresentacao(posseDoCatalogo(byNome, r.produto_nome))) linhasRep.push(linha)
+      else linhasClin.push(linha)
+    }
+    const cap = capitalEstoque(linhasClin)
+    const capRep = capitalEstoque(linhasRep)
     if (capEl) {
-      const inv = cap.investido != null ? `Capital em estoque (saldo × custo médio): R$ ${Number(cap.investido).toFixed(2)}.` : "Capital em estoque: não informado (falta custo médio)."
+      const inv = cap.investido != null ? `Capital da clínica (saldo × custo médio): R$ ${Number(cap.investido).toFixed(2)}.` : "Capital da clínica: não informado (falta custo médio)."
       const extra =
         cap.acimaMinimo == null
-          ? " Acima do mínimo só aparece se você informar o piso no portfólio."
+          ? " Acima do mínimo só aparece se você informar o piso no cadastro."
           : ` Acima do mínimo: R$ ${Number(cap.acimaMinimo).toFixed(2)}.`
-      capEl.textContent = inv + extra
+      const repTxt = capRep.investido != null
+        ? ` Representação (não mistura com o capital da casa): R$ ${Number(capRep.investido).toFixed(2)}.`
+        : ""
+      capEl.textContent = inv + extra + repTxt
     }
     const comSaldo = (lotes || []).filter((l) => Number(l.saldo) > 0)
     if (!comSaldo.length) {
@@ -438,7 +485,8 @@ async function renderLotes() {
       .map((l) => {
         const validade = l.data_validade ? new Date(l.data_validade + "T12:00:00").toLocaleDateString("pt-BR") : "sem validade"
         const loteLabel = l.lote === "sem_lote" ? "sem lote" : `lote ${l.lote}`
-        return `<div class="estoque-resumo-card" data-estoque-nome="${escapeAttr(String(l.produto_nome || "").toLowerCase())}">
+        const posse = posseDoCatalogo(byNome, l.produto_nome)
+        return `<div class="estoque-resumo-card" data-estoque-nome="${escapeAttr(String(l.produto_nome || "").toLowerCase())}" data-estoque-posse="${escapeAttr(posse)}">
           <span class="estoque-resumo-produto">${escapeHtml(l.produto_nome)}</span>
           <span class="estoque-resumo-saldo">${Number(l.saldo).toFixed(2)} un. · ${escapeHtml(loteLabel)} · vence ${escapeHtml(validade)}</span>
         </div>`
@@ -930,6 +978,16 @@ async function openCadastroProduto(existente = null) {
     </div>
     <label>Nome do produto</label>
     <input type="text" id="estoqueCatNome" value="${escapeHtml(p.nome || "")}" placeholder="Ex.: Ácido hialurônico 1ml" required>
+    <fieldset class="orcamento-kind">
+      <legend>De quem é</legend>
+      <label><input type="radio" name="estoqueCatPosse" value="clinica" ${normalizePosse(p.posse) !== "representacao" ? "checked" : ""}> Da clínica</label>
+      <label><input type="radio" name="estoqueCatPosse" value="representacao" ${normalizePosse(p.posse) === "representacao" ? "checked" : ""}> Representação</label>
+    </fieldset>
+    <p class="form-hint">Da clínica: comprou e usa na casa. Representação: você revende pela marca — não mistura com o capital da clínica.</p>
+    <div id="estoqueCatMarcaWrap" class="${normalizePosse(p.posse) === "representacao" ? "" : "hidden"}">
+      <label for="estoqueCatMarca">Marca / empresa</label>
+      <input type="text" id="estoqueCatMarca" value="${escapeHtml(p.marca_representada || "")}" placeholder="Ex.: Laboratório X">
+    </div>
     <label>Quanto você paga (unidade)</label>
     <input type="number" id="estoqueCatCusto" step="0.01" min="0" value="${p.custo_pago ?? ""}" placeholder="R$">
     ${campoPro}
@@ -975,9 +1033,12 @@ async function openCadastroProduto(existente = null) {
         return
       }
       try {
+        const posse = document.querySelector("input[name=estoqueCatPosse]:checked")?.value || "clinica"
         const saved = await upsertProdutoCatalogo({
           id: p.id || undefined,
           nome,
+          posse,
+          marca_representada: document.getElementById("estoqueCatMarca")?.value,
           custo_pago: document.getElementById("estoqueCatCusto")?.value,
           preco_profissional: document.getElementById("estoqueCatPro")?.value,
           preco_cliente: document.getElementById("estoqueCatCli")?.value,
@@ -986,6 +1047,9 @@ async function openCadastroProduto(existente = null) {
           unidade: document.getElementById("estoqueCatUnidade")?.value,
           quantidade_minima: document.getElementById("estoqueCatMinimo")?.value,
         })
+        if (normalizePosse(posse) === "representacao" && normalizePosse(saved?.posse) !== "representacao") {
+          toast("Produto salvo. Para gravar representação, cole supabase/supabase-produto-posse-colar.sql no Supabase.")
+        }
         const foto = document.getElementById("estoqueCatFoto")?.files?.[0]
           || document.getElementById("estoqueCatFotoCamUser")?.files?.[0]
           || document.getElementById("estoqueCatFotoCamEnv")?.files?.[0]
@@ -1040,6 +1104,11 @@ async function openCadastroProduto(existente = null) {
   document.getElementById("estoqueCatFoto")?.addEventListener("change", (e) => showLocalThumb(e.target.files?.[0]))
   document.getElementById("estoqueCatFotoCamUser")?.addEventListener("change", (e) => showLocalThumb(e.target.files?.[0]))
   document.getElementById("estoqueCatFotoCamEnv")?.addEventListener("change", (e) => showLocalThumb(e.target.files?.[0]))
+  const syncPosse = () => {
+    const kind = document.querySelector("input[name=estoqueCatPosse]:checked")?.value || "clinica"
+    document.getElementById("estoqueCatMarcaWrap")?.classList.toggle("hidden", kind !== "representacao")
+  }
+  document.querySelectorAll("input[name=estoqueCatPosse]").forEach((el) => el.addEventListener("change", syncPosse))
 }
 
 function openEntradaManual() {

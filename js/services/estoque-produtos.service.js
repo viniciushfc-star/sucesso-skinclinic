@@ -4,6 +4,7 @@ import { signedStorageUrl } from "../core/storage-url.js";
 import { custoUnitarioComFrete } from "../utils/estoque-revenda.js";
 import { isUnknownColumnError, stripUnknownColumn } from "../utils/supabase-unknown-col.js";
 import { userFacingError } from "../core/errors.js";
+import { normalizePosse, marcaRepresentada } from "../utils/produto-posse.js";
 
 function missingTable(error) {
   const msg = String(error?.message || "");
@@ -100,6 +101,10 @@ export async function upsertProdutoCatalogo(payload) {
     unidade: String(payload.unidade || "").trim() || null,
     quantidade_minima: money(payload.quantidade_minima),
     imagem_url: payload.imagem_url ? String(payload.imagem_url).trim() : payload.imagem_url === "" ? null : undefined,
+    posse: normalizePosse(payload.posse),
+    marca_representada: normalizePosse(payload.posse) === "representacao"
+      ? marcaRepresentada(payload.marca_representada)
+      : null,
     ativo: payload.ativo === false ? false : true,
     updated_at: new Date().toISOString(),
   };

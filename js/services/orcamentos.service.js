@@ -1,6 +1,7 @@
 import { supabase } from "../core/supabase.js";
 import { getActiveOrg } from "../core/org.js";
 import { totalOrcamento, isOrcamentoExpirado } from "../utils/orcamento.js";
+import { normalizePosse, marcaRepresentada } from "../utils/produto-posse.js";
 import { deveGerarPacotesNoAceite, pacotesDoAceite } from "../utils/ciclo-ouro.js";
 import { createPacote, listPacotesByOrcamento } from "./pacotes.service.js";
 import { retryUnknownColumns } from "../utils/supabase-unknown-col.js";
@@ -34,6 +35,11 @@ function normalizeItems(items) {
       };
       const cost = Number(it.unit_cost);
       if (Number.isFinite(cost) && cost >= 0) row.unit_cost = cost;
+      if (kind === "produto") {
+        row.posse = normalizePosse(it.posse);
+        const marca = marcaRepresentada(it.marca_representada);
+        if (row.posse === "representacao" && marca) row.marca_representada = marca;
+      }
       return row;
     })
     .filter((it) => it.name);
@@ -149,7 +155,7 @@ export async function aceitarOrcamento(id) {
   for (const p of pacotesDoAceite(row.items, row.client_id, id)) {
     packages.push(await createPacote(p));
   }
-  return { orcamento, created: packages.length > 0, packages };
+  return { orcamento, created: true, packages };
 }
 
 export { totalOrcamento, normalizeItems };

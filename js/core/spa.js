@@ -597,7 +597,7 @@ async function initMenuAnamneseVisibility() {
 let navGen = 0;
 
 async function importViewFile(file) {
-  const href = `../views/${file}?v=estoque-ux-1`;
+  const href = `../views/${file}?v=produto-posse-1`;
   try {
     return await import(href);
   } catch (err) {
