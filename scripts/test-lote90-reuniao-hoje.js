@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gargaloDoCiclo, pontoForteHoje, montarReuniaoHoje, textoContextoReuniao } from "../js/utils/reuniao-hoje.js";
+import { gargaloDoCiclo, pontoForteHoje, montarReuniaoHoje, textoContextoReuniao, diaCalmoHoje } from "../js/utils/reuniao-hoje.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -41,6 +41,15 @@ describe("Lote 90 reunião de hoje", () => {
     assert.equal(r.gargalo.elo, "chegou");
     assert.match(textoContextoReuniao(r), /Gargalo/);
     assert.doesNotMatch(textoContextoReuniao(r), /WhatsApp sai/);
+    const calmo = montarReuniaoHoje({
+      hojeCount: 0,
+      lucroHora: { melhor: { name: "Botox", lucroHora: 1700 } },
+    });
+    assert.equal(diaCalmoHoje({ hojeCount: 0 }), true);
+    assert.equal(calmo.modo, "calmo");
+    assert.equal(calmo.forte, null);
+    assert.match(calmo.proximo.acao, /Marcar horário/);
+    assert.equal(pontoForteHoje({ hojeCount: 0, lucroHora: { melhor: { name: "Botox", lucroHora: 1700 } } }), null);
   });
 
   it("cockpit e dashboard mostram a reunião", () => {

@@ -3753,6 +3753,23 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
   gap:0.75rem;
 }
 .estoque-toolbar{ display:flex; flex-wrap:wrap; gap:0.5rem; flex-shrink:0; }
+.estoque-busca{
+  display:block;
+  width:100%;
+  max-width:28rem;
+  margin:0 0 0.85rem;
+  padding:0.55rem 0.85rem;
+  border:1px solid var(--sc-line, #e4dfd6);
+  border-radius:10px;
+  background:#fff;
+  font-size:0.95rem;
+}
+.estoque-entrada-actions{ display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.5rem; }
+.estoque-entrada-actions .btn-primary,
+.estoque-entrada-actions .btn-secondary{ width:auto; margin:0; }
+.estoque-entrada-mais{ margin-top:0.85rem; font-size:0.9rem; color:#64748b; }
+.estoque-entrada-mais summary{ cursor:pointer; font-weight:600; color:#475569; }
+#estoqueRevendaCard summary.view-card-title{ cursor:pointer; list-style:revert; }
 .estoque-toolbar .btn-primary,
 .estoque-toolbar .btn-secondary,
 .view-team-header .btn-primary{
@@ -3775,9 +3792,14 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
 .table-team-desempenho th,.table-team-desempenho td{ padding:0.5rem 0.75rem; text-align:left; border-bottom:1px solid #e2e8f0; }
 .table-team-desempenho th{ background:#f8fafc; color:#475569; font-weight:600; }
 .team-desempenho-email{ color:#334155; }
-.estoque-resumo-card{ display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem; padding:0.5rem 0; border-bottom:1px solid #f1f5f9; }
-.estoque-resumo-card .estoque-btn-avaliar{ margin-left:auto; width:auto; padding:8px 14px; font-size:0.95rem; border-radius:8px; border:1px solid #e2e8f0; background:#fff; color:#475569; font-weight:500; cursor:pointer; }
-.estoque-resumo-card .estoque-btn-avaliar:hover{ background:#f8fafc; border-color:#4e54c8; color:#4e54c8; }
+.estoque-resumo-card{ display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem; padding:0.65rem 0; border-bottom:1px solid #f1f5f9; }
+.estoque-resumo-card .estoque-resumo-produto{ flex:1; min-width:8rem; }
+.estoque-resumo-card .estoque-resumo-saldo{ font-weight:700; font-variant-numeric:tabular-nums; margin-left:auto; }
+.estoque-resumo-card .estoque-btn-avaliar{
+  width:auto; margin:0; padding:0; border:0; background:transparent;
+  color:#64748b; font-size:0.82rem; font-weight:500; cursor:pointer; text-decoration:underline;
+}
+.estoque-resumo-card .estoque-btn-avaliar:hover{ color:#0f5c62; }
 .estoque-resumo-portfolio{ font-size:0.8rem; color:#64748b; background:#f1f5f9; padding:0.15rem 0.45rem; border-radius:999px; }
 .estoque-catalogo-list{ display:flex; flex-direction:column; gap:0.75rem; margin-top:0.75rem; }
 .estoque-catalogo-card{ padding:0.75rem 1rem; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
@@ -5184,6 +5206,23 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
 .cockpit-reuniao-kicker{ font-size:0.7rem; font-weight:650; letter-spacing:.04em; text-transform:uppercase; color:#64748b; }
 .cockpit-reuniao-fonte{ font-size:0.78rem; color:#64748b; }
 .cockpit-reuniao-acoes{ margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem 0.65rem; }
+.cockpit-dia-calmo .cockpit-cols,
+.cockpit-dia-calmo .dashboard-sala-espera,
+.cockpit-dia-calmo .dashboard-concluidos-hoje,
+.cockpit-dia-calmo .cockpit-mudanca-ontem,
+.cockpit-dia-calmo .cockpit-executive{
+  display:none !important;
+}
+.cockpit-dia-calmo .dashboard-agenda-hoje,
+.cockpit-dia-calmo .cockpit-more{
+  display:none !important;
+}
+.cockpit-dia-calmo .cockpit-reuniao{
+  background:#fff;
+  border:1px solid var(--sc-line, #eceaf3);
+  border-radius:14px;
+  padding:1.15rem 1.2rem 1.25rem;
+}
 @media (max-width: 800px){
   .cockpit-reuniao-grid{ grid-template-columns:1fr; }
 }

@@ -25,7 +25,7 @@ import { listProcedures } from "../services/procedimentos.service.js"
 import { resumoAluguelNaAgenda, textoAluguelNaAgenda } from "../utils/aluguel-dia.js"
 import { getEntradasHojeComAgenda } from "../services/financeiro.service.js"
 import { getCockpitSnapshot, getCockpitMesSnapshot } from "../services/cockpit.service.js"
-import { textoContextoReuniao } from "../utils/reuniao-hoje.js"
+import { textoContextoReuniao, diaCalmoHoje } from "../utils/reuniao-hoje.js"
 import { chaveSessaoFecharDia, payloadAuditoriaFecharDia } from "../utils/fechar-dia.js"
 import { audit } from "../services/audit.service.js"
 import { toast } from "../ui/toast.js"
@@ -545,8 +545,13 @@ async function renderCockpit() {
 
   const snap = await getCockpitSnapshot()
   const k = snap.kpis
+  const calmo = diaCalmoHoje(k)
+  document.getElementById("view-dashboard")?.classList.toggle("cockpit-dia-calmo", calmo)
   if (kpisEl) {
-    kpisEl.innerHTML = `
+    kpisEl.classList.toggle("hidden", calmo)
+    kpisEl.innerHTML = calmo
+      ? ""
+      : `
       <div class="cockpit-kpi"><b>${k.hojeCount}</b><span>hoje</span></div>
       <div class="cockpit-kpi"><b>${k.confirmados}</b><span>confirmados</span></div>
       <div class="cockpit-kpi"><b>${k.atrasos}</b><span>atrasos</span></div>
@@ -604,6 +609,16 @@ function renderReuniaoHoje(reuniao) {
   const el = document.getElementById("cockpitReuniao")
   if (!el) return
   const r = reuniao || {}
+  if (r.modo === "calmo") {
+    el.innerHTML = `
+      <h3 class="cockpit-reuniao-title">${escapeHtml(r.titulo || "Hoje está calmo")}</h3>
+      <p class="cockpit-reuniao-lead">${escapeHtml(r.lead || "Não tem ninguém na agenda hoje.")}</p>
+      <div class="cockpit-reuniao-acoes">
+        <button type="button" class="btn-primary" data-view="agenda">${escapeHtml(r.proximo?.acao || "Marcar horário")}</button>
+        <button type="button" class="btn-secondary" data-view="crm">${escapeHtml(r.fila?.acao || "Ver a fila")}</button>
+      </div>`
+    return
+  }
   el.innerHTML = `
     <h3 class="cockpit-reuniao-title">${escapeHtml(r.titulo || "Reunião de hoje")}</h3>
     <p class="cockpit-reuniao-lead">${escapeHtml(r.lead || "")}</p>
@@ -671,14 +686,23 @@ function renderFecharDia(resumo, lembretes = []) {
       : `<button type="button" class="btn-primary btn-sm" id="btnFecharDia">Confirmar fechamento do dia</button>`
   el.classList.toggle("cockpit-fechar-dia--ok", r.status === "ok")
   el.classList.toggle("cockpit-fechar-dia--aberto", r.status === "aberto")
-  el.innerHTML = `
-    <h3 class="cockpit-fechar-dia-title">Fechar o dia</h3>
+  if (r.status === "vazio" && nLembrete === 0) {
+    el.innerHTML = ""
+    el.classList.add("hidden")
+    return
+  }
+  el.classList.remove("hidden")
+  const corpoFechar = r.status === "vazio"
+    ? `<p class="cockpit-fechar-dia-lead">${escapeHtml(r.lead || "Sem horário nem baixa hoje. Não há o que fechar.")}</p>`
+    : `<h3 class="cockpit-fechar-dia-title">Fechar o dia</h3>
     <p class="cockpit-fechar-dia-lead">${escapeHtml(r.lead || "")}</p>
     <ul class="cockpit-fechar-dia-linhas">${linhas}</ul>
     <div class="cockpit-fechar-dia-acoes">
       ${confirmarHtml}
       <button type="button" class="btn-secondary btn-sm" data-view="financeiro" data-financeiro-tab="fechamento">Gaveta no Financeiro</button>
-    </div>
+    </div>`
+  el.innerHTML = `
+    ${corpoFechar}
     <div class="cockpit-lembretes">
       <h4 class="cockpit-lembretes-title">Lembrete de amanhã (${nLembrete})</h4>
       <p class="cockpit-fechar-dia-lead">WhatsApp só no clique, um a um, na Agenda. O lote da madrugada não dispara mensagem.</p>

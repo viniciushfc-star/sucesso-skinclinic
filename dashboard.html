@@ -15,7 +15,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=clinica-ux-1">
+<link rel="stylesheet" href="./js/css/style.css?v=estoque-ux-1">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -182,7 +182,7 @@
         <div class="cockpit-head">
           <p class="cockpit-kicker">Hoje na clínica</p>
           <h2 class="cockpit-title">O que precisa da sua atenção agora?</h2>
-          <p class="cockpit-lead">Reunião de hoje, fechar o dia e lembrete de amanhã um a um. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
+          <p class="cockpit-lead">O próximo passo do dia. Sem WhatsApp automático.</p>
         </div>
         <div class="cockpit-tabs" role="tablist" aria-label="Período do cockpit">
           <button type="button" class="cockpit-tab is-active" role="tab" aria-selected="true" data-cockpit-tab="hoje" id="cockpitTabHoje">Hoje</button>
@@ -1453,13 +1453,15 @@
         <div class="view-header estoque-header">
           <div>
             <h2>Estoque</h2>
-            <p class="view-lead">Cadastre o produto uma vez. Quando a caixa chegar, leia a nota ou dê entrada. A leitura sugere; você <strong>Revisa</strong> e confirma. Nada grava sozinho.</p>
+            <p class="view-lead">Quanto tem, o que cadastrou, o que acabou de chegar. Nada grava sozinho.</p>
           </div>
           <div class="estoque-toolbar">
             <button type="button" id="btnEstoqueCadastrarProduto" class="btn-primary">Cadastrar produto</button>
             <button type="button" id="btnEstoqueIrEntrada" class="btn-secondary">Chegou produto</button>
           </div>
         </div>
+        <label class="sr-only" for="estoqueBusca">Buscar produto</label>
+        <input type="search" id="estoqueBusca" class="estoque-busca" placeholder="Buscar produto…" autocomplete="off">
         <details id="estoquePortfolioSqlHint" class="view-sql-details">
           <summary>Cadastro ou foto falhou?</summary>
           <p class="view-hint">Cole no Supabase, se o toast pedir: supabase/supabase-estoque-portfolio-colar.sql. Foto: supabase/supabase-produto-imagem-canal-colar.sql. Mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
@@ -1467,51 +1469,57 @@
         <div class="gestao-abas" id="estoqueAbas">
           <div class="gestao-abas-nav" role="tablist" aria-label="Seções do estoque">
             <button type="button" class="gestao-abas-tab is-active" role="tab" aria-selected="true" data-gestao-tab="saldo">Saldo</button>
-            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="portfolio">Portfólio</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="portfolio">Cadastro</button>
             <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="entrada">Chegou</button>
             <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="lotes">Lotes</button>
-            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="acerto">Acerto</button>
+            <button type="button" class="gestao-abas-tab" role="tab" aria-selected="false" data-gestao-tab="acerto">Análise</button>
           </div>
           <div data-gestao-pane="saldo">
             <div class="view-card estoque-resumo-wrap" id="estoqueResumoWrap">
               <h3 class="view-card-title">Quanto tem</h3>
               <div id="estoqueResumo" class="estoque-resumo"></div>
+              <p id="estoqueResumoEmpty" class="estoque-empty hidden">Nada no saldo ainda. Cadastre o produto ou registre a caixa que chegou.</p>
             </div>
             <div class="view-card estoque-proximos-vencer-wrap" id="estoqueProximosVencerWrap">
               <h3 class="view-card-title">Próximo a vencer</h3>
               <p class="view-hint estoque-proximos-vencer-hint">Vencidos ou com menos de 1 ano. Priorize uso ou campanha.</p>
               <div id="estoqueProximosVencerList" class="estoque-proximos-vencer-list"></div>
             </div>
-            <div class="view-card" id="estoqueRevendaCard">
-              <h3 class="view-card-title">O que mais sai</h3>
-              <p class="view-hint">Ranking de saídas e lucro estimado. Preço fica no portfólio.</p>
+            <details class="view-card" id="estoqueRevendaCard">
+              <summary class="view-card-title">O que mais sai</summary>
+              <p class="view-hint">Ranking de saídas e lucro estimado. Preço fica no cadastro.</p>
               <div id="estoqueRevendaGrafico" class="estoque-revenda-grafico"></div>
               <div id="estoqueRevendaTabela" class="estoque-revenda-tabela"></div>
-            </div>
+            </details>
           </div>
           <div data-gestao-pane="portfolio" class="hidden">
             <div class="view-card">
-              <h3 class="view-card-title">Portfólio</h3>
-              <p class="view-hint">Nome, foto, custo e preço. Quantidade só na entrada, quando a caixa chega.</p>
+              <h3 class="view-card-title">Cadastro</h3>
+              <p class="view-hint">Nome, foto, custo e preço. Quantidade só quando a caixa chega.</p>
               <div id="estoqueCatalogoList" class="estoque-catalogo-list"></div>
-              <p id="estoqueCatalogoEmpty" class="estoque-empty hidden">Nenhum produto no portfólio ainda. Use Cadastrar produto.</p>
+              <p id="estoqueCatalogoEmpty" class="estoque-empty hidden">Nenhum produto cadastrado. Use Cadastrar produto.</p>
             </div>
           </div>
           <div data-gestao-pane="entrada" class="hidden">
             <div class="view-card">
               <h3 class="view-card-title">Produto chegou</h3>
-              <p class="view-hint">Nota, caderno ou XML: a leitura sugere, você revisa. Frete entra no investimento se você informar.</p>
+              <p class="view-hint">A leitura sugere; você revisa e confirma.</p>
               <div class="estoque-entrada-actions">
                 <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">Ler nota ou caderno</button>
-                <button type="button" id="btnEstoqueColarTexto" class="btn-secondary">Colar texto da nota</button>
-                <button type="button" id="btnEstoqueImportarNota" class="btn-secondary">Importar XML</button>
                 <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">Entrada no estoque</button>
               </div>
+              <details class="estoque-entrada-mais">
+                <summary>Colar texto ou XML</summary>
+                <div class="estoque-entrada-actions">
+                  <button type="button" id="btnEstoqueColarTexto" class="btn-secondary">Colar texto da nota</button>
+                  <button type="button" id="btnEstoqueImportarNota" class="btn-secondary">Importar XML</button>
+                </div>
+              </details>
             </div>
             <div class="view-card">
               <h3 class="view-card-title">Últimas entradas</h3>
               <div id="listaEstoqueEntradas" class="lista-estoque-entradas"></div>
-              <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Cadastre no portfólio e registre quando a caixa chegar.</p>
+              <p id="estoqueEmpty" class="estoque-empty hidden">Nenhuma entrada ainda. Cadastre o produto e registre quando a caixa chegar.</p>
             </div>
           </div>
           <div data-gestao-pane="lotes" class="hidden">
@@ -2092,7 +2100,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=clinica-ux-1"></script>
+<script type="module" src="./js/core/spa.js?v=estoque-ux-1"></script>
 
 </body>
 </html>

@@ -64,6 +64,11 @@ function bindUI() {
   }
   const btnIrEntrada = document.getElementById("btnEstoqueIrEntrada")
   if (btnIrEntrada) btnIrEntrada.onclick = () => showEstoqueAba("entrada")
+  const busca = document.getElementById("estoqueBusca")
+  if (busca && !busca.dataset.bound) {
+    busca.dataset.bound = "1"
+    busca.addEventListener("input", () => filtrarEstoque(busca.value))
+  }
 
   const periodoAcuracia = document.getElementById("estoqueAcuraciaPeriodo")
   if (periodoAcuracia) periodoAcuracia.addEventListener("change", () => renderAcuracia())
@@ -105,6 +110,14 @@ function bindUI() {
   }
 }
 
+function filtrarEstoque(q) {
+  const n = String(q || "").trim().toLowerCase()
+  document.querySelectorAll("[data-estoque-nome]").forEach((el) => {
+    const ok = !n || String(el.getAttribute("data-estoque-nome") || "").includes(n)
+    el.classList.toggle("hidden", !ok)
+  })
+}
+
 async function renderCatalogo() {
   const listEl = document.getElementById("estoqueCatalogoList")
   const emptyEl = document.getElementById("estoqueCatalogoEmpty")
@@ -143,7 +156,7 @@ async function renderCatalogo() {
       const saldo = saldoPorNome[String(p.nome || "").trim().toLowerCase()]
       const saldoTxt = saldo != null ? `<p class="estoque-catalogo-meta">Em estoque (estimado): ${Number(saldo).toFixed(2)}</p>` : ""
       return `
-        <div class="estoque-catalogo-card">
+        <div class="estoque-catalogo-card" data-estoque-nome="${escapeAttr(String(p.nome || "").toLowerCase())}">
           <div class="estoque-catalogo-main">
             ${produtoThumb(img, p.nome)}
             <div class="estoque-catalogo-body">
@@ -173,6 +186,7 @@ async function renderCatalogo() {
         if (row) openCadastroProduto(row)
       })
     })
+    filtrarEstoque(document.getElementById("estoqueBusca")?.value)
   } catch (err) {
     const msg = String(err?.message || "")
     if (/portfolio-colar|estoque_produtos|does not exist/i.test(msg)) {
@@ -201,11 +215,14 @@ async function renderRevenda() {
       if (r.custo_medio != null) custoMedioPorNome[n] = Number(r.custo_medio)
     }
     const rows = montarRevenda({ catalogo, consumoPorNome, custoMedioPorNome })
+    const revendaCard = document.getElementById("estoqueRevendaCard")
     if (!rows.length) {
-      tableEl.innerHTML = "<p class=\"estoque-acuracia-empty\">Cadastre produtos no portfólio e registre saídas (protocolo ou consumo) para ver ranking e lucro.</p>"
+      revendaCard?.classList.add("hidden")
+      tableEl.innerHTML = ""
       chartEl.innerHTML = ""
       return
     }
+    revendaCard?.classList.remove("hidden")
     tableEl.innerHTML = `
       <table class="estoque-acuracia-table estoque-revenda-table">
         <thead>
@@ -274,7 +291,7 @@ async function renderList() {
       const total = e.valor_total != null ? `R$ ${Number(e.valor_total).toFixed(2)}` : "—"
       const origem = e.origem === "ocr" ? "Nota fiscal" : e.origem === "xml" ? "XML" : "Manual"
       return `
-        <div class="estoque-entrada-card">
+        <div class="estoque-entrada-card" data-estoque-nome="${escapeAttr(String(e.produto_nome || "").toLowerCase())}">
           <span class="estoque-entrada-produto">${escapeHtml(e.produto_nome || "")}</span>
           <span class="estoque-entrada-qty">${Number(e.quantidade)}</span>
           <span class="estoque-entrada-total">${total}</span>
@@ -284,6 +301,7 @@ async function renderList() {
         </div>
       `
     }).join("")
+    filtrarEstoque(document.getElementById("estoqueBusca")?.value)
   } catch (err) {
     console.error("[ESTOQUE]", err)
     toast(err.message || "Erro ao carregar entradas.")
@@ -316,7 +334,7 @@ async function renderProximosVencer() {
         const cls = alerta?.nivel === "vencido" ? "estoque-proximos-vencer-item estoque-validade-vencido" : "estoque-proximos-vencer-item"
         const badge = alerta ? `<span class="estoque-validade-badge estoque-validade-badge--${alerta.nivel}">${escapeHtml(alerta.label)}</span>` : ""
         return `
-          <div class="${cls}">
+          <div class="${cls}" data-estoque-nome="${escapeAttr(String(r.produto_nome || "").toLowerCase())}">
             <span class="estoque-proximos-vencer-produto">${escapeHtml(r.produto_nome)} ${badge}</span>
             <span class="estoque-proximos-vencer-validade">Vence: ${dataFormatada}</span>
             ${r.quantidade ? `<span class="estoque-proximos-vencer-qty">${r.quantidade} un.</span>` : ""}
@@ -327,6 +345,7 @@ async function renderProximosVencer() {
       })
     )
     listEl.innerHTML = html.join("")
+    filtrarEstoque(document.getElementById("estoqueBusca")?.value)
   } catch (e) {
     console.warn("[ESTOQUE] Próximos a vencer:", e)
     wrap.classList.add("hidden")
@@ -341,27 +360,37 @@ async function renderResumo() {
 
   try {
     const resumo = await getResumoPorProduto()
+    const emptyEl = document.getElementById("estoqueResumoEmpty")
     if (resumo.length === 0) {
-      wrap?.classList.add("hidden")
+      wrap?.classList.remove("hidden")
+      el.innerHTML = ""
+      emptyEl?.classList.remove("hidden")
       return
     }
+    emptyEl?.classList.add("hidden")
     const catalogo = await listProdutosCatalogo().catch(() => [])
     const byNome = Object.fromEntries((catalogo || []).map((p) => [String(p.nome || "").toLowerCase(), p]))
     wrap?.classList.remove("hidden")
-    el.innerHTML = resumo.map((r) => {
+    const rankAlerta = (r) => {
+      const a = alertaMinimo(r.saldo_estimado, r.minimo)
+      if (a?.nivel === "abaixo") return 0
+      if (a) return 1
+      return 2
+    }
+    const ordered = [...resumo].sort((a, b) => rankAlerta(a) - rankAlerta(b) || String(a.produto_nome || "").localeCompare(String(b.produto_nome || ""), "pt"))
+    el.innerHTML = ordered.map((r) => {
       const saldo = Number(r.saldo_estimado).toFixed(2)
       const prod = escapeHtml(r.produto_nome)
       const cat = byNome[String(r.produto_nome || "").toLowerCase()]
-      const semSaldo = Number(r.entrada_qty) === 0 ? `<span class="estoque-resumo-portfolio">Só no portfólio</span>` : ""
+      const semSaldo = Number(r.entrada_qty) === 0 ? `<span class="estoque-resumo-portfolio">Só no cadastro</span>` : ""
       const minAlert = alertaMinimo(r.saldo_estimado, r.minimo)
       const minTxt = minAlert ? `<span class="estoque-validade-badge estoque-validade-badge--${minAlert.nivel === "abaixo" ? "vencido" : "menos_1_ano"}">${escapeHtml(minAlert.label)}</span>` : (r.minimo != null && Number(r.minimo) > 0 ? `<span class="view-hint">Mínimo ${Number(r.minimo)}</span>` : "")
       return `
-        <div class="estoque-resumo-card">
+        <div class="estoque-resumo-card" data-estoque-nome="${escapeAttr(String(r.produto_nome || "").toLowerCase())}">
           ${produtoThumb(cat?.imagem_url, r.produto_nome)}
-          <span class="estoque-resumo-produto">${prod} ${minTxt}</span>
-          <span class="estoque-resumo-saldo">Saldo: ${saldo}</span>
-          ${semSaldo}
-          <button type="button" class="btn-secondary estoque-btn-avaliar" data-produto="${escapeAttr(r.produto_nome)}" title="Avaliar este produto (nota e comentário)">Avaliar produto</button>
+          <span class="estoque-resumo-produto">${prod} ${minTxt} ${semSaldo}</span>
+          <span class="estoque-resumo-saldo">${saldo}</span>
+          <button type="button" class="estoque-btn-avaliar" data-produto="${escapeAttr(r.produto_nome)}" title="Avaliar este produto (nota e comentário)">Avaliar</button>
         </div>
       `
     }).join("")
@@ -371,8 +400,11 @@ async function renderResumo() {
         openModalAvaliarProduto(nome)
       })
     })
+    filtrarEstoque(document.getElementById("estoqueBusca")?.value)
   } catch (err) {
-    wrap?.classList.add("hidden")
+    wrap?.classList.remove("hidden")
+    el.innerHTML = ""
+    document.getElementById("estoqueResumoEmpty")?.classList.remove("hidden")
   }
 }
 
@@ -406,12 +438,13 @@ async function renderLotes() {
       .map((l) => {
         const validade = l.data_validade ? new Date(l.data_validade + "T12:00:00").toLocaleDateString("pt-BR") : "sem validade"
         const loteLabel = l.lote === "sem_lote" ? "sem lote" : `lote ${l.lote}`
-        return `<div class="estoque-resumo-card">
+        return `<div class="estoque-resumo-card" data-estoque-nome="${escapeAttr(String(l.produto_nome || "").toLowerCase())}">
           <span class="estoque-resumo-produto">${escapeHtml(l.produto_nome)}</span>
           <span class="estoque-resumo-saldo">${Number(l.saldo).toFixed(2)} un. · ${escapeHtml(loteLabel)} · vence ${escapeHtml(validade)}</span>
         </div>`
       })
       .join("")
+    filtrarEstoque(document.getElementById("estoqueBusca")?.value)
   } catch (err) {
     listEl.innerHTML = `<p class="view-hint">${escapeHtml(err.message || "Não carregou os lotes.")}</p>`
   }

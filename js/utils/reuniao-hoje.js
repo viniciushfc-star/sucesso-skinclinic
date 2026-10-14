@@ -127,6 +127,7 @@ export function pontoForteHoje({
       elo: "baixa",
     });
   }
+  if (n(hojeCount) === 0) return null;
   const melhor = lucroHora?.melhor;
   if (melhor?.name && melhor.lucroHora != null) {
     return ponto({
@@ -157,7 +158,31 @@ export function pontoFracoHoje({ atencao = [], oportunidades = [], gargalo = nul
   return null;
 }
 
+export function diaCalmoHoje({
+  hojeCount = 0,
+  atrasos = 0,
+  previsto = 0,
+  recebido = 0,
+} = {}) {
+  return n(hojeCount) === 0 && n(atrasos) === 0 && n(previsto) < 0.01 && n(recebido) < 0.01;
+}
+
 export function montarReuniaoHoje(input = {}) {
+  if (diaCalmoHoje(input)) {
+    const espera = n(input.espera);
+    return {
+      modo: "calmo",
+      titulo: "Hoje está calmo",
+      lead: espera > 0
+        ? "Não tem horário hoje. Tem gente na espera — você decide o encaixe."
+        : "Não tem ninguém na agenda hoje.",
+      forte: null,
+      fraco: null,
+      gargalo: null,
+      proximo: { acao: "Marcar horário", view: "agenda" },
+      fila: { acao: "Ver a fila", view: "crm" },
+    };
+  }
   const gargalo = gargaloDoCiclo(input);
   const forte = pontoForteHoje(input);
   const fraco = pontoFracoHoje({
@@ -167,13 +192,14 @@ export function montarReuniaoHoje(input = {}) {
   });
   const proximo = gargalo || fraco;
   return {
+    modo: "rotina",
     titulo: "Reunião de hoje",
-    lead: "Os elos conversam com o número da casa. Sem WhatsApp automático e sem mudar preço.",
+    lead: "Sem WhatsApp automático. O preço não muda sozinho.",
     forte,
     fraco: fraco && gargalo && fraco.titulo === gargalo.titulo ? null : fraco && forte && fraco.titulo === forte.titulo ? null : fraco,
     gargalo,
     proximo: proximo
-      ? { acao: `Abrir ${proximo.view === "crm" ? "o CRM" : proximo.view === "agenda" ? "a agenda" : "a tela indicada"} e decidir o próximo passo.`, view: proximo.view }
+      ? { acao: `Abrir ${proximo.view === "crm" ? "o Relacionamento" : proximo.view === "agenda" ? "a agenda" : "a tela"} e decidir o próximo passo.`, view: proximo.view }
       : { acao: "Nada urgente com fonte. Bom sinal — confira a agenda mesmo assim.", view: "agenda" },
   };
 }
