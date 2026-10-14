@@ -338,6 +338,7 @@ async function refreshSidebarMenus() {
   initSidebarGroup("gestaoWrap", "btnGestao", "gestaoSubmenu");
   initSidebarGroup("inteligenciaWrap", "btnInteligencia", "inteligenciaSubmenu");
   await initMenuAnamneseVisibility();
+  await applyCopilotFab();
 }
 
 async function applyMenuPermissions() {
@@ -392,6 +393,7 @@ async function applyMenuPermissions() {
     } catch (_) {}
     finWrap.classList.toggle("menu-item-hidden", !canFin);
   }
+  await applyCopilotFab();
   const mktWrap = document.getElementById("marketingWrap");
   if (mktWrap) {
     let canMkt = false;
@@ -400,6 +402,25 @@ async function applyMenuPermissions() {
     } catch (_) {}
     mktWrap.classList.toggle("menu-item-hidden", !canMkt);
   }
+}
+
+async function applyCopilotFab() {
+  const fab = document.getElementById("copilotFab");
+  if (!fab) return;
+  let can = false;
+  try {
+    can =
+      (await checkPermission("ia:copilot").catch(() => false)) ||
+      (await checkPermission("ia:assist").catch(() => false));
+  } catch (_) {
+    can = false;
+  }
+  window.__scCanCopilotFab = can;
+  const panel = document.getElementById("copilotPanel");
+  const panelOpen = panel && !panel.classList.contains("hidden");
+  fab.classList.toggle("copilot-fab--hidden", !can || panelOpen);
+  fab.title = "Assistente da clínica: explica números e a ficha. Não decide, não grava, não manda WhatsApp.";
+  fab.setAttribute("aria-label", "Abrir assistente da clínica");
 }
 
 /**
@@ -576,7 +597,7 @@ async function initMenuAnamneseVisibility() {
 let navGen = 0;
 
 async function importViewFile(file) {
-  const href = `../views/${file}?v=cobranca-app-2`;
+  const href = `../views/${file}?v=import-ritmo-1`;
   try {
     return await import(href);
   } catch (err) {
@@ -718,6 +739,14 @@ async function carregarView(viewName, gen = navGen) {
         window.__scCopilotBound = true;
       }
       if (notif?.updateBadge) await notif.updateBadge();
+      await applyCopilotFab();
+      if (!window.__scAvisosSync) {
+        window.__scAvisosSync = true;
+        import("../services/avisos.service.js")
+          .then((m) => m.sincronizarAvisosClinica())
+          .then(() => notif.updateBadge?.())
+          .catch((e) => console.warn("[SPA] avisos", e));
+      }
       updateAppIdentity().catch(() => {});
     }
     if (viewName === "dashboard") {

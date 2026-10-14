@@ -19,6 +19,8 @@ import { getEntradasHojeComAgenda } from "./financeiro.service.js";
 import { listConsumoEstoque } from "./estoque-entradas.service.js";
 import { dataOntemIso, linhasMudancaVsOntem } from "../utils/mudanca-ontem.js";
 import { explicarVariacao, somaConsumoNoDia } from "../utils/ia-executive.js";
+import { montarReuniaoHoje } from "../utils/reuniao-hoje.js";
+import { amanhaIso, pendentesLembrete, montarFecharDia } from "../utils/fechar-dia.js";
 
 export { statusAgendaItem, horaAgenda };
 
@@ -74,9 +76,11 @@ export async function getCockpitSnapshot() {
   const ontem = dataOntemIso(hoje);
   const now = hhmmNow();
 
-  const [appointments, appointmentsOntem, entradasHoje, entradasOntem, consumos, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
+  const amanha = amanhaIso(hoje);
+  const [appointments, appointmentsOntem, appointmentsAmanha, entradasHoje, entradasOntem, consumos, procedures, inativos, espera, analises, contas, radar, margem] = await Promise.all([
     soft(() => listAppointmentsByDate(hoje)),
     soft(() => listAppointmentsByDate(ontem)),
+    soft(() => listAppointmentsByDate(amanha)),
     soft(() => getEntradasHojeComAgenda(hoje)),
     soft(() => getEntradasHojeComAgenda(ontem)),
     soft(() => listConsumoEstoque(500)),
@@ -131,6 +135,25 @@ export async function getCockpitSnapshot() {
         : "";
   const rankedLucro = rankLucroHora(procedures);
   const lucroHoraCard = lucroHoraOpportunity(rankedLucro);
+  const recebido = somaRecebidoBaixas(entradasHoje);
+  const esperaN = (espera || []).length;
+  const inativosN = (inativos || []).length;
+  const analisesN = (analises || []).length;
+  const semResponsavel = (appointments || []).filter((a) => !isEvent(a) && !a.user_id).length;
+  const atencao = buildAttentionInsights({
+    atrasos,
+    contasVencidas: contasVencidas.length,
+    analisesPendentes: analisesN,
+    inativos: inativosN,
+    produtosRisco: produtosRisco.length,
+    margemLinha,
+  });
+  const oportunidades = buildOpportunityInsights({
+    espera: esperaN,
+    radar: radarFila.length,
+    lucroHora: lucroHoraCard,
+  });
+  const lucroHora = summarizeLucroHora(rankedLucro);
 
   return {
     hoje,
@@ -139,6 +162,7 @@ export async function getCockpitSnapshot() {
       confirmados,
       atrasos,
       previsto,
+      recebido,
     },
     mudancaOntem: linhasMudancaVsOntem({
       agendaHoje: appointments.length,
@@ -162,20 +186,34 @@ export async function getCockpitSnapshot() {
     }),
     ontem,
     agenda: itens,
-    atencao: buildAttentionInsights({
+    atencao,
+    oportunidades,
+    lucroHora,
+    fecharDia: montarFecharDia({
+      data: hoje,
+      hojeCount: appointments.length,
+      previsto,
+      recebido,
       atrasos,
-      contasVencidas: contasVencidas.length,
-      analisesPendentes: (analises || []).length,
-      inativos: (inativos || []).length,
-      produtosRisco: produtosRisco.length,
-      margemLinha,
     }),
-    oportunidades: buildOpportunityInsights({
-      espera: (espera || []).length,
-      radar: radarFila.length,
-      lucroHora: lucroHoraCard,
+    lembretesAmanha: pendentesLembrete(appointmentsAmanha).map((a) => ({
+      hora: horaAgenda(a),
+      nome: clienteNome(a),
+    })),
+    reuniao: montarReuniaoHoje({
+      hojeCount: appointments.length,
+      confirmados,
+      atrasos,
+      previsto,
+      recebido,
+      espera: esperaN,
+      inativos: inativosN,
+      analisesPendentes: analisesN,
+      semResponsavel,
+      atencao,
+      oportunidades,
+      lucroHora,
     }),
-    lucroHora: summarizeLucroHora(rankedLucro),
   };
 }
 

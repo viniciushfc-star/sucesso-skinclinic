@@ -22,7 +22,9 @@ import { getOrgMembers } from "../core/org.js";
 import { toCSV } from "../utils/csv.js";
 import { relatorioContadorToReadable } from "../utils/contador-report.js";
 import { toast } from "../ui/toast.js";
-import { navigate } from "../core/spa.js";
+import { openConfirmModal } from "../ui/modal.js";
+import { userFacingError } from "../core/errors.js";
+import { textoConfirmarImportacao, textoErroPlanilha } from "../utils/import-ritmo.js";
 
 let pendingImportFile = null;
 let pendingImportRowCount = 0;
@@ -311,7 +313,7 @@ function mostrarPreviewOuImportar(fileInput, resultEl) {
     file.arrayBuffer().then((buf) =>
       planilhaDeXlsx(buf).then((parsed) => mostrarPreviewDeParsed(parsed, resultEl))
     ).catch((e) => {
-      resultEl.innerHTML = "<p class=\"import-result-err\">" + (e.message || String(e)).replace(/</g, "&lt;") + "</p>";
+      resultEl.innerHTML = "<p class=\"import-result-err\">" + textoErroPlanilha(e).replace(/</g, "&lt;") + "</p>";
       resultEl.classList.remove("hidden");
       pendingImportFile = null;
       pendingImportRowCount = 0;
@@ -332,7 +334,7 @@ function mostrarPreviewDeTexto(text, resultEl) {
   } catch (e) {
     const btn = document.getElementById("btnImportarLote");
     if (btn) btn.disabled = true;
-    resultEl.innerHTML = "<p class=\"import-result-err\">" + (e.message || String(e)).replace(/</g, "&lt;") + "</p>";
+    resultEl.innerHTML = "<p class=\"import-result-err\">" + textoErroPlanilha(e).replace(/</g, "&lt;") + "</p>";
     resultEl.classList.remove("hidden");
     pendingImportFile = null;
     pendingImportRowCount = 0;
@@ -386,7 +388,7 @@ function renderPreviaComMapa(resultEl, tipo, mapa) {
     headers.map((h) => "<th>" + String(h).replace(/</g, "&lt;") + "</th>").join("") +
     "</tr></thead><tbody>" + tableRows + "</tbody></table></div>" +
     (previa.total > previa.sample.length ? "<p>… e mais " + (previa.total - previa.sample.length) + " linha(s).</p>" : "") +
-    "<p>Se estiver certo, clique em <strong>Importar</strong>. Duplicados no banco serão pulados se essa opção estiver marcada.</p>";
+    "<p>Se estiver certo, clique em <strong>Importar</strong>. Confirma de novo antes de gravar. WhatsApp não sai. Duplicados no banco serão pulados se essa opção estiver marcada.</p>";
   resultEl.classList.remove("hidden");
   const btn = document.getElementById("btnImportarLote");
   if (btn) btn.disabled = !previa.podeImportar || falta.length > 0;
@@ -407,13 +409,22 @@ function confirmarImportacao(resultEl) {
     toast("Arquivo muito grande. Máximo " + MAX_IMPORT_ROWS + " linhas por vez.");
     return;
   }
-  executarImportacao(pendingImportFile, resultEl);
-  pendingImportFile = null;
-  pendingImportRowCount = 0;
-  const fileEl = document.getElementById("importFile");
-  if (fileEl) fileEl.value = "";
-  const btn = document.getElementById("btnImportarLote");
-  if (btn) btn.disabled = true;
+  const tipo = getTipoSelecionado();
+  const previa = analisarPreviaImportacao(tipo, pendingMappedRows || []);
+  const file = pendingImportFile;
+  openConfirmModal(
+    "Gravar a lista?",
+    textoConfirmarImportacao({ tipo, total: pendingImportRowCount, okEstimado: previa.okEstimado }),
+    () => {
+      executarImportacao(file, resultEl);
+      pendingImportFile = null;
+      pendingImportRowCount = 0;
+      const fileEl = document.getElementById("importFile");
+      if (fileEl) fileEl.value = "";
+      const btn = document.getElementById("btnImportarLote");
+      if (btn) btn.disabled = true;
+    }
+  );
 }
 
 async function executarImportacao(fileOrFromInput, resultEl) {
@@ -445,9 +456,10 @@ async function executarImportacao(fileOrFromInput, resultEl) {
     toast(result.inseridos > 0 ? "Importação concluída." : "Nenhum registro inserido; verifique erros.");
   } catch (err) {
     console.error("[IMPORT]", err);
-    resultEl.innerHTML = "<p class=\"import-result-err\">" + (err.message || String(err)).replace(/</g, "&lt;") + "</p>";
+    const msg = userFacingError(err, "Não foi possível gravar a lista.");
+    resultEl.innerHTML = "<p class=\"import-result-err\">" + msg.replace(/</g, "&lt;") + "</p>";
     resultEl.classList.remove("hidden");
-    toast("Erro ao importar.");
+    toast(msg, "error");
   }
 }
 
@@ -491,9 +503,9 @@ async function executarRestaurarBackup(fileInput, resultEl) {
     resultEl.classList.remove("hidden");
     toast("Restauração concluída (sem apagar o que já existia).");
   } catch (err) {
-    resultEl.innerHTML = "<p class=\"import-result-err\">" + (err.message || String(err)).replace(/</g, "&lt;") + "</p>";
+    resultEl.innerHTML = "<p class=\"import-result-err\">" + userFacingError(err, "Não foi possível restaurar o backup.").replace(/</g, "&lt;") + "</p>";
     resultEl.classList.remove("hidden");
-    toast("Erro ao restaurar backup.");
+    toast("Não foi possível restaurar o backup.", "error");
   }
 }
 
@@ -527,7 +539,7 @@ async function exportar(tabela){
    err
   )
 
-  toast("Erro ao exportar")
+  toast(userFacingError(err, "Não foi possível exportar."), "error")
  }
 }
 

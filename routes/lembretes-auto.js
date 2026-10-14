@@ -17,7 +17,10 @@ import { mapaSilencioPorCliente, estaEmSilencio, SILENCIO_EVENT_TYPE } from "../
  * Decide se o cron pode disparar WhatsApp. Não envia.
  * @returns {{ enviar: boolean, reason: string|null }}
  */
-export function decisaoWhatsappLembrete({ events, hojeIso, clientId, temTelefone } = {}) {
+export function decisaoWhatsappLembrete({ events, hojeIso, clientId, temTelefone, origem } = {}) {
+  if (origem === "lote" || origem === "cron") {
+    return { enviar: false, reason: "humano_clica" };
+  }
   if (!temTelefone) return { enviar: false, reason: "sem_telefone" };
   if (estaEmSilencio(mapaSilencioPorCliente(events || [], hojeIso), clientId)) {
     return { enviar: false, reason: "silencio_humano" };
@@ -206,6 +209,7 @@ export default async function lembretesAuto(req, res) {
         hojeIso: hoje,
         clientId: cli.id,
         temTelefone: true,
+        origem: "lote",
       });
       if (!wa.enviar) {
         envios.push({ sent: false, reason: wa.reason });

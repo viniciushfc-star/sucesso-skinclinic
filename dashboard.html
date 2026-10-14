@@ -15,7 +15,7 @@
  src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 
-<link rel="stylesheet" href="./js/css/style.css?v=destaque-mercado-1">
+<link rel="stylesheet" href="./js/css/style.css?v=import-ritmo-1">
 
 <!-- Chart.js 3 (UMD completo: line, scales) para gráficos do dashboard -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
@@ -182,7 +182,7 @@
         <div class="cockpit-head">
           <p class="cockpit-kicker">Hoje na clínica</p>
           <h2 class="cockpit-title">O que precisa da sua atenção agora?</h2>
-          <p class="cockpit-lead">Agenda, pendências e oportunidades. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
+          <p class="cockpit-lead">Reunião de hoje, fechar o dia e lembrete de amanhã um a um. Você decide. Sem WhatsApp automático e sem mudar preço.</p>
         </div>
         <div class="cockpit-tabs" role="tablist" aria-label="Período do cockpit">
           <button type="button" class="cockpit-tab is-active" role="tab" aria-selected="true" data-cockpit-tab="hoje" id="cockpitTabHoje">Hoje</button>
@@ -190,6 +190,8 @@
         </div>
         <div id="cockpitPaneHoje" class="cockpit-pane" role="tabpanel" aria-labelledby="cockpitTabHoje">
         <div class="cockpit-kpis" id="cockpitKpis" aria-live="polite"></div>
+        <section id="cockpitReuniao" class="cockpit-reuniao" aria-live="polite" aria-label="Reunião de hoje"></section>
+        <section id="cockpitFecharDia" class="cockpit-fechar-dia" aria-live="polite" aria-label="Fechar o dia"></section>
         <div id="cockpitMudancaOntem" class="cockpit-mudanca-ontem" aria-live="polite"></div>
         <div id="cockpitExecutive" class="cockpit-executive" aria-live="polite"></div>
         <div class="dashboard-agenda-hoje" id="dashboardAgendaHoje">
@@ -290,7 +292,13 @@
           </div>
           <div class="view-card import-block">
             <h3 class="view-card-title">Traga sua lista</h3>
-            <p class="view-hint">No Excel: envie o <strong>.xlsx</strong>, copie as células (com o cabeçalho) ou salve como CSV. Caderno: baixe o modelo e digite os nomes que mais vêm — sem foto mágica.</p>
+            <p class="view-hint">No Excel: envie o <strong>.xlsx</strong>, copie as células (com o cabeçalho) ou salve como CSV. Caderno: baixe o modelo e digite. Sem foto mágica e sem WhatsApp.</p>
+            <ol class="import-ritmo" id="importRitmo">
+              <li>Escolha o tipo (clientes, agenda…)</li>
+              <li>Envie .xlsx/CSV ou cole as células com o cabeçalho</li>
+              <li>Confira o mapa e a prévia — nada grava ainda</li>
+              <li>Clique em Importar e confirme. WhatsApp não sai. Sem desfazer automático.</li>
+            </ol>
             <label for="importTipo">Tipo de dados</label>
             <select id="importTipo">
               <option value="clientes">Clientes</option>
@@ -631,7 +639,7 @@
               <details class="agenda-toolbar-mais">
                 <summary>CSV</summary>
                 <input type="file" id="importAgendaFile" accept=".csv,text/csv,application/csv" class="hidden" aria-label="Selecionar CSV">
-                <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Importar CSV">Importar</button>
+                <button type="button" id="btnImportarAgenda" class="agenda-toolbar-action" title="Traga a grade com prévia. Nada grava na leitura.">Importar</button>
                 <a href="#" id="btnModeloAgenda" class="agenda-toolbar-action" title="Modelo CSV">Modelo</a>
               </details>
             </div>
@@ -648,6 +656,7 @@
           </div>
           <div class="agenda-day-wrap">
             <p class="agenda-week-hint">Com Todas no filtro, cada coluna é uma profissional do dia. Clique no vazio da coluna para marcar nela.</p>
+            <p class="agenda-legenda" aria-hidden="true"><span class="agenda-legenda-i agenda-legenda-i--clinica"></span> Horário da clínica <span class="agenda-legenda-i agenda-legenda-i--google"></span> Ocupado no Google (sem detalhes)</p>
             <div id="agendaWeekGrid" class="agenda-week" role="grid" aria-label="Agenda da semana"></div>
             <details class="agenda-day-aside" open>
               <summary class="agenda-day-title" id="agendaDayTitle">Dia selecionado</summary>
@@ -675,7 +684,7 @@
             <label class="import-opcao-inline" title="Desmarque para importar todas; duplicados aparecerão como erro para revisar">
               <input type="checkbox" id="procedimentosPularDuplicados" checked> Pular duplicados
             </label>
-            <button type="button" id="btnImportarProcedimentos" class="btn-secondary" title="Importar procedimentos (CSV)">📥 Importar CSV</button>
+            <button type="button" id="btnImportarProcedimentos" class="btn-secondary" title="Traga a lista com mapa e prévia. Nada grava na leitura.">📥 Traga a lista</button>
             <button type="button" id="btnNovoProcedimento" class="btn-primary">+ Novo procedimento</button>
           </div>
         </div>
@@ -764,7 +773,7 @@
               <summary class="btn-secondary financeiro-import-export-summary" aria-label="Abrir opções de importar e exportar">📥📄 Importar e exportar</summary>
               <div class="financeiro-import-export-menu" role="menu">
                 <button type="button" id="btnImportarExtrato" class="financeiro-import-export-item" role="menuitem">Importar extrato</button>
-                <button type="button" id="btnImportarPlanilha" class="financeiro-import-export-item" title="Importar planilha financeira (CSV)" role="menuitem">Importar CSV</button>
+                <button type="button" id="btnImportarPlanilha" class="financeiro-import-export-item" title="Traga a planilha com mapa e prévia. Nada grava na leitura." role="menuitem">Traga a planilha</button>
                 <a href="#" id="btnModeloFinanceiro" class="financeiro-import-export-item financeiro-import-export-link" title="Baixar modelo CSV" role="menuitem">Modelo CSV</a>
                 <button type="button" id="btnPdf" class="financeiro-import-export-item" role="menuitem">Exportar PDF</button>
               </div>
@@ -1419,7 +1428,7 @@
       <section id="view-estoque" class="view hidden">
         <div class="view-header">
           <h2>Estoque</h2>
-          <p class="view-lead">Cadastre o produto uma vez no portfólio (com foto, se quiser). As outras listas usam esse cadastro — sem repetir preço em várias tabelas.</p>
+          <p class="view-lead">Cadastre o produto uma vez no portfólio (com foto, se quiser). Foto de nota ou caderno: a leitura sugere, você <strong>Revisa</strong> e só então confirma a entrada. Nada grava sozinho.</p>
         </div>
         <p id="estoquePortfolioSqlHint" class="view-hint">Se o cadastro do portfólio falhar, rode no Supabase o SQL supabase/supabase-estoque-portfolio-colar.sql. Foto do produto: supabase/supabase-produto-imagem-canal-colar.sql. Para mínimo, lote e conferência: supabase/supabase-estoque-lotes-colar.sql.</p>
         <div class="view-card">
@@ -1441,7 +1450,7 @@
           <h3 class="view-card-title">Entrada de estoque</h3>
           <p class="view-hint">Use estes botões só quando o produto chegou. Informe o frete da compra se quiser incluir no investimento.</p>
           <div class="estoque-entrada-actions">
-            <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">📷 Ler nota fiscal</button>
+            <button type="button" id="btnEstoqueEntradaOCR" class="btn-primary">📷 Ler nota ou caderno</button>
             <button type="button" id="btnEstoqueColarTexto" class="btn-secondary">Colar texto da nota</button>
             <button type="button" id="btnEstoqueImportarNota" class="btn-secondary">📄 Importar nota (XML)</button>
             <button type="button" id="btnEstoqueEntradaManual" class="btn-secondary">Entrada no estoque</button>
@@ -1495,7 +1504,7 @@
       <section id="view-ocr" class="view hidden">
         <div class="view-header">
           <h2>Notas fiscais</h2>
-          <p class="view-lead">Emissão de nota fiscal de serviço (NFS-e). Para dar entrada no estoque a partir de nota de compra, use <a href="#" data-view="estoque">Estoque</a> → Ler nota fiscal.</p>
+          <p class="view-lead">Emissão de nota fiscal de serviço (NFS-e). Para dar entrada no estoque a partir de nota ou caderno, use <a href="#" data-view="estoque">Estoque</a> → Ler nota ou caderno (sempre com Revisar).</p>
         </div>
         <div class="view-card ocr-emitir-card">
           <h3 class="view-card-title">Emitir nota fiscal</h3>
@@ -1988,10 +1997,10 @@
   </div>
 
   <!-- Copilot: botão flutuante + painel no canto inferior direito -->
-  <button type="button" id="copilotFab" class="copilot-fab" aria-label="Abrir Copilot" title="Perguntar ao Copilot">🤖</button>
-  <div id="copilotPanel" class="copilot-panel hidden" role="dialog" aria-label="Copilot — Esclarecer dúvidas">
+  <button type="button" id="copilotFab" class="copilot-fab copilot-fab--hidden" aria-label="Abrir assistente da clínica" title="Assistente da clínica: explica números e a ficha. Não decide.">🤖</button>
+  <div id="copilotPanel" class="copilot-panel hidden" role="dialog" aria-label="Assistente da clínica">
     <div class="copilot-panel-header">
-      <span class="copilot-panel-title">🤖 Copilot</span>
+      <span class="copilot-panel-title">🤖 Assistente</span>
       <button type="button" class="copilot-panel-close" id="copilotPanelClose" aria-label="Fechar">×</button>
     </div>
     <div class="copilot-panel-context" id="copilotPanelContext"></div>
@@ -2043,7 +2052,7 @@
 </div>
 
 <script src="./js/core/boot-error.js"></script>
-<script type="module" src="./js/core/spa.js?v=cobranca-app-2"></script>
+<script type="module" src="./js/core/spa.js?v=import-ritmo-1"></script>
 
 </body>
 </html>

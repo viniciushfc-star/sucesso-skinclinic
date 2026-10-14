@@ -15,6 +15,7 @@ import { getResumoPorProduto } from "../services/estoque-entradas.service.js";
 import { createEstudoCaso } from "../services/estudo-caso.service.js";
 import { listRegistrosByClient } from "../services/anamnesis.service.js";
 import { listEvolutionPhotosByClient, addEvolutionPhoto, deleteEvolutionPhoto } from "../services/evolution-photos.service.js";
+import { paresAntesDepois, indicesParPadrao, rotuloParEvolucao, ehDepois } from "../utils/antes-depois.js";
 import { listAllProcedureStockUsage, listProcedures } from "../services/procedimentos.service.js";
 import { custoRealFromUsage } from "../utils/estoque-custo.js";
 import { listPacotesByClient, createPacote } from "../services/pacotes.service.js";
@@ -30,6 +31,7 @@ import { resumoMargemOrcamento, maxParcelasPreservandoLucro, custoUnitarioServic
 import { custoCatalogoComFrete } from "../utils/estoque-revenda.js";
 import { compararPlanoVsAplicado } from "../utils/plano-vs-aplicado.js";
 import { resumoCicloOuroFicha, proximaAcaoCicloFicha, aplicadoSemMaterial, sinaisInicioCiclo, linhaCicloOuroCabecalho } from "../utils/ciclo-ouro-ficha.js";
+import { contextoFichaCopiloto } from "../utils/ficha-copiloto.js";
 import { listPlanosDoCliente, listPlanosTerapeuticos } from "../services/planos-terapeuticos.service.js";
 import { listAnalisesPeleByClient } from "../services/analise-pele.service.js";
 import { getEntradasByAgendaId } from "../services/financeiro.service.js";
@@ -88,7 +90,9 @@ let cachedPlanosCatalogo = [];
 let cachedCanAgendar = false;
 let cachedCanCriarPlano = false;
 let cachedCanIaAssist = false;
+let cachedCanCopilot = false;
 let cachedProtocolosFicha = [];
+let cachedAplicadosFicha = [];
 let cachedCicloFicha = { pacotes: [], anamnese: [], analises: [], lancamentos: [], temAgendaFutura: false };
 
 export async function init() {
@@ -154,7 +158,11 @@ export async function init() {
     cachedCanAgendar = await checkPermission("agenda:manage").catch(() => false);
     cachedCanCriarPlano = await checkPermission("procedimentos:view").catch(() => false);
     cachedCanIaAssist = await checkPermission("ia:assist").catch(() => false);
+    cachedCanCopilot =
+      (await checkPermission("ia:copilot").catch(() => false)) ||
+      (await checkPermission("ia:assist").catch(() => false));
     cachedProtocolosFicha = protocolos || [];
+    cachedAplicadosFicha = protocolosAplicados || [];
     renderPerfil(currentClient, events, canEditClient, skincareRotina, protocolos, protocolosAplicados, registrosAnamnese, evolutionPhotos, proceduresList, produtosEstoque, cpfOther, pacotes, orcamentos, taxasOrg);
     if (sessionStorage.getItem("clientePerfilOpenEdit") === "1") {
       sessionStorage.removeItem("clientePerfilOpenEdit");
@@ -368,7 +376,8 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
           ${renderMapaInjetaveisSection(registrosAnamnese)}
           <div class="cliente-evolucao-fotos-ad" id="clienteEvolutionPhotosWrap">
             <h4 class="cliente-evolucao-title">Fotos antes/depois</h4>
-            <p class="client-hint">Registre fotos de evolução por data e tipo (antes ou depois). Opcionalmente associe a um procedimento. Use <strong>Comparar fotos</strong> para ver duas fotos lado a lado.</p>
+            <p class="client-hint">Tire o <strong>antes</strong> na consulta e o <strong>depois</strong> na sessão seguinte, no mesmo procedimento. O par aparece sozinho. Comparar não publica em rede.</p>
+            <div id="clienteEvolutionPhotosPares" class="antes-depois-pares">${renderParesAntesDepois(evolutionPhotos, proceduresList)}</div>
             <div id="clienteEvolutionPhotosCompareWrap" class="cliente-evolucao-fotos-compare-wrap" style="${(evolutionPhotos || []).length >= 2 ? "" : "display:none"}">
               <button type="button" class="btn-secondary" id="btnCompararFotos">Comparar fotos</button>
             </div>
@@ -384,7 +393,7 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
                 <option value="antes">Antes</option>
                 <option value="depois">Depois</option>
               </select>
-              <label>Procedimento (opcional)</label>
+              <label>Procedimento (mesmo no antes e no depois)</label>
               <select id="evolutionPhotoProcedure">
                 <option value="">— Nenhum —</option>
                 ${(proceduresList || []).map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
@@ -503,28 +512,18 @@ function renderPerfil(client, events, canEdit = false, skincareRotina = null, pr
       <div id="tabEvolucao" class="tab-pane hidden">
         <div class="cliente-evolucao-aba">
           <p class="cliente-perfil-anamnese-link"><button type="button" class="btn-link btn-open-anamnese" title="Abrir anamnese">Abrir anamnese</button></p>
-          <p class="client-hint cliente-evolucao-aba-hint">Fotos antes e depois para acompanhar a evolução do tratamento. Use para <strong>mostrar ao cliente a melhora</strong> e incentivar a continuidade; também para <strong>montar conteúdo para redes sociais</strong> (com autorização de uso de imagem).</p>
+          <p class="client-hint cliente-evolucao-aba-hint">Mostre o par na consulta. Relatório imprime se o cliente autorizar a imagem. O sistema não posta sozinho.</p>
           <div class="cliente-evolucao-aba-actions">
             ${(evolutionPhotos || []).length >= 2 ? `<button type="button" class="btn-primary" id="btnCompararFotosEvolucao">Comparar fotos</button>` : ""}
             <button type="button" class="btn-secondary" id="btnRelatorioEvolucao">Relatório antes/depois</button>
+            <button type="button" class="btn-link" id="btnIrFotosHistorico">Adicionar foto no Histórico</button>
           </div>
           <div class="cliente-evolucao-aba-galeria">
-            <h4 class="cliente-evolucao-title">Galeria de evolução</h4>
-            <div id="clienteEvolutionPhotosListEvolucao" class="cliente-evolucao-fotos-grid cliente-evolucao-fotos-grid--aba">
-              ${(evolutionPhotos || []).length ? (evolutionPhotos || []).map((ph) => {
-                const procName = (proceduresList || []).find((p) => p.id === ph.procedure_id)?.name || "";
-                return `<div class="cliente-evolucao-foto-item" data-id="${ph.id}">
-                  <a href="${escapeHtml(ph.photo_url)}" target="_blank" rel="noopener" class="cliente-evolucao-foto-link">
-                    <img src="${escapeHtml(ph.photo_url)}" alt="" class="cliente-evolucao-foto-thumb" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23f1f5f9%22 width=%22100%22 height=%22100%22/%3E%3Ctext x=%2250%22 y=%2255%22 fill=%22%2394a3b8%22 text-anchor=%22middle%22 font-size=%2212%22%3EErro%3C/text%3E%3C/svg%3E'">
-                  </a>
-                  <div class="cliente-evolucao-foto-meta">
-                    <span class="cliente-evolucao-foto-date">${formatDate(ph.taken_at)}</span>
-                    <span class="cliente-evolucao-foto-type cliente-evolucao-foto-type--${ph.type}">${ph.type === "depois" ? "Depois" : "Antes"}</span>
-                    ${procName ? `<span class="cliente-evolucao-foto-proc">${escapeHtml(procName)}</span>` : ""}
-                    ${ph.notes ? `<span class="cliente-evolucao-foto-notes">${escapeHtml(ph.notes)}</span>` : ""}
-                  </div>
-                </div>`;
-              }).join("") : "<p class=\"cliente-evolucao-empty\">Nenhuma foto de evolução. Adicione fotos na aba <strong>Histórico</strong> (seção Fotos antes/depois) para montar a galeria e comparativos.</p>"}
+            <h4 class="cliente-evolucao-title">Pares na ficha</h4>
+            <div id="clienteEvolutionPhotosParesEvolucao" class="antes-depois-pares">${renderParesAntesDepois(evolutionPhotos, proceduresList)}</div>
+            <h4 class="cliente-evolucao-title">Ainda sem par</h4>
+            <div id="clienteEvolutionPhotosListEvolucao" class="cliente-evolucao-fotos-list">
+              ${renderEvolutionPhotosSoltas(evolutionPhotos, proceduresList)}
             </div>
           </div>
         </div>
@@ -698,8 +697,13 @@ function renderCicloOuroFichaDados(planosCliente, protocolos, aplicados, extra =
   return `<section class="ciclo-ouro-ficha-wrap ciclo-ouro-ficha-wrap--dados" aria-label="Plano, protocolo e o que foi aplicado">
     <div class="ciclo-ouro-ficha-head">
       <h3 class="ciclo-ouro-ficha-title">Neste paciente</h3>
+      <div class="ciclo-ouro-ficha-head-acoes">
+      ${cachedCanCopilot ? `<button type="button" class="btn-secondary btn-sm btn-ficha-explicar">Explicar esta ficha</button>` : ""}
       <button type="button" class="btn-link" id="btnCicloVerProtocolo">Registrar feito</button>
+      <button type="button" class="btn-link" id="btnCicloVerEvolucao">Antes/depois</button>
+      </div>
     </div>
+    ${htmlResumoParesFicha(cachedEvolutionPhotos)}
     ${htmlCicloOuroSinais(extra)}
     <div class="ciclo-ouro-ficha" role="region">${htmlCicloOuroCols(resumo)}</div>
     <p class="client-hint">Plano é o combinado; protocolo é a receita; aplicado é o feito. O sistema não troca um pelo outro.</p>
@@ -758,7 +762,10 @@ function renderCicloOuroFicha(planosCliente, protocolos, aplicados, extra = {}) 
   } else if (cachedCanAgendar && !catalogo.length) {
     acao = `<p class="ciclo-ouro-ficha__empty">Peça à gestão um plano em Procedimentos. Depois agende por aqui.</p>`;
   }
-  return `${htmlCicloOuroSinais(extra)}<div class="ciclo-ouro-ficha" role="region" aria-label="Plano, protocolo e o que foi aplicado">${cols}</div>${avisoMaterial}${acao}`;
+  const explicar = cachedCanCopilot
+    ? `<div class="ciclo-ouro-ficha__acao"><button type="button" class="btn-secondary btn-sm btn-ficha-explicar">Explicar esta ficha</button><p class="ciclo-ouro-ficha__empty">A IA explica o ciclo. Não grava, não muda preço, não manda WhatsApp.</p></div>`
+    : "";
+  return `${htmlCicloOuroSinais(extra)}<div class="ciclo-ouro-ficha" role="region" aria-label="Plano, protocolo e o que foi aplicado">${cols}</div>${avisoMaterial}${acao}${explicar}`;
 }
 
 function renderDivergenciaPlanoAplicado(pacotes, aplicados, planos = []) {
@@ -818,11 +825,72 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function renderEvolutionPhotosList(photos, proceduresList = []) {
-  const procMap = (proceduresList || []).reduce((acc, p) => { acc[p.id] = p.name; return acc; }, {});
-  if (!photos || photos.length === 0) {
-    return `<p class="cliente-evolucao-empty">Nenhuma foto de evolução ainda. Use o formulário abaixo para adicionar fotos antes/depois.</p>`;
+function htmlFotoEvolucao(ph, alt, extraClass = "") {
+  const url = escapeHtml(ph?.photo_url || "");
+  return `<a href="${url}" target="_blank" rel="noopener" class="cliente-evolucao-foto-link ${extraClass}">
+    <img src="${url}" alt="${escapeHtml(alt || "")}" class="cliente-evolucao-foto-thumb" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect fill=%22%23f1f5f9%22 width=%22100%22 height=%22100%22/%3E%3Ctext x=%2250%22 y=%2255%22 fill=%22%2394a3b8%22 text-anchor=%22middle%22 font-size=%2212%22%3EErro%3C/text%3E%3C/svg%3E'">
+  </a>`;
+}
+
+function htmlResumoParesFicha(photos) {
+  const n = paresAntesDepois(photos).pares.length;
+  if (!n) {
+    return `<p class="antes-depois-ficha-resumo">Ainda sem par antes/depois. Tire o antes na consulta.</p>`;
   }
+  return `<p class="antes-depois-ficha-resumo">${n} par${n === 1 ? "" : "es"} no prontuário. Abrir Evolução para mostrar na consulta. Sem post automático.</p>`;
+}
+
+function renderParesAntesDepois(photos, proceduresList = []) {
+  const procMap = (proceduresList || []).reduce((acc, p) => { acc[p.id] = p.name; return acc; }, {});
+  const { pares } = paresAntesDepois(photos);
+  if (!pares.length) {
+    return `<p class="cliente-evolucao-empty">Sem par ainda. Grave um <strong>antes</strong> e, na sessão seguinte, o <strong>depois</strong> no mesmo procedimento. WhatsApp e rede não saem daqui.</p>`;
+  }
+  return pares
+    .map((par, idx) => {
+      const rotulo = escapeHtml(rotuloParEvolucao(par, procMap));
+      return `<article class="antes-depois-par">
+        <p class="antes-depois-par-kicker">Antes / depois</p>
+        <p class="antes-depois-par-rotulo">${rotulo}</p>
+        <div class="antes-depois-par-grid">
+          <figure class="antes-depois-lado">
+            ${htmlFotoEvolucao(par.antes, "Antes")}
+            <figcaption>Antes · ${escapeHtml(formatDate(par.antes.taken_at))}</figcaption>
+            <button type="button" class="btn-evolution-photo-delete btn-sm" data-id="${escapeHtml(par.antes.id)}" title="Excluir foto">Excluir antes</button>
+          </figure>
+          <figure class="antes-depois-lado">
+            ${htmlFotoEvolucao(par.depois, "Depois")}
+            <figcaption>Depois · ${escapeHtml(formatDate(par.depois.taken_at))}</figcaption>
+            <button type="button" class="btn-evolution-photo-delete btn-sm" data-id="${escapeHtml(par.depois.id)}" title="Excluir foto">Excluir depois</button>
+          </figure>
+        </div>
+        <button type="button" class="btn-secondary btn-sm btn-comparar-par" data-par-idx="${idx}">Comparar este par</button>
+        <p class="antes-depois-par-fonte">Fonte: fotos de evolução no prontuário.</p>
+      </article>`;
+    })
+    .join("");
+}
+
+function renderEvolutionPhotosSoltas(photos, proceduresList = []) {
+  const { soltas } = paresAntesDepois(photos);
+  if (!(photos || []).length) {
+    return `<p class="cliente-evolucao-empty">Nenhuma foto ainda. Use Histórico para adicionar.</p>`;
+  }
+  if (!soltas.length) {
+    return `<p class="cliente-evolucao-empty">Todas as fotos já estão em um par.</p>`;
+  }
+  return renderEvolutionPhotosGrid(soltas, proceduresList);
+}
+
+function renderEvolutionPhotosList(photos, proceduresList = []) {
+  if (!photos || photos.length === 0) {
+    return `<p class="cliente-evolucao-empty">Nenhuma foto de evolução ainda. Use o formulário abaixo para o antes e, depois, o depois.</p>`;
+  }
+  return renderEvolutionPhotosSoltas(photos, proceduresList);
+}
+
+function renderEvolutionPhotosGrid(photos, proceduresList = []) {
+  const procMap = (proceduresList || []).reduce((acc, p) => { acc[p.id] = p.name; return acc; }, {});
   return `<div class="cliente-evolucao-fotos-grid">${photos.map((ph) => {
     const procName = ph.procedure_id ? (procMap[ph.procedure_id] || "—") : "";
     return `
@@ -1067,8 +1135,7 @@ function bindEvolutionPhotoDeletes(clientId) {
         const listEl = document.getElementById("clienteEvolutionPhotosList");
         if (listEl) listEl.innerHTML = renderEvolutionPhotosList(photos, cachedProceduresList);
         updateCompararFotosWrap(photos);
-        bindEvolutionPhotoDeletes(clientId);
-        bindCompararFotos(clientId);
+        await refreshEvolutionPhotosUi(clientId);
       } catch (err) {
         toast(err?.message || "Erro ao excluir.");
       }
@@ -1082,17 +1149,39 @@ function updateCompararFotosWrap(photos) {
   wrap.style.display = (photos || []).length >= 2 ? "" : "none";
 }
 
-function openCompararFotosModal(clientId) {
+async function refreshEvolutionPhotosUi(clientId) {
+  const photos = await listEvolutionPhotosByClient(clientId);
+  cachedEvolutionPhotos = photos;
+  const procs = cachedProceduresList || [];
+  const listEl = document.getElementById("clienteEvolutionPhotosList");
+  if (listEl) listEl.innerHTML = renderEvolutionPhotosList(photos, procs);
+  const paresEl = document.getElementById("clienteEvolutionPhotosPares");
+  if (paresEl) paresEl.innerHTML = renderParesAntesDepois(photos, procs);
+  const paresEvo = document.getElementById("clienteEvolutionPhotosParesEvolucao");
+  if (paresEvo) paresEvo.innerHTML = renderParesAntesDepois(photos, procs);
+  const listEvo = document.getElementById("clienteEvolutionPhotosListEvolucao");
+  if (listEvo) listEvo.innerHTML = renderEvolutionPhotosSoltas(photos, procs);
+  const resumo = document.querySelector(".antes-depois-ficha-resumo");
+  if (resumo) resumo.outerHTML = htmlResumoParesFicha(photos);
+  updateCompararFotosWrap(photos);
+  bindEvolutionPhotoDeletes(clientId);
+  bindCompararFotos(clientId);
+}
+
+function openCompararFotosModal(clientId, parIdx = null) {
   const photos = cachedEvolutionPhotos || [];
   if (photos.length < 2) {
     toast("É preciso ter pelo menos 2 fotos para comparar.");
     return;
   }
+  const { pares } = paresAntesDepois(photos);
+  const par = Number.isInteger(parIdx) && pares[parIdx] ? pares[parIdx] : pares[0] || null;
+  const def = indicesParPadrao(photos, par);
   const options = photos.map((p, i) => `<option value="${i}">${formatDate(p.taken_at)} — ${p.type === "depois" ? "Depois" : "Antes"}${p.notes ? " — " + escapeHtml(p.notes) : ""}</option>`).join("");
   openModal(
     "Comparar fotos",
     `
-    <p class="client-hint">Duas fotos compactas, para mostrar no aparelho durante a consulta.</p>
+    <p class="client-hint">Duas fotos compactas, para mostrar no aparelho durante a consulta. Não publica em rede.</p>
     <div class="comparar-fotos-selects">
       <label>Primeira foto</label>
       <select id="comparePhoto1">${options}</select>
@@ -1117,24 +1206,29 @@ function openCompararFotosModal(clientId) {
     preview.innerHTML = `
       <div class="comparar-fotos-lado">
         <img src="${escapeHtml(p1.photo_url)}" alt="Foto 1" class="comparar-fotos-img">
-        <p class="comparar-fotos-legenda">${formatDate(p1.taken_at)} — ${p1.type === "depois" ? "Depois" : "Antes"}${p1.notes ? " · " + escapeHtml(p1.notes) : ""}</p>
+        <p class="comparar-fotos-legenda">${formatDate(p1.taken_at)} — ${ehDepois(p1) ? "Depois" : "Antes"}${p1.notes ? " · " + escapeHtml(p1.notes) : ""}</p>
       </div>
       <div class="comparar-fotos-lado">
         <img src="${escapeHtml(p2.photo_url)}" alt="Foto 2" class="comparar-fotos-img">
-        <p class="comparar-fotos-legenda">${formatDate(p2.taken_at)} — ${p2.type === "depois" ? "Depois" : "Antes"}${p2.notes ? " · " + escapeHtml(p2.notes) : ""}</p>
+        <p class="comparar-fotos-legenda">${formatDate(p2.taken_at)} — ${ehDepois(p2) ? "Depois" : "Antes"}${p2.notes ? " · " + escapeHtml(p2.notes) : ""}</p>
       </div>
     `;
   }
   sel1?.addEventListener("change", renderPreview);
   sel2?.addEventListener("change", renderPreview);
-  if (photos.length > 1) {
-    sel2.value = "1";
-  }
+  if (sel1) sel1.value = String(def.i1);
+  if (sel2) sel2.value = String(def.i2);
   renderPreview();
 }
 
 function bindCompararFotos(clientId) {
-  document.getElementById("btnCompararFotos")?.addEventListener("click", () => openCompararFotosModal(clientId));
+  const btnHist = document.getElementById("btnCompararFotos");
+  if (btnHist) btnHist.onclick = () => openCompararFotosModal(clientId);
+  const btnEvo = document.getElementById("btnCompararFotosEvolucao");
+  if (btnEvo) btnEvo.onclick = () => openCompararFotosModal(clientId);
+  document.querySelectorAll(".btn-comparar-par").forEach((btn) => {
+    btn.onclick = () => openCompararFotosModal(clientId, Number(btn.dataset.parIdx));
+  });
 }
 
 /** Abre relatório de evolução (fotos antes/depois) em nova janela para impressão ou uso em redes (com autorização). */
@@ -1148,6 +1242,16 @@ function openRelatorioEvolucaoModal(client) {
     toast("Permita pop-ups para abrir o relatório.");
     return;
   }
+  const { pares } = paresAntesDepois(photos);
+  const paresHtml = pares.length
+    ? `<div class="evolucao-grid">${pares
+        .slice(0, 4)
+        .map(
+          (par) =>
+            `<div class="evolucao-col"><h3>Antes · ${formatDate(par.antes.taken_at)}</h3><div class="evolucao-fotos"><div class="evolucao-foto-item"><img src="${String(par.antes.photo_url || "").replace(/"/g, "&quot;")}" alt=""></div></div></div><div class="evolucao-col"><h3>Depois · ${formatDate(par.depois.taken_at)}</h3><div class="evolucao-fotos"><div class="evolucao-foto-item"><img src="${String(par.depois.photo_url || "").replace(/"/g, "&quot;")}" alt=""></div></div></div>`
+        )
+        .join("")}</div>`
+    : "";
   const fotosHtml = (list, label) =>
     list.length
       ? `<div class="evolucao-col"><h3>${label}</h3><div class="evolucao-fotos">${list
@@ -1165,10 +1269,10 @@ function openRelatorioEvolucaoModal(client) {
 </head>
 <body>
   <h1>Evolução do tratamento — ${nome}</h1>
-  <p>Relatório antes/depois para acompanhamento e, com autorização do cliente, uso em redes sociais.</p>
-  <div class="evolucao-grid">${fotosHtml(antes, "Antes")}${fotosHtml(depois, "Depois")}</div>
+  <p>Relatório antes/depois para acompanhamento. Só compartilhe se o cliente autorizou a imagem. O sistema não publica sozinho.</p>
+  ${paresHtml || `<div class="evolucao-grid">${fotosHtml(antes, "Antes")}${fotosHtml(depois, "Depois")}</div>`}
   ${!photos.length ? "<p>Nenhuma foto de evolução registrada. Adicione na aba Histórico (Fotos antes/depois).</p>" : ""}
-  <div class="footer">Gerado pelo SkinClinic. Use com autorização de imagem do cliente.</div>
+  <div class="footer">Gerado pelo SkinClinic. Use com autorização de imagem do cliente. Sem post automático.</div>
   <script>window.onload=function(){window.print();};</script>
 </body>
 </html>`);
@@ -1838,16 +1942,18 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
           procedureEl?.value || null,
           notesEl?.value?.trim() || null
         );
-        toast("Foto adicionada.");
         fileEl.value = "";
         notesEl.value = "";
-        const photos = await listEvolutionPhotosByClient(client.id);
-        cachedEvolutionPhotos = photos;
-        const listEl = document.getElementById("clienteEvolutionPhotosList");
-        if (listEl) listEl.innerHTML = renderEvolutionPhotosList(photos, cachedProceduresList);
-        updateCompararFotosWrap(photos);
-        bindEvolutionPhotoDeletes(client.id);
-        bindCompararFotos(client.id);
+        await refreshEvolutionPhotosUi(client.id);
+        const tipo = typeEl?.value || "antes";
+        const nPares = paresAntesDepois(cachedEvolutionPhotos).pares.length;
+        toast(
+          nPares
+            ? "Foto no prontuário. Par montado quando há antes e depois no mesmo procedimento."
+            : tipo === "depois"
+              ? "Depois gravado. Sem par ainda: falta um antes na mesma data ou procedimento."
+              : "Antes gravado. Na próxima sessão, tire o depois no mesmo procedimento. Sem post automático."
+        );
       } catch (err) {
         console.error(err);
         toast(err?.message || "Erro ao adicionar foto.");
@@ -1921,6 +2027,60 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   document.getElementById("btnCicloVerProtocolo")?.addEventListener("click", () => {
     document.querySelector('.tab-btn[data-tab="protocolo"]')?.click();
     document.getElementById("protocoloDescricao")?.focus();
+  });
+  document.getElementById("btnCicloVerEvolucao")?.addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-tab="evolucao"]')?.click();
+  });
+  document.getElementById("btnIrFotosHistorico")?.addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-tab="historico"]')?.click();
+    document.getElementById("clienteEvolutionPhotosWrap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  document.querySelectorAll(".btn-ficha-explicar").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const extra = cachedCicloFicha || {};
+      const aplicados = cachedAplicadosFicha || [];
+      const linha = linhaCicloOuroCabecalho(
+        resumoCicloOuroFicha({
+          planosCliente: cachedPlanosCliente,
+          protocolos: cachedProtocolosFicha,
+          aplicados,
+          pacotes: extra.pacotes || [],
+        })
+      );
+      const prox = proximaAcaoCicloFicha({
+        planosCliente: cachedPlanosCliente,
+        pacotes: extra.pacotes || [],
+        aplicados,
+        lancamentos: extra.lancamentos || [],
+        temAgendaFutura: !!extra.temAgendaFutura,
+        today: getTodayLocal(),
+      });
+      const proxima =
+        prox.titulo ||
+        (prox.tipo === "registrar" ? "Registrar o que foi aplicado" : "") ||
+        (prox.tipo === "baixa" ? "Conferir baixa no horário" : "") ||
+        (prox.tipo === "proxima" ? "Agendar próxima sessão" : "");
+      const ctx = contextoFichaCopiloto({
+        nome: client?.name,
+        proxima,
+        combinado: linha.combinado,
+        receita: linha.receita,
+        feito: linha.feito,
+        avisoMaterial: aplicadoSemMaterial(aplicados),
+      });
+      try {
+        if (typeof window.__scOpenCopilot === "function") {
+          window.__scOpenCopilot(ctx);
+          return;
+        }
+        const { initCopilotPanel, openCopilotPanel } = await import("./notificacoes.views.js");
+        initCopilotPanel();
+        openCopilotPanel(ctx);
+      } catch (err) {
+        console.error(err);
+        toast("Não foi possível abrir o Copiloto nesta ficha.");
+      }
+    });
   });
   document.getElementById("btnVenderPacote")?.addEventListener("click", () => openVenderPacoteModal(client, proceduresList));
   bindOrcamentoCardActions(client, orcamentos, proceduresList);
@@ -2239,7 +2399,6 @@ function bindPerfilEvents(client, canEdit, proceduresList = [], orcamentos = [])
   document.getElementById("btnRegistrarEvento")?.addEventListener("click", () => openEventModal(client));
   document.getElementById("btnRegistrarCombinado")?.addEventListener("click", () => openCombinadoModal(client));
 
-  document.getElementById("btnCompararFotosEvolucao")?.addEventListener("click", () => openCompararFotosModal(client.id));
   document.getElementById("btnRelatorioEvolucao")?.addEventListener("click", () => openRelatorioEvolucaoModal(client));
 
   document.getElementById("btnEnviarLinkTermo")?.addEventListener("click", async () => {

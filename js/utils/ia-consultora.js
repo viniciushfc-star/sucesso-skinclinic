@@ -47,6 +47,7 @@ export function intentConsultora(pergunta) {
   if (/quantos?\s+cliente|numero de cliente|qtd(?:\.|uanta)? de cliente/.test(s)) return "clientes";
   if (/quantos?\s+(horario|agend|atend)/.test(s) || (/agenda/.test(s) && /quant/.test(s))) return "agenda";
   if (/total/.test(s) && /financeiro|lanc/.test(s)) return "financeiro_total";
+  if (/melhor(ar|ia)|o que (falta|melhorar)|gargalo|como (andar|crescer) a clinica/.test(s)) return "melhoria";
   return "";
 }
 
@@ -117,11 +118,29 @@ export function formatarComFonte(texto, fonte) {
   return `${t} Fonte: ${f}.`;
 }
 
+function textoMelhoria(fatos) {
+  const clientes = fatoPorId(fatos, "clientes");
+  const agenda = fatoPorId(fatos, "agenda");
+  const entrada = fatoPorId(fatos, "financeiro_entrada");
+  const partes = [];
+  if (clientes) partes.push(`${clientes.valor} clientes na amostra (fonte: ${clientes.fonte})`);
+  if (agenda) partes.push(`${agenda.valor} horários na amostra da agenda (fonte: ${agenda.fonte})`);
+  if (entrada) partes.push(`entradas ${brl(entrada.valor)} na amostra (fonte: ${entrada.fonte})`);
+  if (!partes.length) {
+    return { texto: MSG_SEM_FONTE, fonte: "", valor: null, modo: "sem_dado", intent: "melhoria" };
+  }
+  const texto = `Com o que a clínica já registrou: ${partes.join("; ")}. Melhoria começa nesses números — encaixe, responsável na agenda, espera. A IA não decide o plano.`;
+  return { texto, fonte: "dados pré-agregados da clínica", valor: null, modo: "fato", intent: "melhoria" };
+}
+
 export function responderConsultora(pergunta, fatos) {
   const intent = intentConsultora(pergunta);
   if (!intent) return null;
   if (intent === "fora") {
     return { texto: MSG_SEM_FONTE, fonte: "", valor: null, modo: "sem_dado", intent };
+  }
+  if (intent === "melhoria") {
+    return textoMelhoria(fatos);
   }
   const fato = fatoPorId(fatos, intent === "financeiro_total" ? "financeiro_total" : intent);
   if (!fato) {

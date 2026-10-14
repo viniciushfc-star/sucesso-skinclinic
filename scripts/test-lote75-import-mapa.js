@@ -68,7 +68,9 @@ describe("Lote 75 traga sua lista", () => {
     assert.doesNotMatch(exp, /sendWhatsapp/);
     const cli = readFileSync(join(ROOT, "js/views/clientes.views.js"), "utf8");
     assert.match(cli, /btnTragaLista/);
-    assert.match(cli, /importTipoPrefill/);
+    assert.match(cli, /irParaImportacaoComPrevia\("clientes"/);
+    const ritmo = readFileSync(join(ROOT, "js/utils/import-ritmo.js"), "utf8");
+    assert.match(ritmo, /importTipoPrefill/);
     const lote = readFileSync(join(ROOT, "js/services/importacao-lote.service.js"), "utf8");
     assert.match(lote, /opts\.rows/);
     assert.match(lote, /parsePlanilhaTexto/);

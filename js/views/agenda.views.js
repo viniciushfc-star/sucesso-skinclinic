@@ -84,7 +84,8 @@ import { getCustoRealProcedimento, getResumoPorProduto, registrarConsumoEstimado
 import { getTaxas, getTaxaForParcelas } from "../services/precificacao-taxas.service.js"
 import { getOrganizationProfile } from "../services/organization-profile.service.js"
 import { buildMessage, buildEmailLembrete } from "../services/message-templates.service.js"
-import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js"
+import { getTemplateHeaders } from "../services/importacao-lote.service.js"
+import { irParaImportacaoComPrevia } from "../utils/import-ritmo.js"
 import { listAfazeresByPrazo } from "../services/afazeres.service.js"
 import { listWaitlist, SQL_WAITLIST, updateWaitlistStatus } from "../services/waitlist.service.js"
 import { htmlHintWaitlistSql, matchWaitlistToSlot } from "../utils/espera-encaixe.js"
@@ -182,22 +183,8 @@ function bindUI() {
   if (goToday) goToday.onclick = () => { goToToday(); renderCalendarAndDay() }
 
   const btnImport = document.getElementById("btnImportarAgenda")
-  const inputImport = document.getElementById("importAgendaFile")
-  if (btnImport && inputImport) {
-    btnImport.onclick = () => inputImport.click()
-    inputImport.onchange = async () => {
-      const file = inputImport.files?.[0]
-      if (!file) return
-      inputImport.value = ""
-      try {
-        const r = await importarLote("agenda", file)
-        toast(r.inseridos ? r.inseridos + " agendamento(s) importado(s)." : "Nenhum importado. Verifique o CSV.")
-        if (r.erros?.length) toast("Erros: " + r.erros.length + " linha(s).", "warn")
-        renderAgenda()
-      } catch (e) {
-        toast(e.message || "Erro ao importar.")
-      }
-    }
+  if (btnImport) {
+    btnImport.onclick = () => irParaImportacaoComPrevia("agenda", navigate)
   }
 
   const btnModelo = document.getElementById("btnModeloAgenda")
@@ -552,8 +539,8 @@ async function renderWeekGrid(professionalId = null) {
 
   if (hint) {
     hint.textContent = useProfCols
-      ? "Cada coluna é uma profissional deste dia. Clique no vazio da coluna para marcar nela. Clique no bloco para ficha, WhatsApp e baixa."
-      : "Clique no vazio para marcar. Clique no bloco para ficha, WhatsApp e baixa. Filtre o profissional no topo."
+      ? "Cada coluna é uma profissional. Cinza = ocupado no Google dela (sem o que está escrito lá). Clique no vazio para marcar nela."
+      : "Clique no vazio para marcar. Filtre a profissional no topo para ver o ocupado da agenda pessoal (Google), sem detalhes."
   }
   grid.classList.toggle("agenda-week--cols", useProfCols)
   grid.setAttribute("aria-label", useProfCols ? "Agenda do dia por profissional" : "Agenda da semana")
@@ -561,6 +548,14 @@ async function renderWeekGrid(professionalId = null) {
   if (useProfCols) {
     const n = cols.length
     grid.style.setProperty("--agenda-cols", String(n))
+    const extByUser = {}
+    await Promise.all(
+      cols
+        .filter((m) => m.user_id)
+        .map(async (m) => {
+          extByUser[m.user_id] = await listExternalBlocksForRange(selectedDate, selectedDate, m.user_id).catch(() => [])
+        })
+    )
     let html = weekDayStripHtml(start)
     html += `<div class="agenda-week-row agenda-week-row--head agenda-week-row--prof"><span class="agenda-week-gutter"></span>`
     const uid = await agendaUserId()
@@ -573,13 +568,21 @@ async function renderWeekGrid(professionalId = null) {
       const hh = String(h).padStart(2, "0")
       html += `<div class="agenda-week-row agenda-week-row--prof"><span class="agenda-week-gutter">${hh}:00</span>`
       cols.forEach((m, i) => {
+        const hourStart = new Date(`${selectedDate}T${hh}:00:00`)
+        const hourEnd = new Date(hourStart.getTime() + 60 * 60000)
         const hourItems = dayItems.filter((apt) => {
           if (Math.floor(parseHoraToMinutes(apt.hora) / 60) !== h) return false
           return String(apt.user_id || "") === String(m.user_id || "")
         })
         const clinicBlocks = hourItems.map((apt) => htmlWeekAptBlock(apt, { showProf: false, members })).join("")
-        const livre = clinicBlocks ? "" : " Livre"
-        html += `<div class="agenda-week-cell" data-date="${selectedDate}" data-hour="${hh}:00" data-user-id="${escapeHtml(m.user_id || "")}" aria-label="${escapeHtml(colLabels[i])} ${hh}:00${livre}">${clinicBlocks}</div>`
+        const ocupados = (extByUser[m.user_id] || [])
+          .filter((b) =>
+            rangesOverlap(hourStart.getTime(), hourEnd.getTime(), new Date(b.start_at).getTime(), new Date(b.end_at).getTime())
+          )
+          .map((b) => htmlWeekOcupado(b))
+          .join("")
+        const livre = clinicBlocks || ocupados ? "" : " Livre"
+        html += `<div class="agenda-week-cell" data-date="${selectedDate}" data-hour="${hh}:00" data-user-id="${escapeHtml(m.user_id || "")}" aria-label="${escapeHtml(colLabels[i])} ${hh}:00${livre}">${clinicBlocks}${ocupados}</div>`
       })
       html += `</div>`
     }
@@ -886,18 +889,8 @@ async function notificarSemResponsavel() {
     supabase.from("agenda").select("id").gte("data", today).lte("data", end).is("user_id", null)
   )
   if (!items || items.length === 0) return
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
-  const { data: existing } = await withOrg(
-    supabase.from("notificacoes").select("id").eq("lida", false).eq("titulo", "Agendamentos sem responsável").limit(1)
-  )
-  if (existing && existing.length > 0) return
-  await supabase.from("notificacoes").insert({
-    org_id: orgId,
-    user_id: user.id,
-    titulo: "Agendamentos sem responsável",
-    mensagem: `${items.length} item(ns) ainda sem responsável definido. Vale a pena atribuir na agenda.`
-  })
+  const { avisarSemResponsavel } = await import("../services/avisos.service.js")
+  await avisarSemResponsavel(items.length)
 }
 
 /** Monta mensagem de aniversário (usa modelo da org se existir; senão padrão com ou sem brinde). */

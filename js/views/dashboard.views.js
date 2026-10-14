@@ -25,6 +25,10 @@ import { listProcedures } from "../services/procedimentos.service.js"
 import { resumoAluguelNaAgenda, textoAluguelNaAgenda } from "../utils/aluguel-dia.js"
 import { getEntradasHojeComAgenda } from "../services/financeiro.service.js"
 import { getCockpitSnapshot, getCockpitMesSnapshot } from "../services/cockpit.service.js"
+import { textoContextoReuniao } from "../utils/reuniao-hoje.js"
+import { chaveSessaoFecharDia, payloadAuditoriaFecharDia } from "../utils/fechar-dia.js"
+import { audit } from "../services/audit.service.js"
+import { toast } from "../ui/toast.js"
 import { getSetupProgress } from "../services/setup-progress.service.js"
 import { proximoPassoSetup } from "../utils/golden-flow.js"
 import { navigate } from "../core/spa.js"
@@ -41,6 +45,7 @@ const chartJsPromise = waitForChart();
 
 let chartFinanceiroInstance = null
 let chartAgendaInstance = null
+let lastFecharDia = null
 
 function formatTime(val) {
   if (!val) return "—"
@@ -545,8 +550,12 @@ async function renderCockpit() {
       <div class="cockpit-kpi"><b>${k.hojeCount}</b><span>hoje</span></div>
       <div class="cockpit-kpi"><b>${k.confirmados}</b><span>confirmados</span></div>
       <div class="cockpit-kpi"><b>${k.atrasos}</b><span>atrasos</span></div>
-      <div class="cockpit-kpi"><b>R$ ${Number(k.previsto || 0).toFixed(2).replace(".", ",")}</b><span>previsto</span></div>`
+      <div class="cockpit-kpi"><b>R$ ${Number(k.previsto || 0).toFixed(2).replace(".", ",")}</b><span>previsto</span></div>
+      <div class="cockpit-kpi"><b>R$ ${Number(k.recebido || 0).toFixed(2).replace(".", ",")}</b><span>recebido</span></div>`
   }
+
+  renderReuniaoHoje(snap.reuniao)
+  renderFecharDia(snap.fecharDia, snap.lembretesAmanha || [])
 
   const mudEl = document.getElementById("cockpitMudancaOntem")
   if (mudEl) {
@@ -577,6 +586,137 @@ async function renderCockpit() {
       ? rows.join("")
       : `<p class="cockpit-empty">Sem lista de espera nem radar de retorno agora. Horários vagos estão na <a href="#" data-view="agenda">Agenda</a>.</p>`
   }
+}
+
+function cardReuniao(tipo, item) {
+  if (!item) {
+    return `<article class="cockpit-reuniao-card cockpit-reuniao-card--${tipo}"><span class="cockpit-reuniao-kicker">${tipo}</span><strong>Não informado</strong><span class="cockpit-reuniao-fonte">Sem número com fonte neste elo.</span></article>`
+  }
+  return `<button type="button" class="cockpit-reuniao-card cockpit-reuniao-card--${tipo}" data-view="${escapeHtml(item.view || "dashboard")}">
+    <span class="cockpit-reuniao-kicker">${tipo}</span>
+    <strong>${escapeHtml(item.titulo)}</strong>
+    <span>${escapeHtml(item.texto)}</span>
+    <span class="cockpit-reuniao-fonte">Fonte: ${escapeHtml(item.fonte || "—")}</span>
+  </button>`
+}
+
+function renderReuniaoHoje(reuniao) {
+  const el = document.getElementById("cockpitReuniao")
+  if (!el) return
+  const r = reuniao || {}
+  el.innerHTML = `
+    <h3 class="cockpit-reuniao-title">${escapeHtml(r.titulo || "Reunião de hoje")}</h3>
+    <p class="cockpit-reuniao-lead">${escapeHtml(r.lead || "")}</p>
+    <div class="cockpit-reuniao-grid">
+      ${cardReuniao("forte", r.forte)}
+      ${cardReuniao("fraco", r.fraco)}
+      ${cardReuniao("gargalo", r.gargalo)}
+    </div>
+    <div class="cockpit-reuniao-acoes">
+      <button type="button" class="btn-primary btn-sm" data-view="${escapeHtml(r.proximo?.view || "agenda")}">${escapeHtml(r.proximo?.acao || "Abrir a agenda")}</button>
+      <button type="button" class="btn-secondary btn-sm" id="btnReuniaoExplicar">Pedir ao assistente para explicar</button>
+    </div>`
+  document.getElementById("btnReuniaoExplicar")?.addEventListener("click", async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      if (typeof window.__scOpenCopilot === "function") {
+        window.__scOpenCopilot({
+          origem: "reuniao",
+          titulo: r.titulo || "Reunião de hoje",
+          mensagem: textoContextoReuniao(r),
+        })
+        return
+      }
+      const { initCopilotPanel, openCopilotPanel } = await import("./notificacoes.views.js")
+      initCopilotPanel()
+      openCopilotPanel({
+        origem: "reuniao",
+        titulo: r.titulo || "Reunião de hoje",
+        mensagem: textoContextoReuniao(r),
+      })
+    } catch (err) {
+      console.warn("[REUNIAO] assistente", err)
+    }
+  })
+}
+
+function fmtLinhaValor(linha) {
+  if (linha?.fmt === "brl") return `R$ ${Number(linha.valor || 0).toFixed(2).replace(".", ",")}`
+  return String(linha?.valor ?? "—")
+}
+
+function renderFecharDia(resumo, lembretes = []) {
+  const el = document.getElementById("cockpitFecharDia")
+  if (!el) return
+  lastFecharDia = resumo || null
+  const r = resumo || {}
+  const ja = typeof sessionStorage !== "undefined" && r.data && sessionStorage.getItem(chaveSessaoFecharDia(r.data))
+  const linhas = (r.linhas || [])
+    .map(
+      (l) =>
+        `<li><span>${escapeHtml(l.label)}</span><strong>${escapeHtml(fmtLinhaValor(l))}</strong><span class="cockpit-fechar-dia-fonte">Fonte: ${escapeHtml(l.fonte || "—")}</span></li>`
+    )
+    .join("")
+  const nomes = (lembretes || [])
+    .slice(0, 5)
+    .map((x) => `<li>${escapeHtml(x.hora || "")} · ${escapeHtml(x.nome || "—")}</li>`)
+    .join("")
+  const nLembrete = (lembretes || []).length
+  const extra = nLembrete > 5 ? `<li>+${nLembrete - 5} na agenda</li>` : ""
+  const confirmarHtml = r.status === "vazio"
+    ? ""
+    : ja
+      ? `<p class="cockpit-fechar-dia-lead">Conferência já registrada nesta sessão. Não criou lançamento.</p>`
+      : `<button type="button" class="btn-primary btn-sm" id="btnFecharDia">Confirmar fechamento do dia</button>`
+  el.classList.toggle("cockpit-fechar-dia--ok", r.status === "ok")
+  el.classList.toggle("cockpit-fechar-dia--aberto", r.status === "aberto")
+  el.innerHTML = `
+    <h3 class="cockpit-fechar-dia-title">Fechar o dia</h3>
+    <p class="cockpit-fechar-dia-lead">${escapeHtml(r.lead || "")}</p>
+    <ul class="cockpit-fechar-dia-linhas">${linhas}</ul>
+    <div class="cockpit-fechar-dia-acoes">
+      ${confirmarHtml}
+      <button type="button" class="btn-secondary btn-sm" data-view="financeiro" data-financeiro-tab="fechamento">Gaveta no Financeiro</button>
+    </div>
+    <div class="cockpit-lembretes">
+      <h4 class="cockpit-lembretes-title">Lembrete de amanhã (${nLembrete})</h4>
+      <p class="cockpit-fechar-dia-lead">WhatsApp só no clique, um a um, na Agenda. O lote da madrugada não dispara mensagem.</p>
+      ${nLembrete ? `<ul class="cockpit-lembretes-list">${nomes}${extra}</ul>` : `<p class="cockpit-fechar-dia-lead">Nenhum horário de amanhã pendente de lembrete.</p>`}
+      <div class="cockpit-fechar-dia-acoes">
+        <button type="button" class="btn-secondary btn-sm" data-view="agenda">Abrir agenda de amanhã</button>
+      </div>
+    </div>`
+  document.getElementById("btnFecharDia")?.addEventListener("click", async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!lastFecharDia) return
+    const [canFin, canAgenda] = await Promise.all([
+      checkPermission("financeiro:manage"),
+      checkPermission("agenda:manage"),
+    ])
+    if (!canFin && !canAgenda) {
+      toast("Sem permissão para confirmar o fechamento.", "error")
+      return
+    }
+    const permissionUsed = canFin ? "financeiro:manage" : "agenda:manage"
+    try {
+      await audit({
+        action: "operacao.fechar_dia",
+        tableName: "agenda",
+        permissionUsed,
+        metadata: payloadAuditoriaFecharDia(lastFecharDia),
+      })
+      if (typeof sessionStorage !== "undefined" && lastFecharDia.data) {
+        sessionStorage.setItem(chaveSessaoFecharDia(lastFecharDia.data), "1")
+      }
+      toast("Fechamento conferido na auditoria. Nenhum lançamento extra foi criado.", "success")
+      renderFecharDia(lastFecharDia, lembretes)
+    } catch (err) {
+      console.warn("[FECHAR-DIA]", err)
+      toast(err?.message || "Não foi possível registrar o fechamento.", "error")
+    }
+  })
 }
 
 function insightRow(card) {

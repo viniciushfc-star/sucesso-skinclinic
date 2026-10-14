@@ -15,6 +15,7 @@ import { checkPermission } from "../core/permissions.js";
 import { openModal, closeModal } from "../ui/modal.js";
 import { toast } from "../ui/toast.js";
 import { navigate } from "../core/spa.js";
+import { irParaImportacaoComPrevia } from "../utils/import-ritmo.js";
 import { listOrcamentosForSearch } from "../services/orcamentos.service.js";
 import { parseClientesBusca, relacaoComercialLabel } from "../utils/cliente-relacao.js";
 import { brl, statusOrcamentoLabel, totalOrcamento } from "../utils/orcamento.js";
@@ -55,8 +56,7 @@ export async function init() {
 
 function bindImportClientes() {
   document.getElementById("btnTragaLista")?.addEventListener("click", () => {
-    sessionStorage.setItem("importTipoPrefill", "clientes");
-    navigate("export");
+    irParaImportacaoComPrevia("clientes", navigate);
   });
   const btn = document.getElementById("btnImportarClientes");
   const input = document.getElementById("importClientesFile");

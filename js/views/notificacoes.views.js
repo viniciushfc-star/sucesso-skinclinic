@@ -12,6 +12,7 @@ import { getActiveOrg } from "../core/org.js"
 
 import { toast } from "../ui/toast.js"
 import { navigate } from "../core/spa.js"
+import { truncarPerguntaCopiloto, explicarFichaLocal, respostaLocalCopiloto } from "../utils/copiloto-coeso.js"
 
 /* =====================
    ELEMENTOS
@@ -128,6 +129,7 @@ let _copilotPanelInited = false
 
 /** Inicializa o painel do Copilot (FAB + handlers). Pode ser chamado por spa.js ou initHeaderNotif. */
 export function initCopilotPanel() {
+  if (typeof window !== "undefined") window.__scOpenCopilot = openCopilotPanel
   if (_copilotPanelInited) return
   const panel = document.getElementById("copilotPanel")
   const closeBtn = document.getElementById("copilotPanelClose")
@@ -153,11 +155,20 @@ export function openCopilotPanel(contexto = {}) {
   const inputEl = document.getElementById("copilotPanelInput")
   if (!panel || !contextEl || !chatEl || !inputEl) return
 
-  _copilotContext = { titulo: contexto.titulo || "", mensagem: contexto.mensagem || "" }
+  _copilotContext = {
+    origem: contexto.origem || "",
+    titulo: contexto.titulo || "",
+    mensagem: contexto.mensagem || "",
+  }
 
   if (_copilotContext.titulo || _copilotContext.mensagem) {
+    const rotulo = contexto.origem === "ficha"
+      ? "Contexto desta ficha:"
+      : contexto.origem === "reuniao"
+        ? "Contexto da reunião de hoje:"
+        : "Contexto desta notificação:";
     contextEl.innerHTML = `
-      <p class="copilot-context-label">Contexto desta notificação:</p>
+      <p class="copilot-context-label">${rotulo}</p>
       <p class="copilot-context-titulo">${escapeHtml(_copilotContext.titulo)}</p>
       ${_copilotContext.mensagem ? `<p class="copilot-context-msg">${escapeHtml(_copilotContext.mensagem)}</p>` : ""}
       <p class="copilot-context-hint">Pergunte algo sobre isso ou sobre os dados da clínica.</p>
@@ -168,9 +179,18 @@ export function openCopilotPanel(contexto = {}) {
 
   chatEl.innerHTML = ""
   inputEl.value = ""
+  inputEl.placeholder = contexto.origem === "ficha"
+    ? "Pergunte sobre este ciclo. A IA não grava nem decide."
+    : contexto.origem === "reuniao"
+      ? "Pergunte o gargalo ou o ponto forte. Sem inventar número."
+      : "Pergunte os números da clínica. O assistente não decide."
   panel.classList.remove("hidden")
   const fab = document.getElementById("copilotFab")
   if (fab) fab.classList.add("copilot-fab--hidden")
+  if (contexto.origem === "ficha" || contexto.origem === "reuniao") {
+    const el = appendChat("assistant", explicarFichaLocal(contexto.mensagem))
+    el?.classList.remove("copilot-chat-thinking")
+  }
   inputEl.focus()
 }
 
@@ -178,7 +198,7 @@ function closeCopilotPanel() {
   const panel = document.getElementById("copilotPanel")
   if (panel) panel.classList.add("hidden")
   const fab = document.getElementById("copilotFab")
-  if (fab) fab.classList.remove("copilot-fab--hidden")
+  if (fab && window.__scCanCopilotFab !== false) fab.classList.remove("copilot-fab--hidden")
 }
 
 async function sendCopilotMessage() {
@@ -186,7 +206,7 @@ async function sendCopilotMessage() {
   const chatEl = document.getElementById("copilotPanelChat")
   if (!inputEl || !chatEl) return
 
-  const pergunta = (inputEl.value || "").trim()
+  const pergunta = truncarPerguntaCopiloto(inputEl.value)
   if (!pergunta) return
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -198,6 +218,13 @@ async function sendCopilotMessage() {
   appendChat("user", pergunta)
   inputEl.value = ""
 
+  const local = respostaLocalCopiloto({ pergunta, contexto: _copilotContext })
+  if (local) {
+    const el = appendChat("assistant", local)
+    el?.classList.remove("copilot-chat-thinking")
+    return
+  }
+
   const thinkingEl = appendChat("assistant", "Pensando…")
 
     try {
@@ -206,7 +233,7 @@ async function sendCopilotMessage() {
       pergunta,
       user_id: user.id,
       org_id: orgId || undefined,
-      contextoNotificacao: _copilotContext.titulo || _copilotContext.mensagem ? { titulo: _copilotContext.titulo, mensagem: _copilotContext.mensagem } : null
+      contextoNotificacao: _copilotContext.titulo || _copilotContext.mensagem ? { origem: _copilotContext.origem, titulo: _copilotContext.titulo, mensagem: _copilotContext.mensagem } : null
     })
 
     const resposta = res?.resposta || "Não foi possível obter uma resposta."

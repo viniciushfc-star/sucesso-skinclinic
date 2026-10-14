@@ -42,7 +42,8 @@ import { listMarketRadar } from "../services/market-radar.service.js";
 import { casarRadarRef } from "../utils/market-radar.js";
 import { leituraNaoPerder } from "../utils/preco-nao-perder.js";
 import { TIPOS_PROCEDIMENTO } from "../constants/tipos-procedimento.js";
-import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js";
+import { getTemplateHeaders } from "../services/importacao-lote.service.js";
+import { irParaImportacaoComPrevia } from "../utils/import-ritmo.js";
 import { getMargemEmRisco } from "../services/audit.service.js";
 import { htmlCardMargemRisco } from "../utils/margem-risco.js";
 import { rankLucroHora, summarizeLucroHora } from "../utils/lucro-hora.js";
@@ -468,25 +469,8 @@ function bindUI() {
   if (btnOpiniao) btnOpiniao.onclick = () => pedirOpiniao();
 
   const btnImport = document.getElementById("btnImportarProcedimentos");
-  const inputImport = document.getElementById("importProcedimentosFile");
-  if (btnImport && inputImport) {
-    btnImport.onclick = () => inputImport.click();
-    inputImport.onchange = async () => {
-      const file = inputImport.files?.[0];
-      if (!file) return;
-      inputImport.value = "";
-      const pularDuplicados = document.getElementById("procedimentosPularDuplicados")?.checked !== false;
-      try {
-        const r = await importarLote("procedimentos", file, { pularDuplicados });
-        let msg = r.inseridos ? r.inseridos + " procedimento(s) importado(s)." : "Nenhum importado.";
-        if (r.ignorados_duplicados > 0) msg += " " + r.ignorados_duplicados + " duplicado(s) ignorado(s).";
-        toast(msg);
-        if (r.erros?.length) toast("Erros: " + r.erros.length + " linha(s).", "warn");
-        renderProcedimentos();
-      } catch (e) {
-        toast(e.message || "Erro ao importar.");
-      }
-    };
+  if (btnImport) {
+    btnImport.onclick = () => irParaImportacaoComPrevia("procedimentos", navigate);
   }
 
   const btnModelo = document.getElementById("btnModeloProcedimentos");

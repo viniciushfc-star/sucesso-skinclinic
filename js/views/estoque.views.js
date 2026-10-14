@@ -7,6 +7,7 @@ import { lerNota, parseTextoNota } from "../services/ocr.service.js"
 import { listEntradas, createEntrada, getResumoPorProduto, getAcuraciaEstoque, registrarConsumoReal, getProdutosProximosVencer, getProcedimentosQueUsamProduto, getLotesComSaldo, registrarPerda, registrarInventario } from "../services/estoque-entradas.service.js"
 import { saveOcrNota } from "../services/ocr-notas.service.js"
 import { normalizeParsedNota, parseNfeXml } from "../utils/ocr-nota.js"
+import { rascunhoParaRevisar, podeConfirmarEntrada } from "../utils/ocr-revisar.js"
 import { analisarEstoque } from "../services/estoque.service.js"
 import { supabase } from "../core/supabase.js"
 import { getActiveOrg } from "../core/org.js"
@@ -681,7 +682,7 @@ function openEntradaOCR() {
         openColarTextoNota(res.text || "", "Nenhum item extraído. Confira ou cole o texto da nota.")
         return
       }
-      openModalSalvarItensOCR(parsed, res.text, "ocr")
+      openRevisarNota(parsed, res.text, "ocr")
     } catch (e) {
       console.error("[ESTOQUE OCR]", e)
       openColarTextoNota("", "Erro ao processar a foto. Cole o texto da nota.")
@@ -710,7 +711,7 @@ function openColarTextoNota(seed = "", hint = "Cole o texto da nota. A IA sugere
           return
         }
         closeModal()
-        openModalSalvarItensOCR(parsed, text, "ocr")
+        openRevisarNota(parsed, text, "ocr")
       } catch (e) {
         toast(e?.message || "Erro ao interpretar texto.")
       }
@@ -733,7 +734,7 @@ function openEntradaXml() {
         toast("XML sem itens reconhecidos. Use foto/texto ou entrada manual.")
         return
       }
-      openModalSalvarItensOCR(parsed, xml.slice(0, 8000), "xml")
+      openRevisarNota(parsed, xml.slice(0, 8000), "xml")
     } catch (e) {
       toast(e?.message || "Não foi possível ler o XML.")
     }
@@ -748,6 +749,29 @@ function toBase64(file) {
     r.onerror = () => resolve(null)
     r.readAsDataURL(file)
   })
+}
+
+function openRevisarNota(parsed, rawText = "", origem = "ocr") {
+  const r = rascunhoParaRevisar(parsed, rawText, origem)
+  const lis = (r.itens || [])
+    .map((i) => `<li>${escapeHtml(i.produto_nome || "—")} · qtd ${escapeHtml(String(i.quantidade ?? "—"))}</li>`)
+    .join("")
+  const bruto = r.bruto
+    ? `<details class="estoque-ocr-bruto"><summary>Texto lido (caderno ou nota)</summary><pre class="estoque-ocr-pre">${escapeHtml(r.bruto)}</pre></details>`
+    : ""
+  openModal(
+    "Revisar — nada entra ainda",
+    `<p class="estoque-ocr-hint">A leitura é sugestão. Confira. Só no próximo passo a entrada vai para o estoque.</p>
+     ${bruto}
+     <p><strong>${r.itens.length} item(ns) sugerido(s)</strong> · ${escapeHtml(r.fornecedor || "fornecedor não lido")}</p>
+     <ul class="estoque-ocr-resumo">${lis || "<li>Nenhum item</li>"}</ul>`,
+    () => {
+      closeModal()
+      openModalSalvarItensOCR(parsed, rawText, origem)
+    },
+    null,
+    { submitLabel: "Revisar itens" }
+  )
 }
 
 function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
@@ -767,7 +791,7 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
   `).join("")
 
   const fields = `
-    <p class="estoque-ocr-hint">Sugestão da nota; você confere e salva. Nada bloqueia o atendimento.</p>
+    <p class="estoque-ocr-hint">Revise cada linha. Só entra no estoque quando você confirmar. Nada bloqueia o atendimento.</p>
     <label>Fornecedor</label>
     <input type="text" id="estoqueOcrFornecedor" value="${escapeHtml(fornecedor)}" placeholder="Nome do fornecedor">
     <label>Data da nota</label>
@@ -777,7 +801,7 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
   `
 
   openModal(
-    origem === "xml" ? "XML — conferir e salvar" : "Nota fiscal — conferir e salvar",
+    origem === "xml" ? "XML — confirmar entrada" : "Nota — confirmar entrada",
     fields,
     async () => {
       const fornecedorVal = document.getElementById("estoqueOcrFornecedor")?.value?.trim() || null
@@ -798,6 +822,10 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
           valor_total: total || null,
           lote: lote || null,
         })
+      }
+      if (!podeConfirmarEntrada(conferido)) {
+        toast("Revise pelo menos um item com nome e quantidade.")
+        return
       }
       const ocrNotaId = origem === "ocr"
         ? await saveOcrNota({ rawText, parsed: { fornecedor: fornecedorVal, data: dataVal, itens: conferido } })
@@ -821,7 +849,8 @@ function openModalSalvarItensOCR(parsed, rawText = "", origem = "ocr") {
       await renderCatalogo()
       await renderRevenda()
     },
-    null
+    null,
+    { submitLabel: "Confirmar entrada" }
   )
 }
 

@@ -1472,19 +1472,19 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
  height:56px;
  border-radius:50%;
  border:none;
- background:#4e54c8;
+ background:var(--sc-teal);
  color:#fff;
  font-size:1.5rem;
  cursor:pointer;
- box-shadow:0 4px 20px rgba(78,84,200,.4);
+ box-shadow:0 4px 20px color-mix(in srgb, var(--sc-teal) 40%, transparent);
  z-index:1005;
  transition:transform .2s, box-shadow .2s;
 }
 .copilot-fab:hover{
  transform:scale(1.05);
- box-shadow:0 6px 24px rgba(78,84,200,.5);
+ box-shadow:0 6px 24px color-mix(in srgb, var(--sc-teal) 50%, transparent);
 }
-.copilot-fab:focus{ outline:2px solid #4e54c8; outline-offset:2px; }
+.copilot-fab:focus{ outline:2px solid var(--sc-teal); outline-offset:2px; }
 .copilot-fab.copilot-fab--hidden{ display:none; }
 
 .copilot-panel{
@@ -1508,7 +1508,7 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
  justify-content:space-between;
  align-items:center;
  padding:12px 16px;
- background:#4e54c8;
+ background:var(--sc-teal);
  color:#fff;
  flex-shrink:0;
 }
@@ -1535,7 +1535,7 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 }
 .copilot-context-label{ font-weight:600; color:#475569; margin:0 0 4px; font-size:0.8rem; }
 .copilot-context-titulo{ font-weight:600; margin:0 0 4px; }
-.copilot-context-msg{ color:#64748b; margin:0; font-size:0.85rem; line-height:1.4; }
+.copilot-context-msg{ color:#64748b; margin:0; font-size:0.85rem; line-height:1.4; white-space:pre-line; }
 .copilot-context-hint{ font-size:0.85rem; color:#64748b; margin:0; font-style:italic; }
 .copilot-panel-chat{
  flex:1;
@@ -1668,6 +1668,8 @@ body.dark .sidebar-powered strong{ color:rgba(226,232,240,.9); }
 .pagamento-form fieldset:disabled{ opacity:0.72; }
 .pagamento-form label{ display:block; margin:0 0 0.75rem; font-size:0.9rem; }
 .pagamento-form input, .pagamento-form select{ display:block; width:100%; margin-top:4px; padding:8px 10px; }
+.estoque-ocr-pre{ white-space:pre-wrap; font-size:0.8rem; max-height:160px; overflow:auto; background:#f8fafc; padding:8px; border-radius:8px; }
+.estoque-ocr-resumo{ margin:0.5rem 0 0; padding-left:1.2rem; }
 
 .main-header h1{ font-size:1.5rem; margin-bottom:2px; }
 .main-header p{ font-size:.9rem; opacity:.9; margin-bottom:1rem; }
@@ -1858,6 +1860,13 @@ body:has(.app-wrapper):not(.dark) .cockpit-row{
 .import-opcao-inline{ display:inline-flex; align-items:center; gap:6px; font-size:0.85rem; color:#475569; cursor:pointer; margin-right:8px; }
 .import-opcao-inline input{ width:auto; margin:0; }
 .import-actions{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
+.import-ritmo{
+  margin:0.5rem 0 0.85rem;
+  padding-left:1.2rem;
+  font-size:0.85rem;
+  color:#475569;
+}
+.import-ritmo li{ margin:0.2rem 0; }
 .import-file{ margin:0; width:auto; min-width:180px; }
 .import-result{ margin-top:12px; padding:10px; border-radius:8px; font-size:.9rem; }
 .import-result.hidden{ display:none !important; }
@@ -2574,6 +2583,40 @@ body:has(.app-wrapper):not(.dark) .cockpit-row{
 .cliente-evolucao-foto-date{ font-weight:600; }
 .cliente-evolucao-foto-type{ background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; }
 .btn-evolution-photo-delete{ margin-top:0.25rem; }
+.antes-depois-ficha-resumo{
+  margin:0.35rem 0 0.75rem;
+  font-size:0.85rem;
+  color:#64748b;
+}
+.antes-depois-pares{ display:flex; flex-direction:column; gap:0.85rem; margin:0.75rem 0; }
+.antes-depois-par{
+  padding:0.85rem 1rem;
+  background:var(--sc-paper, #f7f4ee);
+  border:1px solid color-mix(in srgb, var(--sc-teal) 20%, #e2e8f0);
+  border-radius:12px;
+}
+.antes-depois-par-kicker{
+  margin:0;
+  font-size:0.7rem;
+  font-weight:650;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--sc-teal);
+}
+.antes-depois-par-rotulo{ margin:0.15rem 0 0.55rem; font-size:0.9rem; color:#0f172a; }
+.antes-depois-par-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:0.65rem;
+}
+.antes-depois-lado{ margin:0; }
+.antes-depois-lado figcaption{ margin:0.35rem 0; font-size:0.8rem; color:#64748b; }
+.antes-depois-lado .cliente-evolucao-foto-thumb{ width:100%; height:160px; object-fit:cover; border-radius:8px; }
+.antes-depois-par-fonte{ margin:0.5rem 0 0; font-size:0.75rem; color:#64748b; }
+@media (max-width: 640px){
+  .antes-depois-par-grid{ grid-template-columns:1fr; }
+  .antes-depois-lado .cliente-evolucao-foto-thumb{ height:200px; }
+}
 .cliente-evolucao-fotos-compare-wrap{ margin-top:0.75rem; }
 .comparar-fotos-selects{ display:grid; gap:0.5rem; margin-bottom:1rem; }
 .comparar-fotos-selects label{ font-size:0.9rem; font-weight:500; }
@@ -2852,6 +2895,12 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
   justify-content:space-between;
   gap:0.35rem 0.75rem;
   margin:0 0 0.45rem;
+}
+.ciclo-ouro-ficha-head-acoes{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:0.35rem 0.65rem;
 }
 .ciclo-ouro-ficha-title{
   margin:0;
@@ -3253,14 +3302,33 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
 .agenda-week-head.is-today span{ color:var(--sc-teal); }
 .agenda-week-head.is-selected{ background:var(--sc-teal-soft); }
 .agenda-week-cell{
-  min-height:56px;
-  padding:4px;
-  border-left:1px solid #eceaf3;
-  border-top:1px solid #eceaf3;
-  border-right:1px solid #eceaf3;
+  min-height:64px;
+  padding:6px;
+  border-left:1px solid var(--sc-line, #eceaf3);
+  border-top:1px solid var(--sc-line, #eceaf3);
+  border-right:1px solid var(--sc-line, #eceaf3);
   cursor:pointer;
 }
-.agenda-week-cell:hover{ background:#f8f7fc; }
+.agenda-week-cell:hover{ background:var(--sc-paper-2, #faf7f2); }
+.agenda-legenda{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px 16px;
+  margin:0 0 10px;
+  font-size:0.78rem;
+  color:var(--sc-ink-muted, #5c534c);
+}
+.agenda-legenda-i{
+  display:inline-block;
+  width:14px;
+  height:10px;
+  border-radius:3px;
+  margin-right:6px;
+  vertical-align:middle;
+}
+.agenda-legenda-i--clinica{ background:var(--sc-teal-soft); border-left:3px solid var(--sc-teal); }
+.agenda-legenda-i--google{ background:#f1f3f4; border-left:3px solid #9aa0a6; }
 .agenda-week-block{
   display:block;
   width:100%;
@@ -5007,6 +5075,70 @@ body.mapa-print-active .mapa-print-sheet{ display: block; }
 .setup-progress-mais{ margin-top:0.35rem; }
 .setup-progress-mais summary{ cursor:pointer; font-size:0.88rem; font-weight:600; color:#9a3412; }
 .cockpit-kpis{ display:flex; flex-wrap:wrap; gap:1.25rem 2rem; margin:0 0 1.25rem; }
+.cockpit-reuniao{
+  margin:0 0 1.25rem;
+  padding:1rem 1.1rem;
+  background:var(--sc-paper, #f7f4ee);
+  border:1px solid color-mix(in srgb, var(--sc-teal) 22%, #e2e8f0);
+  border-radius:12px;
+}
+.cockpit-reuniao-title{ margin:0 0 0.25rem; font-size:1rem; color:var(--sc-teal); }
+.cockpit-reuniao-lead{ margin:0 0 0.75rem; font-size:0.85rem; color:#64748b; }
+.cockpit-reuniao-grid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:0.65rem;
+}
+.cockpit-reuniao-card{
+  display:flex;
+  flex-direction:column;
+  gap:0.2rem;
+  background:#fff;
+  border-radius:8px;
+  padding:0.65rem 0.75rem;
+  font-size:0.88rem;
+  color:#0f172a;
+}
+.cockpit-reuniao-card--forte{ border-left:3px solid var(--sc-teal); }
+.cockpit-reuniao-card--fraco{ border-left:3px solid #fdba74; }
+.cockpit-reuniao-card--gargalo{ border-left:3px solid #9a3412; }
+.cockpit-reuniao-kicker{ font-size:0.7rem; font-weight:650; letter-spacing:.04em; text-transform:uppercase; color:#64748b; }
+.cockpit-reuniao-fonte{ font-size:0.78rem; color:#64748b; }
+.cockpit-reuniao-acoes{ margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem 0.65rem; }
+@media (max-width: 800px){
+  .cockpit-reuniao-grid{ grid-template-columns:1fr; }
+}
+.cockpit-fechar-dia{
+  margin:0 0 1.25rem;
+  padding:1rem 1.1rem;
+  background:#fff;
+  border:1px solid color-mix(in srgb, var(--sc-teal) 18%, #e2e8f0);
+  border-radius:12px;
+}
+.cockpit-fechar-dia-title{ margin:0 0 0.25rem; font-size:1rem; color:var(--sc-teal); }
+.cockpit-fechar-dia-lead{ margin:0 0 0.75rem; font-size:0.85rem; color:#64748b; }
+.cockpit-fechar-dia-linhas{
+  margin:0;
+  padding:0;
+  list-style:none;
+  display:grid;
+  gap:0.35rem;
+}
+.cockpit-fechar-dia-linhas li{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:space-between;
+  gap:0.25rem 0.8rem;
+  font-size:0.88rem;
+  color:#0f172a;
+}
+.cockpit-fechar-dia-fonte{ width:100%; font-size:0.75rem; color:#64748b; }
+.cockpit-fechar-dia-acoes{ margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem 0.65rem; }
+.cockpit-lembretes{ margin:0.85rem 0 0; padding-top:0.75rem; border-top:1px dashed #e2e8f0; }
+.cockpit-lembretes-title{ margin:0 0 0.35rem; font-size:0.92rem; }
+.cockpit-lembretes-list{ margin:0; padding-left:1.1rem; font-size:0.86rem; color:#475569; }
+.cockpit-fechar-dia--ok{ border-color:color-mix(in srgb, var(--sc-teal) 40%, #e2e8f0); }
+.cockpit-fechar-dia--aberto{ border-color:#fdba74; }
 .cockpit-mudanca-ontem{ margin:0 0 1.25rem; }
 .cockpit-mudanca-title{ margin:0 0 0.4rem; font-size:0.95rem; }
 .cockpit-mudanca-list{ margin:0; padding-left:1.15rem; }

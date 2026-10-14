@@ -20,7 +20,7 @@ export async function countNaoLidas(){
  return await withOrg(
   supabase
    .from("notificacoes")
-   .select("*",{count:"exact"})
+   .select("id",{count:"exact", head:true})
    .eq("lida",false)
  )
 }

@@ -32,5 +32,9 @@ describe("Lote 62 agenda UX clínica", () => {
     assert.match(view, /profPrimeiroNome\(members, apt\.user_id\)/);
     assert.match(view, /agenda-week-block--retorno/);
     assert.doesNotMatch(view, /view-atendimentos|#atendimentos/);
+    assert.match(view, /extByUser/);
+    assert.match(view, /htmlWeekOcupado/);
+    const html = readFileSync(join(ROOT, "dashboard.html"), "utf8");
+    assert.match(html, /agenda-legenda-i--google/);
   });
 });

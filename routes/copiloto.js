@@ -12,6 +12,11 @@ import {
   responderConsultora,
   auditarRespostaConsultora,
 } from "../js/utils/ia-consultora.js"
+import {
+  truncarPerguntaCopiloto,
+  respostaLocalCopiloto,
+  deveChamarModeloCopiloto,
+} from "../js/utils/copiloto-coeso.js"
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end()
@@ -35,9 +40,13 @@ export default async function handler(req, res) {
   }
 
   const { pergunta, contextoNotificacao } = req.body || {}
-  const perguntaText = (typeof pergunta === "string" ? pergunta : "").trim()
+  const perguntaText = truncarPerguntaCopiloto(pergunta)
   if (!perguntaText) {
     return res.status(400).json({ resposta: "Envie uma pergunta." })
+  }
+  const local = respostaLocalCopiloto({ pergunta: perguntaText, contexto: contextoNotificacao || {} })
+  if (local) {
+    return res.status(200).json({ resposta: local, fonte: "ficha da clínica", modo: "local" })
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -80,7 +89,8 @@ AGENDA (resumo): total ${agendaResumo.total}, por dia ${JSON.stringify(agendaRes
       agendaTotal: agendaResumo.total,
     })
     const consultora = responderConsultora(perguntaText, fatos)
-    if (consultora) {
+    const origemFicha = contextoNotificacao?.origem === "ficha"
+    if (!deveChamarModeloCopiloto({ consultora, origemFicha, local: null })) {
       return res.status(200).json({
         resposta: consultora.texto,
         fonte: consultora.fonte || "",
@@ -88,8 +98,9 @@ AGENDA (resumo): total ${agendaResumo.total}, por dia ${JSON.stringify(agendaRes
       })
     }
 
+    const rotuloCtx = origemFicha ? "CONTEXTO DA FICHA" : "CONTEXTO DA NOTIFICAÇÃO"
     const ctxNotif = contextoNotificacao?.titulo || contextoNotificacao?.mensagem
-      ? `\nCONTEXTO DA NOTIFICAÇÃO:\nTítulo: ${contextoNotificacao.titulo || ""}\nMensagem: ${contextoNotificacao.mensagem || ""}\n`
+      ? `\n${rotuloCtx}:\nTítulo: ${contextoNotificacao.titulo || ""}\nMensagem: ${contextoNotificacao.mensagem || ""}\n`
       : ""
 
     const systemInstruction = `
@@ -98,19 +109,20 @@ REGRAS: use APENAS os números que aparecem em DADOS. Se faltar o número, diga 
 Nunca mude preço, nunca dispare WhatsApp, nunca execute ação.
 Cite a fonte (clientes, financeiro ou agenda da amostra). Tom: claro, humano.
 NUNCA use "Decisão recomendada", "Ação necessária", "Erro crítico".
+Não invente artigo, DOI nem paper.
 ${ctxNotif}`
 
-    const question = `DADOS:\n${contexto}\n\nPERGUNTA DO GESTOR:\n"${perguntaText}"\n\nResponda só com o que está em DADOS. Sem número novo.`
+    const question = `DADOS:\n${contexto}\n\nPERGUNTA DO GESTOR:\n"${perguntaText}"\n\nResponda só com o que está em DADOS. Sem número novo. Máximo 6 linhas.`
     const { content } = await askAI({
       userId: user.id,
       orgId,
       feature: "copiloto",
       question,
-      complexity: COMPLEXITY.MEDIUM,
-      checks: {},
-      outputType: "analysis",
+      complexity: COMPLEXITY.SIMPLE,
+      checks: { templateResolve: false, estatisticaResolve: false },
+      outputType: "short",
       systemInstruction,
-      cacheTtlMs: 5 * 60 * 1000,
+      cacheTtlMs: 15 * 60 * 1000,
     })
 
     const audit = auditarRespostaConsultora(content || "", fatos, perguntaText)

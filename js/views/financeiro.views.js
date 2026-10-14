@@ -57,7 +57,9 @@ import {
   inserirTransacoesImportadas,
   contarImportadosParaRevisao,
 } from "../services/importacao-bancaria.service.js"
-import { importarLote, getTemplateHeaders } from "../services/importacao-lote.service.js"
+import { getTemplateHeaders } from "../services/importacao-lote.service.js"
+import { irParaImportacaoComPrevia } from "../utils/import-ritmo.js"
+import { navigate } from "../core/spa.js"
 import {
   listContasVinculadas,
   createContaVinculada,
@@ -118,22 +120,8 @@ function bindUI(){
  const btnImportar = document.getElementById("btnImportarExtrato")
  if (btnImportar) btnImportar.onclick = () => openImportarExtratoModal()
  const btnPlanilha = document.getElementById("btnImportarPlanilha")
- const inputPlanilha = document.getElementById("importFinanceiroFile")
- if (btnPlanilha && inputPlanilha) {
-   btnPlanilha.onclick = () => inputPlanilha.click()
-   inputPlanilha.onchange = async () => {
-     const file = inputPlanilha.files?.[0]
-     if (!file) return
-     inputPlanilha.value = ""
-     try {
-       const r = await importarLote("financeiro", file)
-       toast(r.inseridos ? r.inseridos + " transação(ões) importada(s)." : "Nenhum importado. Verifique o CSV.")
-       if (r.erros?.length) toast("Erros: " + r.erros.length + " linha(s).", "warn")
-       renderFinanceiro()
-     } catch (e) {
-       toast(e.message || "Erro ao importar.")
-     }
-   }
+ if (btnPlanilha) {
+   btnPlanilha.onclick = () => irParaImportacaoComPrevia("financeiro", navigate)
  }
  const btnVincular = document.getElementById("btnVincularConta")
  if (btnVincular) btnVincular.onclick = () => openVincularContaModal()
