@@ -65,7 +65,7 @@ import {
   wireFotoCadastro,
   photoFileFromCadastro,
 } from "../utils/cliente-cadastro.js";
-import { MAPAS, PRODUTOS_APLICACAO, pontoStatus } from "../utils/injetaveis-mapas.js";
+import { MAPAS, PRODUTOS_APLICACAO, pontoStatus, svgDoMapa, vistasDoMapa, vistaPadraoDoMapa, vistaDoPonto, labelVista } from "../utils/injetaveis-mapas.js";
 import { bindMapa3d, htmlToolbarMapa3d } from "../utils/mapa-3d.js";
 
 let orcamentoTaxasCtx = {};
@@ -1025,24 +1025,32 @@ function openMapaInjetaveisModal(registroId) {
     return nome + qty + fase + obs;
   };
 
+  const dotsDeVista = (list, mapa, vista) =>
+    list
+      .filter((p) => vistaDoPonto(p, mapa) === vista)
+      .map((p) => {
+        const x = p.x_pct != null ? p.x_pct : 50;
+        const y = p.y_pct != null ? p.y_pct : 50;
+        const qty = p.quantidade != null ? `<span class="mapa-dot-qty">${escapeHtml(String(p.quantidade))} ${escapeHtml(p.unidade || "")}</span>` : "";
+        return `<div class="injetaveis-mapa-dot${pontoStatus(p) === "planejado" ? " injetaveis-mapa-dot--planejado" : ""}" style="left:${x}%;top:${y}%;" data-x="${x}" data-y="${y}" title="${escapeHtml(pontoLine(p))}">${qty}</div>`;
+      })
+      .join("");
+
   const tabsHtml = MAPAS.map((m) => {
     const list = byMapa[m.id] || [];
-    const dotsHtml = list.map((p) => {
-      const x = (p.x_pct != null ? p.x_pct : 50);
-      const y = (p.y_pct != null ? p.y_pct : 50);
-      const qty = p.quantidade != null ? `<span class="mapa-dot-qty">${escapeHtml(String(p.quantidade))} ${escapeHtml(p.unidade || "")}</span>` : "";
-      return `<div class="injetaveis-mapa-dot${pontoStatus(p) === "planejado" ? " injetaveis-mapa-dot--planejado" : ""}" style="left:${x}%;top:${y}%;" data-x="${x}" data-y="${y}" title="${escapeHtml(pontoLine(p))}">${qty}</div>`;
-    }).join("");
-    const listItems = list.map((p) => `<li class="injetaveis-mapa-lista-item">${escapeHtml(pontoLine(p))}</li>`).join("");
+    const vista0 = vistaPadraoDoMapa(m.id);
+    const listItems = list
+      .map((p) => `<li class="injetaveis-mapa-lista-item">${escapeHtml(pontoLine(p))} · ${escapeHtml(labelVista(vistaDoPonto(p, m.id)))}</li>`)
+      .join("");
     return `
-      <div class="injetaveis-mapa-panel" data-mapa="${m.id}" id="modalMapaPanel_${m.id}">
+      <div class="injetaveis-mapa-panel" data-mapa="${m.id}" data-vista="${vista0}" id="modalMapaPanel_${m.id}">
         <div class="mapa-3d">
-          ${htmlToolbarMapa3d()}
+          ${htmlToolbarMapa3d({ vistas: vistasDoMapa(m.id) })}
           <div class="mapa-3d-viewport">
             <div class="mapa-3d-scene">
               <div class="injetaveis-mapa-svg-wrap">
-                ${m.svg}
-                <div class="injetaveis-mapa-dots">${dotsHtml}</div>
+                ${svgDoMapa(m.id, vista0)}
+                <div class="injetaveis-mapa-dots">${dotsDeVista(list, m.id, vista0)}</div>
               </div>
             </div>
           </div>
@@ -1067,7 +1075,7 @@ function openMapaInjetaveisModal(registroId) {
       </div>
     </div>
   `;
-  openModal("Mapa de aplicação — 3D na tela, 2D na impressão", modalHtml, () => closeModal(), null, { hideSubmit: true, cardClass: "modal-card--mapa-3d" });
+  openModal("Carta clínica 3D — arraste para girar; impressão em 2D", modalHtml, () => closeModal(), null, { hideSubmit: true, cardClass: "modal-card--mapa-3d" });
 
   const container = document.getElementById("modalFields");
   if (!container) return;
@@ -1090,6 +1098,22 @@ function openMapaInjetaveisModal(registroId) {
     const api = bindMapa3d(el, {
       titulo: "Mapa de aplicação — " + (panel?.dataset.mapa || "") + (dataStr ? " · " + dataStr : ""),
       getPrintRoot: () => panel,
+      onVista: (id) => {
+        if (!panel) return;
+        const mapa = panel.dataset.mapa;
+        panel.dataset.vista = id;
+        const wrap = panel.querySelector(".injetaveis-mapa-svg-wrap");
+        if (wrap) {
+          wrap.innerHTML = `${svgDoMapa(mapa, id)}<div class="injetaveis-mapa-dots">${dotsDeVista(byMapa[mapa] || [], mapa, id)}</div>`;
+        }
+        wrap?.querySelectorAll(".injetaveis-mapa-dot").forEach((dot) => {
+          dot.style.pointerEvents = "auto";
+          dot.style.cursor = "zoom-in";
+          dot.addEventListener("click", () => {
+            api?.zoomTo(Number(dot.dataset.x), Number(dot.dataset.y));
+          });
+        });
+      },
     });
     panel?.querySelectorAll(".injetaveis-mapa-dot").forEach((dot) => {
       dot.style.pointerEvents = "auto";

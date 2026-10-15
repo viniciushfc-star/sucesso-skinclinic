@@ -25,7 +25,7 @@ import { startCameraCapture } from "../utils/camera.js";
 import { isTouchCameraDevice } from "../utils/cliente-cadastro.js";
 import { fileFromClipboardEvent, downloadImageUrl } from "../utils/cliente-cadastro.js";
 import { openModal, closeModal } from "../ui/modal.js";
-import { MAPAS_EDIT, PRODUTOS_APLICACAO } from "../utils/injetaveis-mapas.js";
+import { MAPAS_EDIT, PRODUTOS_APLICACAO, svgDoMapa, vistasDoMapa, vistaPadraoDoMapa, vistaDoPonto, labelVista } from "../utils/injetaveis-mapas.js";
 import { bindMapa3d, htmlToolbarMapa3d } from "../utils/mapa-3d.js";
 
 const STORAGE_AGENDA = "anamnese_agenda_id";
@@ -337,14 +337,14 @@ export async function init() {
       faceWrap.className = "anamnese-face-map-wrap anamnese-face-map-wrap--large";
       const mapas = MAPAS_EDIT;
       faceWrap.innerHTML = `
-        <p class="anamnese-face-map-title">Áreas de aplicação: clique no desenho (rosto, corpo ou glúteo). Gire e amplie para o ponto exato. Imprimir achata em 2D. Tracejado = planejado; preenchido = já aplicado.</p>
+        <p class="anamnese-face-map-title">Carta clínica em 3D: frente, 3/4 e perfil no rosto; frente e costas no corpo. Arraste para girar. Clique para marcar. Imprimir achata em 2D. Tracejado = planejado; preenchido = já aplicado.</p>
         <div class="anamnese-mapa-tabs">
           ${mapas.map((m) => `<button type="button" class="anamnese-mapa-tab" data-mapa="${escapeHtml(m.id)}">${escapeHtml(m.label)}</button>`).join("")}
         </div>
         ${mapas.map((m) => `
-        <div class="anamnese-mapa-panel" id="anamneseMapaPanel_${escapeHtml(m.id)}" data-mapa="${escapeHtml(m.id)}">
+        <div class="anamnese-mapa-panel" id="anamneseMapaPanel_${escapeHtml(m.id)}" data-mapa="${escapeHtml(m.id)}" data-vista="${escapeHtml(vistaPadraoDoMapa(m.id))}">
           <div class="mapa-3d">
-            ${htmlToolbarMapa3d()}
+            ${htmlToolbarMapa3d({ vistas: vistasDoMapa(m.id) })}
             <div class="mapa-3d-viewport">
               <div class="mapa-3d-scene">
                 <div class="anamnese-mapa-clicavel" data-mapa="${escapeHtml(m.id)}" role="button" tabindex="0" aria-label="Clique para adicionar ponto em ${escapeHtml(m.label)}">
@@ -381,7 +381,7 @@ export async function init() {
       `;
       fichaCamposEl.appendChild(faceWrap);
 
-      let pontos = []; // { id, mapa, x_pct, y_pct, produto, quantidade, unidade, observacao, status }
+      let pontos = []; // { id, mapa, vista, x_pct, y_pct, produto, quantidade, unidade, observacao, status }
       let selectedPontoId = null;
       let nextId = 1;
 
@@ -389,12 +389,21 @@ export async function init() {
         return pontos.filter((p) => p.mapa === mapa);
       }
 
+      function aplicarVista(panel, vista) {
+        const mapa = panel.dataset.mapa;
+        panel.dataset.vista = vista;
+        const wrap = panel.querySelector(".anamnese-mapa-svg-wrap");
+        if (wrap) wrap.innerHTML = svgDoMapa(mapa, vista, { edit: true });
+        renderPontosOnMap(panel);
+      }
+
       function renderPontosOnMap(panel) {
         const mapa = panel.dataset.mapa;
+        const vista = panel.dataset.vista || vistaPadraoDoMapa(mapa);
         const container = panel.querySelector(".anamnese-mapa-pontos");
         if (!container) return;
         container.innerHTML = "";
-        getPontosByMapa(mapa).forEach((pt) => {
+        getPontosByMapa(mapa).filter((pt) => vistaDoPonto(pt, mapa) === vista).forEach((pt) => {
           const dot = document.createElement("div");
           const isPlan = pt.status === "planejado";
           dot.className = "anamnese-mapa-dot" + (isPlan ? " anamnese-mapa-dot--planejado" : "") + (selectedPontoId === pt.id ? " selected" : "");
@@ -433,16 +442,30 @@ export async function init() {
           const label = prod ? prod.label : (pt.produto || "—");
           const qty = pt.quantidade != null ? pt.quantidade + " " + (pt.unidade || "") : "—";
           const fase = pt.status === "planejado" ? "plano" : "feito";
-          return `<button type="button" class="anamnese-mapa-lista-item ${selectedPontoId === pt.id ? "selected" : ""}" data-ponto-id="${pt.id}">${escapeHtml(label)} · ${escapeHtml(String(qty))} · ${fase}</button>`;
+          return `<button type="button" class="anamnese-mapa-lista-item ${selectedPontoId === pt.id ? "selected" : ""}" data-ponto-id="${pt.id}">${escapeHtml(label)} · ${escapeHtml(String(qty))} · ${fase} · ${escapeHtml(labelVista(vistaDoPonto(pt, mapa)))}</button>`;
         }).join("");
         listEl.querySelectorAll(".anamnese-mapa-lista-item").forEach((btn) => {
           btn.addEventListener("click", () => {
             const pt = pontos.find((p) => p.id === btn.dataset.pontoId);
             if (pt) {
               selectedPontoId = pt.id;
-              renderAllPontos();
               const panel = faceWrap.querySelector(`#anamneseMapaPanel_${pt.mapa}`);
-              if (panel) showPontoDetalhes(panel, pt);
+              if (panel) {
+                const v = vistaDoPonto(pt, pt.mapa);
+                if (panel.dataset.vista !== v) {
+                  aplicarVista(panel, v);
+                  panel.querySelectorAll("[data-mapa3d-vista]").forEach((b) => {
+                    const on = b.getAttribute("data-mapa3d-vista") === v;
+                    b.classList.toggle("is-active", on);
+                    b.setAttribute("aria-pressed", String(on));
+                  });
+                }
+                renderAllPontos();
+                showPontoDetalhes(panel, pt);
+                panel._mapa3d?.zoomTo(pt.x_pct, pt.y_pct);
+              } else {
+                renderAllPontos();
+              }
             }
           });
         });
@@ -509,14 +532,17 @@ export async function init() {
       faceWrap.querySelectorAll(".anamnese-mapa-clicavel").forEach((el) => {
         el.addEventListener("click", (e) => {
           if (e.target.closest(".anamnese-mapa-dot")) return;
+          const root3d = el.closest(".mapa-3d");
+          if (root3d?.dataset.mapa3dDrag === "1") return;
           const rect = el.getBoundingClientRect();
           const x_pct = ((e.clientX - rect.left) / rect.width) * 100;
           const y_pct = ((e.clientY - rect.top) / rect.height) * 100;
           const mapa = el.dataset.mapa;
-          const pt = { id: "p" + nextId++, mapa, x_pct, y_pct, produto: null, quantidade: null, unidade: null, observacao: null, status: "planejado" };
+          const panel = el.closest(".anamnese-mapa-panel");
+          const vista = panel?.dataset.vista || vistaPadraoDoMapa(mapa);
+          const pt = { id: "p" + nextId++, mapa, vista, x_pct, y_pct, produto: null, quantidade: null, unidade: null, observacao: null, status: "planejado" };
           pontos.push(pt);
           selectedPontoId = pt.id;
-          const panel = el.closest(".anamnese-mapa-panel");
           renderAllPontos();
           if (panel) showPontoDetalhes(panel, pt);
         });
@@ -541,6 +567,9 @@ export async function init() {
         const api = bindMapa3d(el, {
           titulo: "Mapa de aplicação — " + (panel?.dataset.mapa || ""),
           getPrintRoot: () => panel,
+          onVista: (id) => {
+            if (panel) aplicarVista(panel, id);
+          },
         });
         if (panel) panel._mapa3d = api;
       });

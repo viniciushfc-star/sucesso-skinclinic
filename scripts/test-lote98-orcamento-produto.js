@@ -48,7 +48,7 @@ describe("Lote 98 orçamento de produto e proposta", () => {
     assert.match(view, /orcamento-proposta/);
     assert.match(view, /Produto não vira sessão/);
     const spa = readFileSync(join(ROOT, "js/core/spa.js"), "utf8");
-    assert.match(spa, /mapa-clinico-1/);
+    assert.match(spa, /carta-ilustra-1/);
     const svc = readFileSync(join(ROOT, "js/services/orcamentos.service.js"), "utf8");
     assert.match(svc, /created: true/);
   });

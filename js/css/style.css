@@ -2709,16 +2709,25 @@ body:has(.app-wrapper):not(.dark) .cockpit-row{
 .modal-card--mapa-3d{ max-width:min(96vw, 920px); }
 .injetaveis-mapa-modal-content{ max-width:100%; }
 .mapa-3d{ min-width:min(100%, 280px); }
-.mapa-3d-toolbar{ display:flex; flex-wrap:wrap; gap:0.35rem; margin-bottom:0.5rem; }
-.mapa-3d-toolbar .mapa-3d-btn{ padding:0.3rem 0.55rem; font-size:0.8rem; }
+.mapa-3d-toolbar{ display:flex; flex-wrap:wrap; gap:0.35rem; margin-bottom:0.5rem; align-items:center; }
+.mapa-3d-toolbar .mapa-3d-btn{ padding:0.3rem 0.55rem; font-size:0.8rem; width:auto; flex:0 0 auto; margin:0; }
+.mapa-3d-vistas{ display:flex; flex-wrap:wrap; gap:0.25rem; width:100%; }
+.mapa-3d-btn.mapa-3d-vista.is-active{
+  background: var(--sc-teal, #0f5c62);
+  color:#fff;
+  border-color: transparent;
+}
+.mapa-3d-hint{ font-size:0.75rem; color:#64748b; margin-left:auto; }
 .mapa-3d-viewport{
-  perspective: 900px;
+  perspective: 1200px;
   overflow: hidden;
   border-radius: 10px;
   background: radial-gradient(ellipse at 40% 30%, #fff 0%, var(--sc-paper, #fffdf8) 55%, #e8efe8 100%);
   border: 1px solid #d9e4e2;
-  min-height: 280px;
+  min-height: 340px;
+  cursor: grab;
 }
+.mapa-3d-viewport.is-dragging{ cursor: grabbing; }
 .mapa-3d-scene{
   transform-style: preserve-3d;
   transition: transform 0.18s ease;

@@ -45,5 +45,10 @@ describe("Lote 78 mapa 3D e impressão 2D", () => {
     assert.match(util, /matchMedia\("print"\)/);
     assert.match(util, /mapa-print-sheet/);
     assert.doesNotMatch(util, /from ["']three/);
+    assert.match(util, /data-mapa3d-vista/);
+    assert.match(util, /pointerdown/);
+    assert.match(util, /Arraste para girar/);
+    assert.match(ana, /onVista/);
+    assert.match(ana, /vistaDoPonto/);
   });
 });

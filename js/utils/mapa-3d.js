@@ -5,8 +5,8 @@
 
 export const MAPA_3D_SCALE_MIN = 1;
 export const MAPA_3D_SCALE_MAX = 3.6;
-export const MAPA_3D_ROT_Y_MAX = 32;
-export const MAPA_3D_ROT_X_MAX = 16;
+export const MAPA_3D_ROT_Y_MAX = 48;
+export const MAPA_3D_ROT_X_MAX = 22;
 
 export function clamp(n, min, max) {
   const v = Number(n);
@@ -45,15 +45,23 @@ export function cssTransformMapa2dImpressao() {
   };
 }
 
-export function htmlToolbarMapa3d({ imprimir = true } = {}) {
+export function htmlToolbarMapa3d({ imprimir = true, vistas = [] } = {}) {
+  const chips = (vistas || [])
+    .map(
+      (v, i) =>
+        `<button type="button" class="btn-secondary mapa-3d-btn mapa-3d-vista${i === 0 ? " is-active" : ""}" data-mapa3d-vista="${v.id}" aria-pressed="${i === 0 ? "true" : "false"}">${v.label}</button>`
+    )
+    .join("");
   return `<div class="mapa-3d-toolbar" role="toolbar" aria-label="Ampliar e girar o mapa">
+    ${chips ? `<div class="mapa-3d-vistas" role="group" aria-label="Vista da carta">${chips}</div>` : ""}
     <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="zoom-in" title="Ampliar o local">+</button>
     <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="zoom-out" title="Reduzir">−</button>
     <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="rot-left" title="Girar">Girar E</button>
     <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="rot-right" title="Girar">Girar D</button>
     <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="tilt" title="Inclinar">Inclinar</button>
-    <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="reset" title="Frente, sem zoom">Frente</button>
+    <button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="reset" title="Vista inicial, sem zoom">Resetar</button>
     ${imprimir ? `<button type="button" class="btn-secondary mapa-3d-btn" data-mapa3d="print" title="Achata em 2D e envia à impressão">Imprimir 2D</button>` : ""}
+    <span class="mapa-3d-hint">Arraste para girar</span>
   </div>`;
 }
 
@@ -75,8 +83,16 @@ export function bindMapa3d(root, opts = {}) {
   const viewport = root.querySelector(".mapa-3d-viewport");
   if (!scene || !viewport) return null;
   root._mapa3dBound = true;
-  const state = { rotX: 6, rotY: -14, scale: 1, ox: 50, oy: 50, print: false };
+  const state = { rotX: 8, rotY: -12, scale: 1, ox: 50, oy: 50, print: false };
   aplicar(scene, state);
+
+  function markVista(id) {
+    root.querySelectorAll("[data-mapa3d-vista]").forEach((b) => {
+      const on = b.getAttribute("data-mapa3d-vista") === id;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-pressed", String(on));
+    });
+  }
 
   function act(cmd) {
     if (cmd === "zoom-in") state.scale = clamp(state.scale + 0.35, MAPA_3D_SCALE_MIN, MAPA_3D_SCALE_MAX);
@@ -90,8 +106,8 @@ export function bindMapa3d(root, opts = {}) {
     else if (cmd === "rot-right") state.rotY = clamp(state.rotY + 10, -MAPA_3D_ROT_Y_MAX, MAPA_3D_ROT_Y_MAX);
     else if (cmd === "tilt") state.rotX = state.rotX >= 8 ? 2 : 12;
     else if (cmd === "reset") {
-      state.rotX = 6;
-      state.rotY = -14;
+      state.rotX = 8;
+      state.rotY = -12;
       state.scale = 1;
       state.ox = 50;
       state.oy = 50;
@@ -112,6 +128,50 @@ export function bindMapa3d(root, opts = {}) {
       act(btn.getAttribute("data-mapa3d"));
     });
   });
+
+  root.querySelectorAll("[data-mapa3d-vista]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute("data-mapa3d-vista");
+      markVista(id);
+      if (typeof opts.onVista === "function") opts.onVista(id);
+    });
+  });
+
+  let drag = null;
+  viewport.style.touchAction = "none";
+  viewport.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    drag = { x: e.clientX, y: e.clientY, moved: false };
+    root.dataset.mapa3dDrag = "0";
+    viewport.classList.add("is-dragging");
+    scene.style.transition = "none";
+    viewport.setPointerCapture?.(e.pointerId);
+  });
+  viewport.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    state.rotY = clamp(state.rotY + dx * 0.35, -MAPA_3D_ROT_Y_MAX, MAPA_3D_ROT_Y_MAX);
+    state.rotX = clamp(state.rotX - dy * 0.22, -MAPA_3D_ROT_X_MAX, MAPA_3D_ROT_X_MAX);
+    aplicar(scene, state);
+  });
+  const endDrag = (e) => {
+    if (!drag) return;
+    if (drag.moved) root.dataset.mapa3dDrag = "1";
+    drag = null;
+    viewport.classList.remove("is-dragging");
+    scene.style.transition = "";
+    try {
+      viewport.releasePointerCapture?.(e.pointerId);
+    } catch (_) {}
+  };
+  viewport.addEventListener("pointerup", endDrag);
+  viewport.addEventListener("pointercancel", endDrag);
 
   viewport.addEventListener(
     "wheel",

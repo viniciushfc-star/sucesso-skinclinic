@@ -597,7 +597,7 @@ async function initMenuAnamneseVisibility() {
 let navGen = 0;
 
 async function importViewFile(file) {
-  const href = `../views/${file}?v=mapa-clinico-1`;
+  const href = `../views/${file}?v=carta-ilustra-1`;
   try {
     return await import(href);
   } catch (err) {

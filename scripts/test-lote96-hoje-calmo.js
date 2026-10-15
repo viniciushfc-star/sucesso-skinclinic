@@ -36,6 +36,6 @@ describe("Lote 96 Hoje calmo", () => {
     const css = readFileSync(join(ROOT, "js/css/style.css"), "utf8");
     assert.match(css, /cockpit-dia-calmo \.cockpit-more/);
     const spa = readFileSync(join(ROOT, "js/core/spa.js"), "utf8");
-    assert.match(spa, /mapa-clinico-1/);
+    assert.match(spa, /carta-ilustra-1/);
   });
 });
