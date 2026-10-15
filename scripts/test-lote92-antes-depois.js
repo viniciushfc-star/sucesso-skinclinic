@@ -50,6 +50,6 @@ describe("Lote 92 antes/depois na ficha", () => {
     assert.match(view, /Sem post automático/);
     assert.doesNotMatch(view, /view-atendimentos|#atendimentos/);
     const spa = readFileSync(join(ROOT, "js/core/spa.js"), "utf8");
-    assert.match(spa, /produto-posse-1/);
+    assert.match(spa, /mapa-clinico-1/);
   });
 });

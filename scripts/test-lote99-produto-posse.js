@@ -42,6 +42,6 @@ describe("Lote 99 clínica vs representação", () => {
     const sql = src("supabase/supabase-produto-posse-colar.sql");
     assert.match(sql, /posse/);
     assert.doesNotMatch(sql, /DROP TABLE/i);
-    assert.match(src("js/core/spa.js"), /produto-posse-1/);
+    assert.match(src("js/core/spa.js"), /mapa-clinico-1/);
   });
 });

@@ -26,7 +26,7 @@ describe("Lote 94 UX da Gestão", () => {
     assert.match(trecho, /<details id="estoquePortfolioSqlHint"/);
     assert.doesNotMatch(trecho, /<p id="estoquePortfolioSqlHint"/);
     assert.match(src("js/views/estoque.views.js"), /bindGestaoAbas/);
-    assert.match(src("js/core/spa.js"), /produto-posse-1/);
+    assert.match(src("js/core/spa.js"), /mapa-clinico-1/);
     assert.match(src("js/css/style.css"), /gestao-abas-tab/);
     assert.match(src("js/css/style.css"), /width:auto/);
   });
